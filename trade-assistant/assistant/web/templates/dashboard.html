@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trade Assistant</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= sidebar (1a shell) ================= -->
+  <aside class="sidebar">
+    <div class="logo">
+      <b>TRADE ASSISTANT</b><span>RESEARCH · v2</span>
+    </div>
+    <nav class="nav" aria-label="Main">
+      <button data-view="today"     aria-current="page">Today     <span class="badge" id="nb-today"></span></button>
+      <button data-view="watchlist">Watchlist <span class="badge" id="nb-watch"></span></button>
+      <button data-view="ideas">    Ideas     <span class="badge" id="nb-ideas"></span></button>
+      <button data-view="journal">  Journal   <span class="badge" id="nb-journal"></span></button>
+    </nav>
+
+    <div class="side-foot">
+      <div id="modePlate"></div>
+      <div>
+        <div class="label" style="margin-bottom:8px">Data providers</div>
+        <div id="providerList"></div>
+      </div>
+      <button class="btn btn-sm" id="themeBtn" style="width:100%">Light mode</button>
+    </div>
+  </aside>
+
+  <!-- ================= main ================= -->
+  <div class="main">
+    <header class="head">
+      <div>
+        <h1 id="viewTitle">Today</h1>
+        <div class="meta" id="viewMeta"></div>
+      </div>
+      <div class="tools">
+        <label class="sr-only" for="tickerInput">Ticker or company name</label>
+        <input id="tickerInput" placeholder="Ticker or company" size="16">
+        <button class="btn" id="analyzeBtn">Analyze</button>
+        <button class="btn btn-primary marks" id="scanBtn">Run scan<i class="mk"></i></button>
+      </div>
+    </header>
+
+    <main class="body" id="viewRoot" role="main" aria-live="polite"></main>
+
+    <footer class="foot">
+      <div>{{ disclaimer }} <a href="#" id="legalLink">Full notice</a></div>
+      <div>Local only · 127.0.0.1:5002</div>
+    </footer>
+
+    <nav class="mobile-tabs" aria-label="Main">
+      <button data-view="today" aria-current="page">Today</button>
+      <button data-view="watchlist">List</button>
+      <button data-view="ideas">Ideas</button>
+      <button data-view="journal">Journal</button>
+    </nav>
+  </div>
+</div>
+
+<div id="modalRoot"></div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

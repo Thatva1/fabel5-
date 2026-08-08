@@ -1,0 +1,38 @@
+# Secrets — never commit. .env.example is the template that IS committed.
+.env
+*.env
+!.env.example
+
+# Virtual environment (237 MB; rebuild from requirements.txt instead)
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local data: the journal is your own trade history, not source.
+data/journal.db
+data/symbols_us.json
+*.db
+*.db-journal
+*.db-wal
+
+# Mutable app state written by the dashboard (watchlist, execution toggle).
+# config.yaml IS committed — it is hand-edited documentation of your risk rules.
+state.yaml
+
+# Backtest output — large, regenerable
+**/reports/*.csv
+
+# The v1 archive contains a copy of trade-assistant/.env, so it carries a live
+# API key. Never commit it. See AUDIT-2026-08-08.md finding S-2.
+trade-research-assistant-v1-archive.zip
+
+# Logs and scratch
+*.log
+
+# macOS
+.DS_Store

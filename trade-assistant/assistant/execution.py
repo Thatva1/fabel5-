@@ -1,0 +1,297 @@
+"""Execution service (Layer 2) — the ONLY path from a researched idea to a live
+order, and it is deliberately narrow.
+
+Every order must pass all of these, in order:
+
+  1. execution.enabled is true in config.yaml           (off by default)
+  2. The idea exists and YOU marked it decision='approved' in the dashboard
+  3. The idea produced a real trade plan (entry/stop/size)
+  4. The idea's risk gate verdict was not 'rejected'
+  5. Preparing a ticket re-runs the deterministic risk math against the CURRENT
+     portfolio — stale or newly-breaching ideas are refused here
+  6. Confirming requires typing the ticker symbol exactly, and the ticket must
+     still be pending (single-use)
+
+Nothing in the research pipeline calls into this module. The scanner cannot
+reach it, the LLM cannot reach it: orders originate only from an explicit
+human click plus a typed confirmation.
+"""
+from datetime import datetime, timezone
+
+from . import journal
+from .core.models import OrderIntent
+from .risk import gate
+
+TICKET_MAX_AGE_SECONDS = 900   # 15 minutes; stale tickets must be re-prepared
+MAX_ENTRY_DRIFT_PCT = 2.0      # refuse if price has moved this far from the plan
+
+
+class ExecutionRefused(Exception):
+    """A safety precondition failed. The message is shown verbatim to the user."""
+
+
+def execution_status(config):
+    """Dashboard status for the execution layer. Never raises.
+
+    `mode` is explicit — 'paper' | 'live' | 'unverified' — so the UI never has
+    to infer it (inferring it from a port number is the exact bug that once
+    labelled a live account "PAPER"). Anything not positively confirmed as
+    paper is reported as live/unverified: fail closed, never fail open.
+    """
+    exec_cfg = config.get("execution", {})
+    if not exec_cfg.get("enabled"):
+        return {"enabled": False, "connected": False, "mode": "off",
+                "account_id": None, "accounts": [],
+                "note": "Research only. No orders can be placed."}
+    try:
+        from .broker.ibkr import IBKRBroker
+        broker = IBKRBroker(config)
+        ping = broker.ping()
+        accounts = ping.get("accounts") or []
+        account_id = exec_cfg.get("account") or (accounts[0] if len(accounts) == 1 else None)
+        mode = "paper" if ping["paper"] else "live"
+        if mode == "paper":
+            note = "IBKR connected (PAPER) — orders still need your per-order confirmation"
+        else:
+            note = (f"IBKR connected to a LIVE account ({', '.join(accounts) or 'unknown'}). "
+                    "Paper account ids start with 'DU' — log into the Paper Trading side "
+                    "of IB Gateway if you did not intend to trade real money.")
+        return {"enabled": True, "connected": True, "paper": ping["paper"],
+                "mode": mode, "account_id": account_id, "accounts": accounts, "note": note}
+    except Exception as exc:
+        # Connected-ness unknown => treat as unverified, which the UI renders
+        # with live-money severity. Never present this as paper.
+        return {"enabled": True, "connected": False, "paper": False,
+                "mode": "unverified", "account_id": exec_cfg.get("account") or None,
+                "accounts": [],
+                "note": f"Order entry is ON but the broker is unreachable, so the account "
+                        f"mode cannot be verified — nothing is treated as paper. ({exc})"}
+
+
+def _ticket_age_seconds(ticket):
+    """Seconds since the ticket was prepared, or None if unparseable."""
+    try:
+        created = datetime.fromisoformat(ticket["created_at"])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - created).total_seconds()
+    except (ValueError, TypeError, KeyError):
+        return None
+
+
+def _load_approved_idea(idea_id):
+    idea = journal.get_idea(idea_id)
+    if idea is None:
+        raise ExecutionRefused(f"Idea #{idea_id} does not exist.")
+    if idea["decision"] != "approved":
+        raise ExecutionRefused(
+            f"Idea #{idea_id} is '{idea['decision']}', not 'approved'. "
+            "Approve it in the dashboard first — that is the human approval step.")
+    payload = idea.get("payload") or {}
+    plan = payload.get("plan")
+    if not plan:
+        raise ExecutionRefused(f"Idea #{idea_id} has no trade plan, so there is nothing to place.")
+    if (payload.get("gate") or {}).get("verdict") == "rejected":
+        raise ExecutionRefused(
+            f"Idea #{idea_id} was rejected by the risk gate; it cannot be executed.")
+    return idea, plan, payload
+
+
+def prepare_ticket(idea_id, config, router):
+    """Step 1 of 2. Re-validates risk against the CURRENT portfolio and returns
+    a ticket for human review. Places nothing."""
+    if not config.get("execution", {}).get("enabled"):
+        raise ExecutionRefused(
+            "Execution is disabled in config.yaml (execution.enabled: false). "
+            "This build is research-only until you turn it on deliberately.")
+
+    idea, plan, payload = _load_approved_idea(idea_id)
+
+    from .broker.factory import get_execution_broker
+    broker = get_execution_broker(config)          # raises if Gateway is unreachable
+    account = broker.get_account()
+    positions = broker.get_positions()
+
+    base_ccy = account.get("base_currency", config.get("base_currency", "USD"))
+    portfolio_value = account.get("portfolio_value") or config["account"]["portfolio_value"]
+    currencies = {base_ccy, plan.get("currency", base_ccy)} | {
+        p.get("currency", base_ccy) for p in positions}
+    fx_rates = router.get_fx_rates(currencies, base_ccy)
+
+    # Re-run the same deterministic gate against live portfolio state. An idea
+    # that was fine yesterday may breach exposure caps today.
+    recheck_config = {
+        **config,
+        "base_currency": base_ccy,
+        "account": {**config["account"], "portfolio_value": portfolio_value},
+        "positions": positions,
+    }
+    snapshot = payload.get("snapshot") or {"ticker": idea["ticker"]}
+    recheck = gate.evaluate(snapshot, payload.get("thesis") or {}, plan,
+                            recheck_config, fx_rates)
+    if recheck["verdict"] == "rejected":
+        raise ExecutionRefused(
+            "Risk re-check against your CURRENT portfolio rejects this order: "
+            + "; ".join(recheck["hard_failures"]))
+
+    # The plan's entry/stop were computed from the quote at analysis time. Check
+    # the CURRENT price before offering a ticket: if the market has moved past
+    # the plan, the levels (and the max-loss figure) are no longer meaningful.
+    current_price = _current_price(router, idea["ticker"])
+    drift_pct = None
+    if current_price:
+        drift_pct = (current_price / plan["entry"] - 1) * 100
+        if abs(drift_pct) > MAX_ENTRY_DRIFT_PCT:
+            raise ExecutionRefused(
+                f"{idea['ticker']} now trades at {current_price:.2f}, "
+                f"{drift_pct:+.1f}% away from the planned entry {plan['entry']:.2f} "
+                f"(limit {MAX_ENTRY_DRIFT_PCT}%). The plan's stop and position size were "
+                "sized for the old price — re-run the analysis to get a current plan.")
+        if not _stop_still_valid(plan, current_price):
+            raise ExecutionRefused(
+                f"{idea['ticker']} at {current_price:.2f} has already passed the planned "
+                f"stop {plan['stop']:.2f} — this setup is invalidated, not tradable.")
+
+    stop_price = plan.get("stop")
+    if not stop_price:
+        raise ExecutionRefused(
+            "This plan has no stop level, so no protective stop could be attached. "
+            "Unprotected orders are not supported.")
+
+    side = "buy" if plan["direction"] == "long" else "sell"
+    ticket_id = journal.create_order_ticket(
+        idea_id=idea_id, side=side, ticker=idea["ticker"], quantity=plan["shares"],
+        limit_price=plan["entry"], stop_price=stop_price,
+        currency=plan.get("currency", base_ccy), max_loss=plan.get("risk_amount"))
+
+    return {
+        "ticket_id": ticket_id,
+        "idea_id": idea_id,
+        "ticker": idea["ticker"],
+        "side": side,
+        "quantity": plan["shares"],
+        "limit_price": plan["entry"],
+        "stop_price": stop_price,
+        "current_price": current_price,
+        "price_drift_pct": round(drift_pct, 2) if drift_pct is not None else None,
+        "currency": plan.get("currency", base_ccy),
+        "target_reference": plan.get("target"),
+        "max_loss": plan.get("risk_amount"),
+        # Default False: anything we cannot positively confirm as paper is
+        # presented as live money.
+        "paper": bool(account.get("paper", getattr(broker, "is_paper", False))),
+        "account_source": account.get("source", "config.yaml"),
+        "recheck_verdict": recheck["verdict"],
+        "recheck_flags": recheck["soft_flags"],
+        "confirm_instructions": (
+            f"To place this order, type {idea['ticker']} exactly to confirm. This sends a "
+            f"LIMIT entry at {plan['entry']} with an ATTACHED protective STOP at {stop_price} "
+            "(a bracket), so the stop is live at the broker as soon as the entry fills."),
+    }
+
+
+def _current_price(router, ticker):
+    """Latest close for a staleness check. None if data is unavailable —
+    the caller then proceeds on the plan's own levels."""
+    try:
+        df = router.get_prices(ticker, period="5d")
+        return float(df["Close"].iloc[-1])
+    except Exception:
+        return None
+
+
+def _stop_still_valid(plan, current_price):
+    if plan["direction"] == "long":
+        return current_price > plan["stop"]
+    return current_price < plan["stop"]
+
+
+def confirm_ticket(ticket_id, typed_confirmation, config):
+    """Step 2 of 2. Places the order only if the human typed the ticker exactly."""
+    if not config.get("execution", {}).get("enabled"):
+        raise ExecutionRefused("Execution is disabled in config.yaml.")
+
+    ticket = journal.get_order(ticket_id)
+    if ticket is None:
+        raise ExecutionRefused(f"Order ticket #{ticket_id} does not exist.")
+    if ticket["status"] != "pending_confirmation":
+        raise ExecutionRefused(
+            f"Ticket #{ticket_id} is already '{ticket['status']}' — tickets are single-use. "
+            "Prepare a new one if you still want this trade.")
+    age = _ticket_age_seconds(ticket)
+    if age is not None and age > TICKET_MAX_AGE_SECONDS:
+        journal.update_order(ticket_id, "cancelled",
+                             detail=f"expired after {int(age)}s without confirmation")
+        raise ExecutionRefused(
+            f"Ticket #{ticket_id} expired ({int(age / 60)} minutes old) — its limit price is "
+            "based on a stale quote. Prepare a new ticket; it re-checks the current price "
+            "against the plan and refuses if the market has moved away from it.")
+
+    if (typed_confirmation or "").strip().upper() != ticket["ticker"].upper():
+        raise ExecutionRefused(
+            f"Confirmation text did not match. Type '{ticket['ticker']}' exactly to place this order.")
+
+    # Re-verify the idea is still human-approved at the moment of placement.
+    _load_approved_idea(ticket["idea_id"])
+
+    # Atomically claim the ticket BEFORE contacting the broker. The status read
+    # above is not enough: two concurrent confirms can both pass it. Only the
+    # caller that wins this database transition may place an order.
+    if not journal.claim_order_for_submission(ticket_id):
+        raise ExecutionRefused(
+            f"Ticket #{ticket_id} is already being submitted (or was already used). "
+            "No second order was sent.")
+
+    try:
+        from .broker.factory import get_execution_broker
+        broker = get_execution_broker(config)
+    except Exception as exc:
+        journal.release_order_claim(ticket_id)   # broker never contacted; ticket reusable
+        raise ExecutionRefused(f"Order was NOT placed — broker unavailable: {exc}")
+
+    intent = OrderIntent(
+        ticker=ticket["ticker"], side=ticket["side"], quantity=int(ticket["quantity"]),
+        order_type="limit", limit_price=float(ticket["limit_price"]),
+        stop_price=float(ticket["stop_price"]) if ticket.get("stop_price") else None,
+        currency=ticket["currency"], idea_id=ticket["idea_id"],
+        note=f"From idea #{ticket['idea_id']}, human-confirmed ticket #{ticket_id}")
+
+    try:
+        result = broker.place_order(intent)
+    except Exception as exc:
+        # Claim stays consumed: we cannot know whether IB received the order, so
+        # never re-open the ticket for another automatic attempt.
+        journal.update_order(ticket_id, "error", detail=f"{type(exc).__name__}: {exc}")
+        raise ExecutionRefused(f"Order was NOT placed: {exc}")
+
+    status = _map_broker_status(result.get("status"))
+    journal.update_order(ticket_id, status,
+                         ib_order_id=result.get("ib_order_id"), detail=result.get("detail"))
+    return {"ticket_id": ticket_id, "recorded_status": status, **result}
+
+
+# IBKR order states -> our journal states. Anything unrecognised is recorded as
+# 'submitting' (unknown, needs your eyes in TWS) rather than claimed as accepted.
+_IB_STATUS_MAP = {
+    "PendingSubmit": "submitting", "PreSubmitted": "submitting", "ApiPending": "submitting",
+    "Submitted": "accepted", "PendingCancel": "accepted",
+    "Filled": "filled",
+    "Cancelled": "cancelled", "ApiCancelled": "cancelled",
+    "Inactive": "rejected",
+}
+
+
+def _map_broker_status(ib_status):
+    if not ib_status:
+        return "submitting"
+    return _IB_STATUS_MAP.get(str(ib_status), "submitting")
+
+
+def cancel_ticket(ticket_id):
+    ticket = journal.get_order(ticket_id)
+    if ticket is None:
+        raise ExecutionRefused(f"Order ticket #{ticket_id} does not exist.")
+    if ticket["status"] != "pending_confirmation":
+        raise ExecutionRefused(f"Ticket #{ticket_id} is '{ticket['status']}' and cannot be cancelled.")
+    journal.update_order(ticket_id, "cancelled", detail="cancelled by user before submission")
+    return {"ticket_id": ticket_id, "status": "cancelled"}

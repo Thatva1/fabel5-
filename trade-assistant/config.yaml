@@ -1,0 +1,276 @@
+# Trade Assistant configuration. Risk rules are only ever changed by you.
+base_currency: GBP          # all risk, exposure and max-loss figures shown in pounds
+
+# Macro regions pulled on every scan, in priority order. UK and euro area come
+# from the Bank of England and ECB directly; US from FRED; anything else from
+# the World Bank. See macro_indicators.yaml for the full indicator taxonomy.
+# Add or remove ISO-2 codes freely — 27 are supported. Each adds ~1s to a scan.
+# Supported: GB EU DE FR IT ES NL IE CH SE NO DK PL US CA MX BR
+#            JP CN IN KR HK SG AU NZ ZA TR
+macro_regions: [GB, EU, DE, FR, CH, US, JP, CN, CA, AU]
+
+# Exchanges included in the searchable symbol universe.
+#   US = United States · L = London · DE/F = Germany · PA = Paris
+#   AS = Amsterdam · MI = Milan · SW = Switzerland · TO = Toronto
+exchanges: [US, L, DE, PA, AS]
+
+# Search ranking: Yahoo exchange codes, home markets first. This is why
+# "tesco" returns TSCO.L (London) rather than a Frankfurt cross-listing.
+#   LSE=London · AMS=Amsterdam · PAR=Paris · GER=Xetra · SWX=Swiss
+#   MIL=Milan · NMS=Nasdaq · NYQ=NYSE
+# These are Yahoo's own exchange codes (verified against live results — note
+# Swiss is EBS not SWX, and Tokyo is JPX):
+#   Europe: LSE=London AMS=Amsterdam PAR=Paris GER=Xetra EBS=Swiss MIL=Milan
+#           MCE=Madrid STO=Stockholm CPH=Copenhagen OSL=Oslo BRU=Brussels
+#           ISE=Dublin IOB=London intl. order book
+#   Americas: NMS=Nasdaq NYQ=NYSE TOR=Toronto SAO=São Paulo
+#   Asia-Pacific: JPX=Tokyo HKG=Hong Kong SES=Singapore ASX=Sydney
+#                 NSI=India NSE BSE=Bombay KSC=Korea TAI=Taiwan
+# Order matters — earlier entries win ties. Put your real markets at the top.
+preferred_exchanges:
+  [LSE, IOB, AMS, PAR, GER, EBS, MIL, MCE, ISE, STO, CPH, OSL, BRU,
+   NMS, NYQ, TOR,
+   JPX, HKG, SES, ASX, NSI, BSE, KSC, TAI]
+account:
+  portfolio_value: 100000
+  risk_per_trade_pct: 1.0
+  max_position_pct: 15.0
+  max_total_exposure_pct: 60.0
+  max_sector_exposure_pct: 25.0
+  max_open_positions: 8
+  correlation_flag_threshold: 0.75
+positions:
+- ticker: MSFT
+  shares: 25
+  entry_price: 410.0
+  sector: Technology
+  currency: USD
+watchlist:
+- AAPL
+- MSFT
+- NVDA
+- AMD
+- TSLA
+- AMZN
+- GOOGL
+- META
+- JPM
+- BAC
+- V
+- XOM
+- CVX
+- UNH
+- LLY
+- JNJ
+- WMT
+- COST
+- HD
+- MCD
+- CAT
+- BA
+- UPS
+- KO
+- PG
+- DIS
+- NFLX
+scanner:
+  volume_spike_ratio: 1.6
+  rsi_overbought: 70
+  rsi_oversold: 30
+  breakout_lookback_days: 20
+  min_history_days: 60
+  gap_pct: 2.0
+  # Index used for relative strength ("is this beating the market?").
+  # ^FTSE = FTSE 100. Others: ^GSPC S&P 500 · ^GDAXI DAX · ^STOXX50E Euro Stoxx 50.
+  # Leave blank to switch relative strength off.
+  benchmark: ^FTSE
+  relative_strength_days: 63     # about three months of trading
+  adx_period: 14
+  bollinger_period: 20
+  bollinger_std: 2.0
+  squeeze_lookback_days: 120
+
+# --- Market regime -----------------------------------------------------------
+# Before any strategy runs, each ticker is labelled with the KIND of market it
+# is in, and only the strategies that suit that market are allowed to look at
+# it. Momentum says "buy strength", mean-reversion says "sell strength" — both
+# are right, in different conditions, so they must never run blind together.
+regime:
+  adx_trend_min: 25.0            # ADX above this = a trend with real strength
+  adx_chop_max: 20.0             # below this = definitively choppy
+  squeeze_width_rank_max: 15.0   # band width in its bottom 15% = a squeeze
+  squeeze_lookback_days: 120     # window the squeeze is measured against
+  ma_slope_min_pct: 0.0          # the 200-day average must be turning the right way
+  squeeze_overrides_trend: true  # a squeeze inside a trend is still a squeeze
+
+# --- Strategies --------------------------------------------------------------
+# Every strategy can be switched off with `enabled: false`, retuned by setting
+# any of its own settings, or moved to different market conditions with
+# `regimes:`. Deleting a block just restores that strategy's defaults.
+strategies:
+  momentum:
+    enabled: true
+    regimes: [TRENDING_UP, TRENDING_DOWN]
+    min_volume_ratio: 1.2        # breakout volume vs the 20-day average
+    rsi_max_long: 80.0           # don't buy something already this overbought
+    rsi_min_short: 20.0
+    max_extension_atr: 1.0       # don't chase more than 1 ATR past the level
+    stop_buffer_atr: 0.35
+    max_stop_atr: 1.5
+    reward_multiple: 2.5
+    # Set to 0 to demand the name beats its index; null = prefer, don't require.
+    min_relative_strength_pct: null
+  mean_reversion:
+    enabled: true
+    regimes: [SIDEWAYS]          # deliberately NOT run inside a strong trend
+    # Which sides this strategy may take. The 10-year UK backtest found longs
+    # net +£4,074 and shorts net -£5,616 for this rule set — see
+    # reports/STRATEGY-REVIEW.md. Left at both by default: that result comes
+    # from a decade with a rising market underneath it, so restricting to longs
+    # is partly fitting to that decade. Set `directions: [long]` if you accept
+    # that trade-off knowingly.
+    directions: [long, short]
+    rsi_overbought: 70.0
+    rsi_oversold: 30.0
+    min_stretch_atr: 1.0
+    stop_buffer_atr: 0.5
+    max_stop_atr: 2.0
+    min_reward_risk: 1.2
+  range_trading:
+    enabled: true
+    regimes: [SIDEWAYS]
+    lookback_days: 60
+    min_touches: 2               # each edge must have held at least twice
+    touch_tolerance_pct: 1.5
+    min_band_atr: 3.0
+    max_band_atr: 12.0
+    entry_zone_pct: 25.0
+    stop_buffer_atr: 0.5
+    target_buffer_pct: 15.0
+    min_reward_risk: 1.5
+  squeeze:
+    enabled: true
+    regimes: [VOLATILITY_SQUEEZE]
+    min_volume_ratio: 1.3
+    handoff_to_momentum: true    # once it breaks, Momentum's filters decide
+
+# --- Backtesting -------------------------------------------------------------
+# Replays the strategies over history so you can see whether a rule set has an
+# edge without waiting months. Assumptions are deliberately pessimistic: a
+# backtest that flatters itself is worse than none at all.
+backtest:
+  warmup_bars: 260            # no signals until the 200-day average is real
+  history_window_bars: 400    # lookback per bar; every indicator fits inside this
+  max_holding_bars: 40        # abandon a trade that goes nowhere (~2 months)
+  # next_open  = enter at the open AFTER the signal (honest — you only knew at the close)
+  # signal_close = enter at the signal bar's close (optimistic; for comparison only)
+  entry_timing: next_open
+  one_position_per_ticker: true
+  costs:
+    commission_per_trade: 6.0   # per side, your broker's flat fee
+    slippage_bps: 5.0           # 0.05% against you on entry AND exit
+    stamp_duty_pct: 0.5         # UK stamp duty, charged on purchases only
+    stamp_duty_suffixes: ['.L']  # exchanges where that duty applies
+    # Costs are NOT the same everywhere. UK shares carry 0.5% stamp duty and a
+    # higher flat fee; US shares carry neither. Applying one market's structure
+    # globally is how a UK tax gets mistaken for a flaw in a strategy.
+    # Keyed by ticker suffix; '' means no suffix (US listings).
+    per_market:
+      '':     {commission_per_trade: 1.0}    # US — IBKR is about $1
+      '.L':   {commission_per_trade: 6.0}    # London
+      '.DE':  {commission_per_trade: 4.0}    # Xetra
+      '.PA':  {commission_per_trade: 4.0}    # Paris
+      '.AS':  {commission_per_trade: 4.0}    # Amsterdam
+      '.SW':  {commission_per_trade: 10.0}   # Switzerland
+      '.MI':  {commission_per_trade: 4.0}    # Milan
+      '.T':   {commission_per_trade: 5.0}    # Tokyo
+      '.HK':  {commission_per_trade: 5.0}    # Hong Kong
+      '.AX':  {commission_per_trade: 6.0}    # Sydney
+      '.TO':  {commission_per_trade: 1.0}    # Toronto
+
+# --- Portfolio limits (backtest) ---------------------------------------------
+# Without these the backtest sizes every instrument against the whole book, so
+# running 90 instruments quietly holds ~14 positions at once — about 2x leverage
+# the live risk gate would refuse. Leverage should be a decision, not an accident.
+portfolio:
+  compound: true                  # position size scales with CURRENT equity
+  # Measured, not guessed. The 10-market sweep: returns rise all the way to
+  # 100% exposure but drawdown rises faster, so risk-adjusted return (Calmar)
+  # peaks at 90%. Going 90 -> 100 buys 0.11 points of CAGR for 3 points of
+  # drawdown, which is a bad trade at any risk appetite.
+  #   50%: 3.76% CAGR / 15.9% DD   80%:  6.51% / 21.0%
+  #   60%: 4.55% / 17.5%           90%:  7.44% / 22.7%  <- best Calmar 0.33
+  #   70%: 5.04% / 18.3%          100%:  7.55% / 25.8%     Calmar 0.29
+  max_gross_exposure_pct: 90.0
+  max_open_positions: 12
+  # 8, measured. A cap of 4 cost 0.66 points of CAGR by blocking good trades;
+  # 2 was far worse (2.87%). Above 8 adds nothing. Correlation is the better
+  # tool for this job anyway — it measures whether positions actually move
+  # together instead of guessing from the exchange they list on.
+  max_positions_per_market: 8
+  max_new_entries_per_day: null   # null = unlimited
+  # Tested at 0.8 and it COST return (7.44% -> 6.63%) while drawdown got
+  # slightly worse. Left off until there is evidence for it.
+  correlation_threshold: null
+  correlation_lookback: 60
+
+# --- Market-wide trend filter ------------------------------------------------
+# Separate from the per-ticker regime classifier: this asks "should I be buying
+# ANYTHING right now", gated on each region's own index. Buying dips while the
+# whole market falls is what lost money in 2018 and 2020.
+market_filter:
+  enabled: true
+  ma_period: 200
+  reentry_buffer_pct: 2.0         # must clear the average by this to buy back in
+  risk_off_action: half_size      # half_size | skip — half measured better on both
+  risk_off_size_multiplier: 0.5
+  volatility_percentile_max: 95.0  # a crash can outrun a 200-day average
+  volatility_lookback: 120
+
+# --- Short-selling rules -----------------------------------------------------
+# Extra rules that apply ONLY to shorts, on top of every normal risk check.
+# A long can only lose what you put in; a short cannot be capped that way, so
+# it needs a stop, a borrow check, and tighter limits.
+short_rules:
+  require_stop: true                  # a short without a stop is always refused
+  max_short_position_pct: 8.0         # tighter than the 15% long cap, on purpose
+  max_total_short_exposure_pct: 25.0
+  max_open_shorts: 3
+  crowding_flag_pct: 10.0             # flag when this % of float is already short
+  # Borrow availability can't be confirmed from free data. false = flag it and
+  # let you check with your broker; true = refuse any short you haven't verified.
+  block_if_borrow_unknown: false
+  # Your own verified list, checked before anything else. Add tickers here once
+  # you know from your broker whether they can be shorted.
+  #   shortable_overrides:
+  #     TSCO.L: true
+  #     SMALLCAP.L: false
+  shortable_overrides: {}
+macro_events: []
+ai:
+  enabled: true
+  model: claude-sonnet-5
+providers:
+  cache_ttl_seconds:
+    prices: 600
+    fundamentals: 3600
+    news: 3600
+    earnings: 3600
+    macro: 21600
+    fx: 3600
+  finnhub_max_calls_per_min: 55
+server:
+  port: 5002
+execution:
+  enabled: false
+  host: 127.0.0.1
+  # The only IB port listening on this machine. The port does NOT decide paper
+  # vs live: 7497 is conventionally the paper port, but a live account has been
+  # served on this exact port before. Paper is proven by the account id
+  # starting with DU, and by nothing else.
+  port: 7497
+  client_id: 42
+  # Pinned to your UK PAPER account. If Gateway is ever logged into a live
+  # account instead, the app refuses to connect rather than quietly reading —
+  # or trading — the wrong one.
+  account: DUR673876

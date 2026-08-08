@@ -1,0 +1,36 @@
+# Global test universe — large caps across 9 markets, spread over sectors.
+# Used by the backtest so results are not an artefact of one country's costs,
+# currency or market character. Lines starting with # are ignored.
+
+# --- United States (no stamp duty, ~$1 commission) ---
+AAPL MSFT NVDA AMD TSLA AMZN GOOGL META JPM BAC V XOM CVX UNH LLY JNJ
+WMT COST HD MCD CAT BA UPS KO PG DIS NFLX
+
+# --- United Kingdom (0.5% stamp duty, ~£6 commission) ---
+HSBA.L BARC.L LLOY.L NWG.L SHEL.L BP.L AZN.L GSK.L ULVR.L DGE.L
+TSCO.L SBRY.L RIO.L GLEN.L AAL.L VOD.L BT-A.L RR.L BA.L PRU.L
+LGEN.L NG.L REL.L
+
+# --- Germany (Xetra) ---
+SAP.DE SIE.DE ALV.DE BAS.DE BMW.DE MBG.DE DTE.DE MUV2.DE BAYN.DE RWE.DE
+
+# --- France (Paris) ---
+MC.PA OR.PA TTE.PA SAN.PA AIR.PA BNP.PA SU.PA CS.PA
+
+# --- Netherlands (Amsterdam) ---
+ASML.AS INGA.AS AD.AS HEIA.AS
+
+# --- Switzerland ---
+NESN.SW ROG.SW NOVN.SW UBSG.SW
+
+# --- Japan (Tokyo) ---
+7203.T 6758.T 9984.T 8306.T 6501.T 9432.T
+
+# --- Hong Kong ---
+0700.HK 0005.HK 0941.HK 1299.HK
+
+# --- Australia ---
+BHP.AX CBA.AX CSL.AX WES.AX
+
+# --- Canada (Toronto) ---
+RY.TO TD.TO ENB.TO CNR.TO

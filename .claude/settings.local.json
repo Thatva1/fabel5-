@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Bash(pip3 --version)",
+      "Bash(python3 -m venv venv)",
+      "Bash(./venv/bin/pip install *)",
+      "Bash(./venv/bin/python -c \"import yfinance, flask, anthropic; print\\('yfinance', yfinance.__version__\\); print\\('flask', flask.__version__\\); print\\('anthropic', anthropic.__version__\\)\")",
+      "Bash(../venv/bin/python run.py analyze NVDA)",
+      "Bash(../venv/bin/python run.py scan)",
+      "Bash(nohup ../venv/bin/python run.py serve 5001)",
+      "Bash(curl -s http://127.0.0.1:5001/api/state)",
+      "Bash(\"/Users/thatvagowda/Desktop/fabel 5/venv/bin/python\" -c \"import json,sys; s=json.load\\(sys.stdin\\); print\\('scanning:', s['scanning']\\); print\\('watchlist rows:', len\\(\\(s['scan'] or {}\\).get\\('watchlist', []\\)\\)\\); print\\('ideas total:', len\\(s['ideas']\\)\\)\")",
+      "Bash(curl -s -X POST http://127.0.0.1:5001/api/ideas/3/decision -H \"Content-Type: application/json\" -d '{\"decision\":\"approved\"}')",
+      "Bash(curl -s -X POST http://127.0.0.1:5001/api/ideas/3/outcome -H \"Content-Type: application/json\" -d '{\"outcome\":\"win\",\"price\":262.5,\"notes\":\"hit target\"}')",
+      "Bash(\"/Users/thatvagowda/Desktop/fabel 5/venv/bin/python\" -c \"import json,sys; s=json.load\\(sys.stdin\\); print\\('stats:', s['stats']\\)\")",
+      "Bash(\"/Users/thatvagowda/Desktop/fabel 5/venv/bin/python\" -c \"import json,sys; s=json.load\\(sys.stdin\\); print\\('scan_error:', s['scan_error']\\); print\\('scan is None:', s['scan'] is None\\)\")",
+      "Bash(curl -s -X POST http://127.0.0.1:5001/api/scan)",
+      "Bash('/Users/thatvagowda/Desktop/fabel 5/venv/bin/python' -c ' *)",
+      "Bash(curl -s -X POST http://127.0.0.1:5001/api/ideas/3/decision -H \"Content-Type: application/json\" -d '{\"decision\":\"pending\"}')",
+      "Bash(curl -s -X POST http://127.0.0.1:5001/api/ideas/3/outcome -H \"Content-Type: application/json\" -d '{\"outcome\":\"open\"}')",
+      "Bash(\"/Users/thatvagowda/Desktop/fabel 5/venv/bin/python\" -c \"import json,sys; print\\('stats reset:', json.load\\(sys.stdin\\)['stats']\\)\")",
+      "Bash(pkill -f \"run.py serve\")",
+      "Bash(../venv/bin/python -c \"import json,sys; s=json.load\\(sys.stdin\\); print\\('config_error:', s.get\\('config_error'\\)\\); print\\('ai_ready:', s.get\\('ai_ready'\\)\\); print\\('watchlist size:', len\\(s.get\\('watchlist_symbols', []\\)\\)\\)\")",
+      "Bash(curl -s -X POST http://127.0.0.1:5001/api/watchlist/add -H \"Content-Type: application/json\" -d '{\"ticker\":\"pltr\"}')",
+      "Bash(curl -s -X POST http://127.0.0.1:5001/api/watchlist/add -H \"Content-Type: application/json\" -d '{\"ticker\":\"ZZZZQQQ9\"}')",
+      "Bash(curl -s -X POST http://127.0.0.1:5001/api/watchlist/remove -H \"Content-Type: application/json\" -d '{\"ticker\":\"PLTR\"}')",
+      "Bash(chmod 600 .env)",
+      "Bash(../venv/bin/python -c \"import json,sys; print\\('ai_ready:', json.load\\(sys.stdin\\)['ai_ready']\\)\")",
+      "Bash(curl -s -X POST http://127.0.0.1:5001/api/analyze/TSLA --max-time 300)",
+      "Bash(../venv/bin/python -c \"import json,sys; s=json.load\\(sys.stdin\\); print\\('server up, ai_ready:', s['ai_ready']\\)\")",
+      "Bash(curl -s -X POST \"http://127.0.0.1:5001/api/analyze/tesla\" --max-time 300)",
+      "Bash(../venv/bin/python -c ' *)",
+      "Bash(curl -s -X POST \"http://127.0.0.1:5001/api/analyze/xqzzblorp\" --max-time 120)",
+      "Bash(curl -s http://127.0.0.1:5001/api/state -o /dev/null -w \"server up: HTTP %{http_code}\\\\n\")",
+      "Bash(\"../venv/bin/python\" -m pytest --collect-only -q)"
+    ]
+  }
+}

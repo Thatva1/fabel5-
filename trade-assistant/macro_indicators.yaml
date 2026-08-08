@@ -1,0 +1,192 @@
+# =============================================================================
+# Macro indicator taxonomy — global, not US-only.
+#
+# This is the full list you specified, mapped to what can actually be fetched.
+# Each entry carries a `status`:
+#
+#   live     — wired up and fetched automatically today
+#   planned  — a free source exists; not yet wired (say the word)
+#   paid     — no free source found; needs a paid feed (Trading Economics,
+#              Econoday, Bloomberg). Listed so nothing is silently dropped.
+#
+# `regions` uses ISO-2 codes. Which regions get pulled on each scan is set by
+# `macro_regions` in config.yaml (default: GB, EU, US — your home market first).
+#
+# Sources in use, all free and keyless unless noted:
+#   BoE       Bank of England IADB       (UK rates, gilts, SONIA)
+#   ECB       ECB Data Portal            (euro-area policy rates, HICP)
+#   WB        World Bank                 (CPI/unemployment/GDP, any country)
+#   FRED      St. Louis Fed  [needs key] (US series, plus many international)
+#   Finnhub   [needs key]                (company news + earnings calendar)
+#   FedCal    federalreserve.gov         (FOMC meeting dates)
+#
+# NOTE ON CALENDARS: historical *series* are widely free. A forward calendar of
+# scheduled release times across all these countries is not — that is the main
+# thing behind a paywall. FOMC dates and US release dates are live; other
+# central banks' calendars are marked paid/planned honestly rather than faked.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# 1. Central Bank & Monetary Policy
+# ---------------------------------------------------------------------------
+central_bank:
+  benchmark_rates:
+    - {name: BOE Bank Rate,              regions: [GB], source: BoE,  series: IUDBEDR, status: live}
+    - {name: ECB Main Refinancing Rate,  regions: [EU], source: ECB,  series: "FM/D.U2.EUR.4F.KR.MRR_FR.LEV", status: live}
+    - {name: ECB Deposit Facility Rate,  regions: [EU], source: ECB,  series: "FM/D.U2.EUR.4F.KR.DFR.LEV", status: live}
+    - {name: Fed Funds Rate,             regions: [US], source: FRED, series: FEDFUNDS, status: live}
+    - {name: SNB Policy Rate,            regions: [CH], source: FRED, series: IRSTCI01CHM156N, status: planned}
+    - {name: BOJ Policy Rate,            regions: [JP], source: FRED, series: IRSTCI01JPM156N, status: planned}
+    - {name: BOC Overnight Rate,         regions: [CA], source: FRED, series: IRSTCI01CAM156N, status: planned}
+    - {name: RBA Cash Rate,              regions: [AU], source: FRED, series: IRSTCI01AUM156N, status: planned}
+    - {name: RBNZ Official Cash Rate,    regions: [NZ], source: FRED, series: IRSTCI01NZM156N, status: planned}
+  reference_rates:
+    - {name: SONIA,                      regions: [GB], source: BoE,  series: IUDSOIA, status: live}
+    - {name: UK 10-year gilt yield,      regions: [GB], source: BoE,  series: IUDMNZC, status: live}
+    - {name: US 10-year Treasury,        regions: [US], source: FRED, series: DGS10, status: live}
+    - {name: US 3-month bill,            regions: [US], source: FRED, series: DTB3,  status: live}
+  meeting_dates:
+    - {name: FOMC meetings,              regions: [US], source: FedCal, status: live}
+    - {name: ECB Governing Council,      regions: [EU], source: ECB website, status: planned}
+    - {name: BOE MPC announcements,      regions: [GB], source: BoE website, status: planned}
+  minutes_and_projections:
+    - {name: FOMC Minutes,               regions: [US], source: FRED releases, status: planned}
+    - {name: ECB Monetary Policy Accounts, regions: [EU], status: planned}
+    - {name: BOE MPC Minutes,            regions: [GB], status: planned}
+    - {name: RBA Meeting Minutes,        regions: [AU], status: paid}
+    - {name: Fed Summary of Economic Projections (dot plot), regions: [US], status: planned}
+    - {name: BOE Monetary Policy Report, regions: [GB], status: planned}
+    - {name: BOJ Outlook Report,         regions: [JP], status: paid}
+  operations:
+    - {name: QE/QT announcements,        regions: [US, EU, GB], status: paid}
+    - {name: BOJ Yield Curve Control band, regions: [JP], status: paid}
+  speeches:
+    - {name: Fed Chair testimony,        regions: [US], status: paid}
+    - {name: ECB President speeches,     regions: [EU], status: paid}
+    - {name: BOE Governor speeches,      regions: [GB], status: paid}
+
+# ---------------------------------------------------------------------------
+# 2. Inflation & Price Indices
+# ---------------------------------------------------------------------------
+inflation:
+  consumer_prices:
+    - {name: Euro-area HICP YoY,         regions: [EU], source: ECB,  series: "ICP/M.U2.N.000000.4.ANR", status: live}
+    - {name: US CPI (headline YoY),      regions: [US], source: FRED, series: CPIAUCSL, status: live}
+    - {name: UK CPI YoY,                 regions: [GB], source: WB,   series: FP.CPI.TOTL.ZG, status: live}
+    - {name: CPI YoY (any country),      regions: [DE, FR, JP, CH, CA, AU, NZ, CN, IN], source: WB, series: FP.CPI.TOTL.ZG, status: live}
+    - {name: US Core CPI,                regions: [US], source: FRED, series: CPILFESL, status: planned}
+    - {name: UK Core CPI,                regions: [GB], source: ONS,  status: planned}
+  producer_prices:
+    - {name: US PPI,                     regions: [US], source: FRED, series: PPIACO, status: planned}
+    - {name: UK Output/Input PPI,        regions: [GB], source: ONS,  status: planned}
+  pce:
+    - {name: US Core PCE (Fed's preferred gauge), regions: [US], source: FRED, series: PCEPILFE, status: planned}
+  trade_prices:
+    - {name: Import Price Index,         regions: [US], source: FRED, series: IR, status: planned}
+    - {name: Export Price Index,         regions: [US], source: FRED, series: IQ, status: planned}
+  expectations:
+    - {name: U. Michigan 1-year inflation expectations, regions: [US], source: FRED, series: MICH, status: planned}
+    - {name: U. Michigan 5-year expectations, regions: [US], source: FRED, series: MICH5YR, status: planned}
+    - {name: ECB Consumer Expectations Survey, regions: [EU], status: planned}
+  wages:
+    - {name: US Average Hourly Earnings, regions: [US], source: FRED, series: CES0500000003, status: planned}
+    - {name: US Employment Cost Index,   regions: [US], source: FRED, series: ECIALLCIV, status: planned}
+    - {name: UK Average Earnings Index,  regions: [GB], source: ONS,  status: planned}
+
+# ---------------------------------------------------------------------------
+# 3. Employment & Labor Market
+# ---------------------------------------------------------------------------
+employment:
+  headline:
+    - {name: US Non-Farm Payrolls,       regions: [US], source: FRED, series: PAYEMS, status: planned}
+    - {name: US Unemployment Rate (U-3), regions: [US], source: FRED, series: UNRATE, status: live}
+    - {name: Unemployment rate (any country), regions: [GB, EU, DE, FR, JP, CA, AU], source: WB, series: SL.UEM.TOTL.ZS, status: live}
+    - {name: Eurozone Unemployment Rate, regions: [EU], source: ECB,  status: planned}
+    - {name: ADP Non-Farm Employment Change, regions: [US], status: paid}
+    - {name: Canadian Net Employment Change, regions: [CA], status: paid}
+    - {name: Australian Employment Change, regions: [AU], status: paid}
+  detail:
+    - {name: US U-6 Underemployment,     regions: [US], source: FRED, series: U6RATE, status: planned}
+    - {name: US Initial Jobless Claims,  regions: [US], source: FRED, series: ICSA, status: planned}
+    - {name: US Continuing Claims,       regions: [US], source: FRED, series: CCSA, status: planned}
+    - {name: JOLTS Job Openings,         regions: [US], source: FRED, series: JTSJOL, status: planned}
+    - {name: Labor Force Participation,  regions: [US], source: FRED, series: CIVPART, status: planned}
+
+# ---------------------------------------------------------------------------
+# 4. Economic Growth & Output
+# ---------------------------------------------------------------------------
+growth:
+  gdp:
+    - {name: Real GDP growth (any country), regions: [GB, EU, US, DE, FR, JP, CN, IN], source: WB, series: NY.GDP.MKTP.KD.ZG, status: live}
+    - {name: US GDP (advance/prelim/final), regions: [US], source: FRED, series: GDPC1, status: planned}
+    - {name: GDP Price Deflator,         regions: [US], source: FRED, series: GDPDEF, status: planned}
+  pmi:
+    - {name: ISM Manufacturing PMI,      regions: [US], status: paid}
+    - {name: ISM Services PMI,           regions: [US], status: paid}
+    - {name: S&P Global PMIs (Mfg/Svc/Composite), regions: [US, GB, EU], status: paid}
+    - {name: Caixin / NBS Manufacturing PMI, regions: [CN], status: paid}
+  industry:
+    - {name: US Industrial Production,   regions: [US], source: FRED, series: INDPRO, status: planned}
+    - {name: US Capacity Utilization,    regions: [US], source: FRED, series: TCU, status: planned}
+    - {name: UK Manufacturing Production, regions: [GB], source: ONS, status: planned}
+  orders:
+    - {name: Durable Goods Orders,       regions: [US], source: FRED, series: DGORDER, status: planned}
+    - {name: Core Durable Goods (ex-defense/aircraft), regions: [US], source: FRED, series: NEWORDER, status: planned}
+    - {name: Factory Orders,             regions: [US], source: FRED, series: AMTMNO, status: planned}
+
+# ---------------------------------------------------------------------------
+# 5. Consumer & Retail Activity
+# ---------------------------------------------------------------------------
+consumer:
+  retail:
+    - {name: US Retail Sales,            regions: [US], source: FRED, series: RSAFS, status: planned}
+    - {name: US Core Retail (control group), regions: [US], source: FRED, series: RSFSXMV, status: planned}
+    - {name: UK Retail Sales,            regions: [GB], source: ONS,  status: planned}
+    - {name: Redbook Index (weekly),     regions: [US], status: paid}
+  sentiment:
+    - {name: U. Michigan Consumer Sentiment, regions: [US], source: FRED, series: UMCSENT, status: planned}
+    - {name: Conference Board Consumer Confidence, regions: [US], status: paid}
+    - {name: GfK Consumer Confidence,    regions: [GB, DE], status: paid}
+    - {name: ZEW Economic Sentiment,     regions: [DE, EU], status: paid}
+    - {name: IFO Business Climate,       regions: [DE], status: paid}
+  personal_finance:
+    - {name: US Personal Income,         regions: [US], source: FRED, series: PI, status: planned}
+    - {name: US Personal Spending,       regions: [US], source: FRED, series: PCE, status: planned}
+
+# ---------------------------------------------------------------------------
+# 6. Housing & Real Estate
+# ---------------------------------------------------------------------------
+housing:
+  construction:
+    - {name: US Building Permits,        regions: [US], source: FRED, series: PERMIT, status: planned}
+    - {name: US Housing Starts,          regions: [US], source: FRED, series: HOUST, status: planned}
+  sales:
+    - {name: US Existing Home Sales,     regions: [US], source: FRED, series: EXHOSLUSM495S, status: planned}
+    - {name: US New Home Sales,          regions: [US], source: FRED, series: HSN1F, status: planned}
+    - {name: US Pending Home Sales,      regions: [US], status: paid}
+  pricing:
+    - {name: S&P/Case-Shiller Home Price Index, regions: [US], source: FRED, series: CSUSHPINSA, status: planned}
+    - {name: FHFA House Price Index,     regions: [US], source: FRED, series: USSTHPI, status: planned}
+    - {name: Nationwide House Price Index, regions: [GB], status: planned}
+  mortgages:
+    - {name: MBA Mortgage Applications,  regions: [US], status: paid}
+    - {name: US 30-year mortgage rate,   regions: [US], source: FRED, series: MORTGAGE30US, status: planned}
+
+# ---------------------------------------------------------------------------
+# 7. Trade, Current Account & Inventories
+# ---------------------------------------------------------------------------
+trade_and_flows:
+  balances:
+    - {name: US Goods Trade Balance,     regions: [US], source: FRED, series: BOPGSTB, status: planned}
+    - {name: Current Account Balance,    regions: [GB, EU, US], source: WB, series: BN.CAB.XOKA.GD.ZS, status: planned}
+    - {name: UK Trade Balance,           regions: [GB], source: ONS,  status: planned}
+  energy:
+    - {name: EIA Crude Oil Inventories,  regions: [US], source: EIA, status: planned}
+    - {name: EIA Natural Gas Storage,    regions: [US], source: EIA, status: planned}
+    - {name: API Weekly Crude Stock,     regions: [US], status: paid}
+  capital_flows:
+    - {name: TIC Net Long-Term Transactions, regions: [US], status: planned}
+  government_debt:
+    - {name: Treasury auctions (2Y/10Y/30Y bid-to-cover), regions: [US], status: paid}
+    - {name: UK Gilt auctions,           regions: [GB], source: DMO, status: planned}
+    - {name: Government Budget Balance,  regions: [GB, US, EU], status: planned}

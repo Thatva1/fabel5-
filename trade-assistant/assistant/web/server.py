@@ -1,0 +1,367 @@
+"""Dashboard web server (Layer 1). Local, single-user. No order routing exists
+anywhere in this app; the human-approval endpoints only record decisions."""
+import os
+import threading
+from datetime import datetime, timezone
+
+from flask import Flask, jsonify, render_template, request
+
+from .. import closeout, execution, journal, pipeline
+from ..core.config import DISCLAIMER, load_config, save_config
+from ..execution import ExecutionRefused
+from ..providers.base import ProviderUnavailable
+from ..strategies import registry as strategy_registry
+
+app = Flask(__name__, template_folder=os.path.join(os.path.dirname(__file__), "templates"))
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+_state = {"scan": None, "scanning": False, "error": None,
+          "progress": None, "cancel": False}
+_lock = threading.Lock()
+
+
+def _run_scan_background():
+    def progress_cb(done, total, ticker, stage):
+        with _lock:
+            _state["progress"].update(
+                {"done": done, "total": total, "current_ticker": ticker,
+                 "current_stage": stage})
+
+    def should_cancel():
+        with _lock:
+            return _state["cancel"]
+
+    try:
+        result = pipeline.run_scan(progress_cb=progress_cb, should_cancel=should_cancel)
+        with _lock:
+            _state["scan"], _state["error"] = result, None
+    except Exception as exc:
+        with _lock:
+            _state["error"] = str(exc)
+    finally:
+        with _lock:
+            _state["scanning"] = False
+            _state["cancel"] = False
+            _state["progress"] = None
+
+
+@app.get("/")
+def index():
+    return render_template("dashboard.html", disclaimer=DISCLAIMER)
+
+
+STALE_AFTER_HOURS = 24
+STALE_DRIFT_PCT = 2.0
+
+
+def _mark_stale(ideas, router):
+    """Flag ideas whose plan no longer matches the market, so the UI can warn
+    without every client re-pricing all of them. Cheap: only checks ideas the
+    user has approved (the only ones that can become orders) and relies on the
+    router's price cache."""
+    for idea in ideas:
+        idea["stale"] = False
+        idea["stale_reason"] = None
+        plan = (idea.get("payload") or {}).get("plan")
+        if not plan or idea.get("decision") != "approved":
+            continue
+        try:
+            age_h = (datetime.now(timezone.utc)
+                     - datetime.fromisoformat(idea["created_at"])).total_seconds() / 3600
+        except Exception:
+            age_h = None
+        if age_h is not None and age_h > STALE_AFTER_HOURS:
+            idea["stale"] = True
+            idea["stale_reason"] = f"plan is {int(age_h)}h old"
+            continue
+        try:
+            df = router.get_prices(idea["ticker"], period="5d")
+            last = float(df["Close"].iloc[-1])
+            drift = (last / plan["entry"] - 1) * 100
+            if abs(drift) > STALE_DRIFT_PCT:
+                idea["stale"] = True
+                idea["stale_reason"] = (f"price {last:.2f} is {drift:+.1f}% from the "
+                                        f"planned entry {plan['entry']:.2f}")
+        except Exception:
+            pass
+    return ideas
+
+
+@app.get("/api/state")
+def api_state():
+    try:
+        config = load_config()
+    except ValueError as exc:
+        return jsonify({"config_error": str(exc), "disclaimer": DISCLAIMER})
+    router = pipeline.get_router(config)
+    account = config.get("account", {})
+    positions = config.get("positions", [])
+    base_ccy = config.get("base_currency", "USD")
+    portfolio_value = account.get("portfolio_value", 0) or 1
+
+    from ..risk.gate import exposure_summary
+    fx_rates = router.get_fx_rates(
+        {base_ccy} | {p.get("currency", base_ccy) for p in positions}, base_ccy)
+    exposure = exposure_summary(positions, portfolio_value, None, base_ccy, fx_rates)
+
+    with _lock:
+        scan, scanning, error = _state["scan"], _state["scanning"], _state["error"]
+        progress = dict(_state["progress"]) if _state["progress"] else None
+    return jsonify({
+        "disclaimer": DISCLAIMER,
+        "ai_ready": bool(os.environ.get("ANTHROPIC_API_KEY")) and config.get("ai", {}).get("enabled", True),
+        "providers": router.provider_status(),
+        "base_currency": base_ccy,
+        "watchlist_symbols": config.get("watchlist", []),
+        "scan": scan,
+        "scanning": scanning,
+        "scan_error": error,
+        "portfolio": {
+            "value": portfolio_value,
+            "positions": positions,
+            "exposure_value": exposure["current_value"],
+            "exposure_pct": exposure["current_pct"],
+            "risk_per_trade_pct": account.get("risk_per_trade_pct"),
+            "max_total_exposure_pct": account.get("max_total_exposure_pct"),
+        },
+        "scan_progress": progress,
+        "strategies": strategy_registry.describe(config),
+        "ideas": _mark_stale(journal.list_ideas(), router),
+        "stats": journal.stats(),
+        "execution": execution.execution_status(config),
+        "orders": journal.list_orders(),
+    })
+
+
+@app.post("/api/scan")
+def api_scan():
+    from datetime import datetime, timezone
+    with _lock:
+        if _state["scanning"]:
+            return jsonify({"status": "already running"}), 409
+        _state["scanning"] = True
+        _state["cancel"] = False
+        _state["progress"] = {
+            "done": 0, "total": len(load_config().get("watchlist", [])),
+            "current_ticker": None, "current_stage": "starting",
+            "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    threading.Thread(target=_run_scan_background, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.post("/api/scan/cancel")
+def api_scan_cancel():
+    """Stop a running scan. Work already completed is kept, not discarded."""
+    with _lock:
+        if not _state["scanning"]:
+            return jsonify({"error": "no scan is running"}), 409
+        _state["cancel"] = True
+    return jsonify({"status": "cancelling"})
+
+
+@app.post("/api/analyze/<query>")
+def api_analyze(query):
+    config = load_config()
+    router = pipeline.get_router(config)
+    symbol = query.strip().upper()
+    resolved_note = None
+    try:
+        try:
+            router.get_prices(symbol, period="5d")
+        except ProviderUnavailable:
+            # Unknown symbol OR upstream outage. The search call distinguishes
+            # them: if that fails too, the data source itself is down.
+            try:
+                matches = router.search_symbol(query.strip())
+            except ProviderUnavailable as exc:
+                return jsonify({
+                    "error": "Market data is temporarily unavailable — the data provider "
+                             f"could not be reached. Try again shortly. ({exc})",
+                    "retryable": True}), 503
+            if not matches:
+                return jsonify({"error": f"couldn't find any symbol matching '{query}'"}), 404
+            best = matches[0]
+            symbol = best["symbol"].upper()
+            resolved_note = f"'{query}' resolved to {symbol} ({best['name']})"
+        result = pipeline.analyze_ticker(symbol, config)
+        if result.get("error"):
+            return jsonify(result), 422
+        if resolved_note:
+            result["resolved_note"] = resolved_note
+        return jsonify(result)
+    except ProviderUnavailable as exc:
+        return jsonify({"error": f"Market data is temporarily unavailable: {exc}",
+                        "retryable": True}), 503
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/symbols")
+def api_symbols():
+    """Type-ahead over the whole tradable universe (~18k US symbols).
+    Read-only and free — no AI credits, no scan."""
+    q = (request.args.get("q") or "").strip()
+    router = pipeline.get_router(load_config())
+    if not q:
+        return jsonify({"results": [], "universe_size": router.universe_size()})
+    return jsonify({"results": router.suggest(q, limit=int(request.args.get("limit", 8))),
+                    "universe_size": router.universe_size()})
+
+
+@app.post("/api/watchlist/add")
+def api_watchlist_add():
+    """Add a symbol to the scan list. Accepts a ticker OR a company name —
+    'goldman sachs' resolves to GS rather than being rejected for the space."""
+    raw = ((request.json or {}).get("ticker") or "").strip()
+    if not raw:
+        return jsonify({"error": "enter a ticker or company name"}), 400
+    config = load_config()
+    router = pipeline.get_router(config)
+
+    ticker = raw.upper()
+    looks_like_symbol = len(ticker) <= 12 and all(c.isalnum() or c in ".-^=" for c in ticker)
+    if not looks_like_symbol:
+        matches = router.suggest(raw, limit=1)
+        if not matches:
+            return jsonify({"error": f"couldn't find a symbol matching '{raw}'"}), 404
+        ticker = matches[0]["symbol"].upper()
+
+    try:
+        router.get_prices(ticker, period="5d")
+    except Exception:
+        # Might be a name that looked symbol-ish (e.g. "Nvidia") — try resolving.
+        matches = router.suggest(raw, limit=1)
+        if matches and matches[0]["symbol"].upper() != ticker:
+            ticker = matches[0]["symbol"].upper()
+            try:
+                router.get_prices(ticker, period="5d")
+            except Exception:
+                return jsonify({"error": f"no market data found for {raw}"}), 404
+        else:
+            return jsonify({"error": f"no market data found for {raw}"}), 404
+    watchlist = config.setdefault("watchlist", [])
+    if ticker not in watchlist:
+        watchlist.append(ticker)
+        save_config(config)
+    return jsonify({"status": "ok", "ticker": ticker, "watchlist": watchlist})
+
+
+@app.post("/api/watchlist/remove")
+def api_watchlist_remove():
+    ticker = ((request.json or {}).get("ticker") or "").strip().upper()
+    config = load_config()
+    watchlist = config.get("watchlist", [])
+    if ticker not in watchlist:
+        return jsonify({"error": "not on watchlist"}), 404
+    watchlist.remove(ticker)
+    save_config(config)
+    return jsonify({"status": "ok", "watchlist": watchlist})
+
+
+@app.post("/api/ideas/<int:idea_id>/decision")
+def api_decision(idea_id):
+    decision = (request.json or {}).get("decision")
+    if decision not in ("approved", "needs_research", "rejected", "pending"):
+        return jsonify({"error": "invalid decision"}), 400
+    if not journal.set_decision(idea_id, decision):
+        return jsonify({"error": f"idea #{idea_id} does not exist"}), 404
+    return jsonify({"status": "ok"})
+
+
+@app.post("/api/ideas/<int:idea_id>/outcome")
+def api_outcome(idea_id):
+    body = request.json or {}
+    outcome = body.get("outcome")
+    if outcome not in ("open", "win", "loss", "scratch"):
+        return jsonify({"error": "invalid outcome"}), 400
+
+    price, entry_override = body.get("price"), body.get("entry")
+    for label, value in (("exit price", price), ("entry price", entry_override)):
+        if value in ("", None):
+            continue
+        try:
+            if float(value) <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            return jsonify({"error": f"The {label} must be a positive number."}), 400
+
+    result = closeout.close_idea(
+        idea_id, outcome,
+        exit_price=float(price) if price not in ("", None) else None,
+        notes=body.get("notes"),
+        entry_override=float(entry_override) if entry_override not in ("", None) else None)
+    if not result.get("ok"):
+        return jsonify({"error": result.get("error", f"idea #{idea_id} does not exist")}), 404
+    return jsonify({"status": "ok", "realised": result["realised"],
+                    "warnings": result["warnings"]})
+
+
+@app.post("/api/execution/toggle")
+def api_execution_toggle():
+    """Turn the execution layer on/off without restarting.
+
+    Asymmetric on purpose: turning OFF is instant (the safe direction should
+    never be obstructed), turning ON requires typing ENABLE. This only controls
+    whether order entry is *possible* — it bypasses none of the per-order gates.
+    """
+    body = request.json or {}
+    want_enabled = bool(body.get("enabled"))
+    if want_enabled and (body.get("confirmation") or "").strip().upper() != "ENABLE":
+        return jsonify({"error": "To turn execution ON, type ENABLE to confirm."}), 400
+
+    config = load_config()
+    config.setdefault("execution", {})["enabled"] = want_enabled
+    save_config(config)
+
+    status = execution.execution_status(config)
+    return jsonify({"status": "ok", "enabled": want_enabled, "execution": status})
+
+
+@app.post("/api/ideas/<int:idea_id>/prepare-order")
+def api_prepare_order(idea_id):
+    """Step 1 of 2: build a reviewable ticket. Places nothing."""
+    config = load_config()
+    try:
+        ticket = execution.prepare_ticket(idea_id, config, pipeline.get_router(config))
+        return jsonify(ticket)
+    except ExecutionRefused as exc:
+        return jsonify({"error": str(exc)}), 409
+    except Exception as exc:
+        # Broker/network problems are service-unavailable, not app crashes.
+        if type(exc).__name__ in ("GatewayUnreachable", "AccountMismatch", "ProviderUnavailable"):
+            return jsonify({"error": str(exc), "retryable": True}), 503
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@app.post("/api/orders/<int:ticket_id>/confirm")
+def api_confirm_order(ticket_id):
+    """Step 2 of 2: place the order — requires the typed ticker confirmation."""
+    typed = (request.json or {}).get("confirmation", "")
+    try:
+        result = execution.confirm_ticket(ticket_id, typed, load_config())
+        return jsonify(result)
+    except ExecutionRefused as exc:
+        return jsonify({"error": str(exc)}), 409
+    except Exception as exc:
+        # Broker/network problems are service-unavailable, not app crashes.
+        if type(exc).__name__ in ("GatewayUnreachable", "AccountMismatch", "ProviderUnavailable"):
+            return jsonify({"error": str(exc), "retryable": True}), 503
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+
+
+@app.post("/api/orders/<int:ticket_id>/cancel")
+def api_cancel_order(ticket_id):
+    try:
+        return jsonify(execution.cancel_ticket(ticket_id))
+    except ExecutionRefused as exc:
+        return jsonify({"error": str(exc)}), 409
+
+
+def main(port=None):
+    if port is None:
+        port = load_config().get("server", {}).get("port", 5002)
+    app.run(host="127.0.0.1", port=port, debug=False)
+
+
+if __name__ == "__main__":
+    main()

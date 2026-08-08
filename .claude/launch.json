@@ -1,0 +1,10 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "trade-assistant",
+      "url": "http://localhost:5002",
+      "port": 5002
+    }
+  ]
+}

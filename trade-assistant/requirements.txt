@@ -1,0 +1,11 @@
+yfinance>=1.0
+flask>=3.0
+anthropic>=0.120.0
+pandas>=2.0
+pyyaml>=6.0
+requests>=2.28
+pytest>=7.0
+# Layer 2 execution. ib_async is the maintained successor and needs Python 3.10+;
+# ib_insync is the drop-in equivalent for Python 3.9. The broker imports either.
+ib_insync>=0.9.86 ; python_version < "3.10"
+ib_async>=1.0 ; python_version >= "3.10"
