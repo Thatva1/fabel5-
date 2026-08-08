@@ -669,7 +669,7 @@ function viewJournal() {
       ${months.length ? `<div class="bars">${months.map(([m, o]) => {
     const w = o.win || 0, l = o.loss || 0, s = o.scratch || 0, tot = w + l + s;
     const h = x => (x / maxM) * 150;
-    return `<div class="col" title="${m}: ${w}W ${l}L ${s}S">
+    return `<div class="col" title="${esc(m)}: ${w}W ${l}L ${s}S">
           <div class="prov" style="text-align:center">${tot ? Math.round(w / Math.max(w + l, 1) * 100) + "%" : ""}</div>
           <div class="seg" style="height:${h(w)}px;background:var(--ok)"></div>
           <div class="seg" style="height:${h(l)}px;background:var(--bad)"></div>
@@ -732,7 +732,11 @@ function viewJournal() {
 function showTicket(ticket) {
   const isLive = (S.execution?.mode || "unverified") !== "paper";
   const money0 = v => money(v);
-  const title = isLive ? `Spend real money on ${ticket.ticker}?` : `Place a simulated order for ${ticket.ticker}?`;
+  // esc() even though tickers are symbol-shaped: this string goes into
+  // innerHTML on the one dialog in the app that ends in real money, and names
+  // resolved through router.suggest() come straight from an upstream API.
+  const tkr = esc(ticket.ticker);
+  const title = isLive ? `Spend real money on ${tkr}?` : `Place a simulated order for ${tkr}?`;
   const lede = isLive
     ? `${money0(ticket.limit_price * ticket.quantity)} of your own cash is committed and the trade cannot be undone from here.`
     : `This is simulated money. Nothing real is at stake.`;

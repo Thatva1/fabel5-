@@ -117,7 +117,7 @@ class IBKRBroker(Broker):
         self.port_suggests_paper = self.port in (7497, 4002)
 
     @contextmanager
-    def _session(self):
+    def _session(self, readonly=True):
         """Short-lived IB connection with its own event loop.
 
         Flask serves each request on a pooled worker thread, and ib_insync
@@ -125,6 +125,12 @@ class IBKRBroker(Broker):
         Reusing it surfaces confusing 'no current event loop' errors instead of
         the real connectivity problem, so every session gets a fresh loop and
         tears it down again.
+
+        readonly defaults to True: ping/get_account/get_positions/is_shortable
+        are all strictly reads, and a read-only IB connection cannot transmit an
+        order at the protocol level. Only place_order() opens a writable one, so
+        "nothing else can place an order" stops being a property of the call
+        graph and becomes a property of the socket.
         """
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -132,7 +138,7 @@ class IBKRBroker(Broker):
         try:
             try:
                 ib.connect(self.host, self.port, clientId=self.client_id,
-                           timeout=CONNECT_TIMEOUT, readonly=False)
+                           timeout=CONNECT_TIMEOUT, readonly=readonly)
             except Exception as exc:
                 raise GatewayUnreachable(
                     f"Could not reach IB Gateway/TWS at {self.host}:{self.port} "
@@ -284,7 +290,8 @@ class IBKRBroker(Broker):
         if action == "SELL" and order_intent.stop_price <= order_intent.limit_price:
             raise ValueError("For a short, the stop must be ABOVE the entry price.")
 
-        with self._session() as ib:
+        # The ONLY writable session in this module.
+        with self._session(readonly=False) as ib:
             self.is_paper = accounts_are_paper(ib.managedAccounts())
             symbol = ib_symbol(order_intent.ticker)
             contract = Stock(symbol, "SMART", order_intent.currency)

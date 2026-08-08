@@ -262,6 +262,11 @@ providers:
 server:
   port: 5002
 execution:
+  # NOTE: `enabled` is the one key here the dashboard can change, and it is
+  # stored in state.yaml, not this file. The value below is the seed used the
+  # first time state.yaml is created; after that state.yaml wins. Nothing else
+  # in this file is ever written by the program — that is what keeps these
+  # comments alive.
   enabled: false
   host: 127.0.0.1
   # The only IB port listening on this machine. The port does NOT decide paper
@@ -273,4 +278,26 @@ execution:
   # Pinned to your UK PAPER account. If Gateway is ever logged into a live
   # account instead, the app refuses to connect rather than quietly reading —
   # or trading — the wrong one.
+  # Can also be set as IBKR_ACCOUNT in .env, which wins over this value — use
+  # that if you ever want to share or publish config.yaml, since an account
+  # number is identifying data.
   account: DUR673876
+
+  # --- Daily circuit breaker ---------------------------------------------
+  # Every other gate in this app is per-order, and per-order confirmation is
+  # what makes runaway automation impossible. Neither does anything about a
+  # bad day compounded by clicking through ten tickets in a row, which is the
+  # realistic failure mode for a human trader.
+  #
+  # Both are optional: comment either out for no limit. Both are checked when
+  # a ticket is PREPARED, so you are stopped before you see a confirmation
+  # box rather than after.
+  #
+  # Counted per UTC day. max_orders_per_day counts orders that actually
+  # reached the broker — preparing a ticket and cancelling it costs nothing.
+  max_orders_per_day: 5
+  # Realised losses booked today as a percentage of the account. Only trades
+  # you have closed in the journal count, so this is a backstop and not a
+  # live drawdown monitor. At 1% risk per trade, 3% is roughly three
+  # full stop-outs: a bad day, and a reasonable point to stop and think.
+  max_daily_loss_pct: 3.0

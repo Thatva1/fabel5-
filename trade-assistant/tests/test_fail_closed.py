@@ -19,6 +19,7 @@ from assistant import journal
 from assistant.execution import ExecutionRefused
 from assistant.risk import gate
 
+from .optional_deps import requires_ib
 from .test_execution import (CONFIG_EXEC_ON, FakeBroker, FakeRouter, _prepare,
                              _seed_idea)
 
@@ -138,6 +139,7 @@ def test_the_config_value_is_never_substituted_for_a_missing_one(monkeypatch):
     assert len(journal.list_orders()) == before, "a ticket was created anyway"
 
 
+@requires_ib
 def test_ibkr_get_account_reports_none_for_a_missing_tag():
     """The broker-side half of R-2, without touching IB."""
     from assistant.broker import ibkr

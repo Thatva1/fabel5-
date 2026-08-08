@@ -11,8 +11,15 @@ No network access — a fake Ticker stands in for yfinance.
 import pandas as pd
 import pytest
 
-from assistant.providers import yfinance_provider as yfp
-from assistant.providers.yfinance_provider import YFinanceProvider, resolve_currency
+# Every test here exercises the yfinance provider, so skipping the whole module
+# is right — but it must SKIP rather than abort collection. Importing the
+# provider unconditionally used to take the entire test run down on a clean
+# checkout, since requirements.txt installs some dependencies conditionally.
+pytest.importorskip("yfinance", reason="these tests exercise the yfinance provider")
+
+from assistant.providers import yfinance_provider as yfp                      # noqa: E402
+from assistant.providers.yfinance_provider import (YFinanceProvider,          # noqa: E402
+                                                   resolve_currency)
 
 
 # Real NG.L (National Grid) shapes: price quoted in GBp, accounts in GBP.

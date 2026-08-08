@@ -5,13 +5,26 @@ caching would burn through them fast.
 """
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
+
+# Entries hold whole pandas DataFrames, and /api/analyze/<query> lets any of the
+# ~18,000 universe symbols create one. Without a bound, memory grew for the life
+# of the process: expired entries were never evicted, only ignored.
+DEFAULT_MAX_ENTRIES = 512
 
 
 class TTLCache:
-    def __init__(self):
-        self._store = {}
+    """TTL cache with an LRU bound.
+
+    Two evictions, doing different jobs: expired entries are dropped on write
+    (cheap, keeps the store honest), and the LRU cap bounds the worst case when
+    everything in it is still fresh.
+    """
+
+    def __init__(self, max_entries=DEFAULT_MAX_ENTRIES):
+        self._store = OrderedDict()
         self._lock = threading.Lock()
+        self._max_entries = max_entries
 
     def get_or_fetch(self, key, ttl_seconds, fetch_fn):
         """Return cached value if fresh, else call fetch_fn and cache the result.
@@ -20,11 +33,29 @@ class TTLCache:
         with self._lock:
             hit = self._store.get(key)
             if hit and now - hit[0] < ttl_seconds:
-                return hit[1]
+                self._store.move_to_end(key)      # mark as recently used
+                return hit[2]
         value = fetch_fn()
         with self._lock:
-            self._store[key] = (now, value)
+            # Each entry carries its OWN ttl. Prices live 10 minutes and macro
+            # six hours; sweeping with whichever ttl the current caller happened
+            # to pass would throw away the long-lived entries early.
+            self._store[key] = (now, ttl_seconds, value)
+            self._store.move_to_end(key)
+            self._evict(now)
         return value
+
+    def _evict(self, now):
+        """Caller holds the lock."""
+        for key in [k for k, (stamp, ttl, _) in self._store.items()
+                    if now - stamp >= ttl]:
+            del self._store[key]
+        while len(self._store) > self._max_entries:
+            self._store.popitem(last=False)       # drop the least recently used
+
+    def __len__(self):
+        with self._lock:
+            return len(self._store)
 
     def clear(self):
         with self._lock:

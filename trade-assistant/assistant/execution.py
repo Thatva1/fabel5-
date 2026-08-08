@@ -22,7 +22,12 @@ from . import journal
 from .core.models import OrderIntent
 from .risk import gate
 
-TICKET_MAX_AGE_SECONDS = 900   # 15 minutes; stale tickets must be re-prepared
+# 2 minutes. This was 15, which is a long time for a limit price taken off a
+# live quote: a volatile name can move well past the drift limit — and past the
+# stop — inside that window, reopening the exact gap MAX_ENTRY_DRIFT_PCT exists
+# to close. Confirmation also re-checks the price now, but a short window means
+# fewer tickets ever reach that check stale.
+TICKET_MAX_AGE_SECONDS = 120
 MAX_ENTRY_DRIFT_PCT = 2.0      # refuse if price has moved this far from the plan
 
 
@@ -97,6 +102,43 @@ def _load_approved_idea(idea_id):
     return idea, plan, payload
 
 
+def _check_daily_limits(config, portfolio_value, base_ccy):
+    """Daily circuit breaker (audit finding D-5).
+
+    Every other gate in this file is per-order. Per-order confirmation makes
+    runaway automation impossible, but it does nothing about a bad day
+    compounded by a human clicking through ten tickets in a row — which is the
+    realistic failure mode for a discretionary trader, not a rogue loop.
+
+    Both limits are opt-in: unset means no cap, so this changes nothing for an
+    existing config until the user chooses a number.
+    """
+    exec_cfg = config.get("execution", {}) or {}
+
+    max_orders = exec_cfg.get("max_orders_per_day")
+    if max_orders is not None:
+        placed = journal.orders_submitted_today()
+        if placed >= int(max_orders):
+            raise ExecutionRefused(
+                f"Daily order limit reached: {placed} order(s) already went to the "
+                f"broker today and your config allows {int(max_orders)} "
+                "(execution.max_orders_per_day). This is a deliberate cooling-off "
+                "point — nothing further can be placed until tomorrow (UTC).")
+
+    max_loss_pct = exec_cfg.get("max_daily_loss_pct")
+    if max_loss_pct is not None and portfolio_value:
+        pnl_today = journal.realised_pnl_today()
+        if pnl_today < 0:
+            loss_pct = abs(pnl_today) / portfolio_value * 100
+            if loss_pct >= float(max_loss_pct):
+                raise ExecutionRefused(
+                    f"Daily loss limit reached: you have realised "
+                    f"{abs(pnl_today):,.0f} {base_ccy} of losses today, which is "
+                    f"{loss_pct:.1f}% of the account (limit {max_loss_pct}%, "
+                    "execution.max_daily_loss_pct). No further orders today — "
+                    "this is the rule you set when you were not losing.")
+
+
 def prepare_ticket(idea_id, config, router):
     """Step 1 of 2. Re-validates risk against the CURRENT portfolio and returns
     a ticket for human review. Places nothing."""
@@ -136,6 +178,9 @@ def prepare_ticket(idea_id, config, router):
         raise ExecutionRefused(
             f"Your broker reports an account value of {portfolio_value:,.2f} {base_ccy}. "
             "Nothing can be sized against a zero or negative balance.")
+
+    # Daily circuit breaker, checked before any of the per-order work.
+    _check_daily_limits(config, portfolio_value, base_ccy)
 
     currencies = {base_ccy, plan.get("currency", base_ccy)} | {
         p.get("currency", base_ccy) for p in positions}
@@ -243,8 +288,46 @@ def _stop_still_valid(plan, current_price):
     return current_price < plan["stop"]
 
 
-def confirm_ticket(ticket_id, typed_confirmation, config):
-    """Step 2 of 2. Places the order only if the human typed the ticker exactly."""
+def _recheck_price_at_confirmation(ticket, plan, router):
+    """Refuse the placement if the market moved while the ticket was open.
+
+    Deliberately mirrors prepare_ticket's guards, including refusing when the
+    price cannot be read at all: an unreadable feed is not permission to send
+    an order priced off a quote nobody can verify.
+    """
+    ticker = ticket["ticker"]
+    limit_price = float(ticket["limit_price"])
+    current_price = _current_price(router, ticker)
+    if not current_price:
+        raise ExecutionRefused(
+            f"Could not read a current price for {ticker} at the moment of placement, "
+            "so the order could not be checked against the live market. Nothing was "
+            "sent. Prepare a new ticket when data returns.")
+
+    drift_pct = (current_price / limit_price - 1) * 100
+    if abs(drift_pct) > MAX_ENTRY_DRIFT_PCT:
+        raise ExecutionRefused(
+            f"{ticker} moved to {current_price:.2f} while this ticket was open — "
+            f"{drift_pct:+.1f}% from the limit price {limit_price:.2f} "
+            f"(limit {MAX_ENTRY_DRIFT_PCT}%). Nothing was sent. Prepare a new ticket "
+            "so the size and stop are computed from the current price.")
+
+    stop_price = ticket.get("stop_price")
+    if stop_price and plan and not _stop_still_valid(
+            {"direction": plan["direction"], "stop": float(stop_price)}, current_price):
+        raise ExecutionRefused(
+            f"{ticker} at {current_price:.2f} has already passed the stop "
+            f"{float(stop_price):.2f}. The setup is invalidated — nothing was sent.")
+
+
+def confirm_ticket(ticket_id, typed_confirmation, config, router=None):
+    """Step 2 of 2. Places the order only if the human typed the ticker exactly.
+
+    router: used to re-read the price at the moment of placement. prepare_ticket
+    enforced the drift limit, but that was up to TICKET_MAX_AGE_SECONDS ago and
+    the market does not wait for the human to finish typing. Callers that can
+    reach market data should always pass it.
+    """
     if not config.get("execution", {}).get("enabled"):
         raise ExecutionRefused("Execution is disabled in config.yaml.")
 
@@ -269,7 +352,14 @@ def confirm_ticket(ticket_id, typed_confirmation, config):
             f"Confirmation text did not match. Type '{ticket['ticker']}' exactly to place this order.")
 
     # Re-verify the idea is still human-approved at the moment of placement.
-    _load_approved_idea(ticket["idea_id"])
+    idea, plan, _payload = _load_approved_idea(ticket["idea_id"])
+
+    # D-6: re-check the price HERE, not just at prepare time. The drift limit
+    # was enforced against a quote that is now up to TICKET_MAX_AGE_SECONDS old,
+    # and a volatile name can cross both the drift limit and the stop inside
+    # that window — which is precisely what the limit exists to prevent.
+    if router is not None:
+        _recheck_price_at_confirmation(ticket, plan, router)
 
     # Atomically claim the ticket BEFORE contacting the broker. The status read
     # above is not enough: two concurrent confirms can both pass it. Only the

@@ -1,11 +1,22 @@
-yfinance>=1.0
-flask>=3.0
-anthropic>=0.120.0
-pandas>=2.0
-pyyaml>=6.0
-requests>=2.28
-pytest>=7.0
+# Exact versions, not floors. A `pip install -U` used to be able to change the
+# behaviour of a tool that places orders, with no signal that anything had
+# moved. These are the versions the 563-test suite is green against.
+#
+# To upgrade deliberately: bump a line, run the suite, commit the result.
+# To reproduce this environment:  pip install -r requirements.txt
+yfinance==0.2.66
+flask==3.1.3
+anthropic==0.120.0
+pandas==2.3.3
+pyyaml==6.0.3
+requests==2.32.5
+pytest==8.4.2
+
 # Layer 2 execution. ib_async is the maintained successor and needs Python 3.10+;
-# ib_insync is the drop-in equivalent for Python 3.9. The broker imports either.
-ib_insync>=0.9.86 ; python_version < "3.10"
+# ib_insync is the drop-in equivalent for Python 3.9. The broker imports either,
+# and the tests skip themselves when neither is present.
+ib_insync==0.9.86 ; python_version < "3.10"
+# NOT pinned: this venv is Python 3.9, so ib_async is never installed here and
+# no exact version has been tested against this suite. Pin it the day you move
+# to 3.10+, once you have run the tests against a specific release.
 ib_async>=1.0 ; python_version >= "3.10"

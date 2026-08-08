@@ -9,6 +9,8 @@ import time
 
 import pytest
 
+from .optional_deps import requires_ib
+
 from assistant import journal
 from assistant.broker.base import ExecutionNotEnabled
 from assistant.broker.paper import PaperBroker
@@ -466,6 +468,7 @@ def test_small_drift_is_allowed(monkeypatch):
     (None, False),
     (["DU1111111", "U2222222"], False),  # mixed -> assume live
 ])
+@requires_ib
 def test_paper_detection_uses_account_id(accounts, expected):
     from assistant.broker.ibkr import accounts_are_paper
     assert accounts_are_paper(accounts) is expected

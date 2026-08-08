@@ -3,6 +3,7 @@ eventual outcome, so hit-rate can be tracked over time."""
 import json
 import os
 import sqlite3
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 
 from .core.config import DATA_DIR
@@ -80,10 +81,20 @@ CREATE TABLE IF NOT EXISTS ideas (
 """
 
 
-def _connect():
-    os.makedirs(DATA_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+# The default 5s busy timeout is thin: the background scan thread writes while
+# request threads read, and /api/state alone runs three queries per poll.
+BUSY_TIMEOUT_SECONDS = 30
+
+# Schema setup is idempotent but not free — it re-ran CREATE TABLE IF NOT EXISTS
+# plus two PRAGMA table_info queries on every single call. Once per process per
+# database file is enough; the path is part of the key so tests that point
+# DB_PATH at a temp file still get their schema created.
+_migrated_paths = set()
+
+
+def _ensure_schema(conn):
+    if DB_PATH in _migrated_paths:
+        return
     conn.execute(SCHEMA)
     conn.execute(ORDERS_SCHEMA)
     existing = {r["name"] for r in conn.execute("PRAGMA table_info(orders)")}
@@ -94,7 +105,25 @@ def _connect():
     for column, ddl in IDEA_MIGRATIONS:
         if column not in existing_ideas:
             conn.execute(ddl)
-    return conn
+    conn.commit()
+    _migrated_paths.add(DB_PATH)
+
+
+@contextmanager
+def _connect():
+    """Connection that is committed AND closed.
+
+    `with sqlite3.connect(...)` commits or rolls back but does NOT close, so
+    every journal call used to leak a connection until the garbage collector
+    got to it. The dashboard polls /api/state, which makes three of these
+    calls, so a long-running server drifted towards the file-descriptor limit.
+    """
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with closing(sqlite3.connect(DB_PATH, timeout=BUSY_TIMEOUT_SECONDS)) as conn:
+        conn.row_factory = sqlite3.Row
+        _ensure_schema(conn)
+        with conn:              # commit on success, roll back on exception
+            yield conn
 
 
 def _now():
@@ -145,8 +174,15 @@ def list_ideas(limit=100):
     return ideas
 
 
+DECISIONS = ("approved", "needs_research", "rejected", "pending")
+OUTCOMES = ("open", "win", "loss", "scratch")
+
+
 def set_decision(idea_id, decision):
-    assert decision in ("approved", "needs_research", "rejected", "pending")
+    # Not assert: `python -O` strips those entirely, and 'approved' is the flag
+    # the whole execution path keys off.
+    if decision not in DECISIONS:
+        raise ValueError(f"decision must be one of {DECISIONS}, got {decision!r}")
     with _connect() as conn:
         cur = conn.execute(
             "UPDATE ideas SET decision = ?, updated_at = ? WHERE id = ?",
@@ -161,7 +197,8 @@ def record_outcome(idea_id, outcome, price=None, notes=None, realised=None):
     an exit price was supplied. Reopening an idea (outcome='open') clears the
     realised figures rather than leaving stale P&L attached to a live position.
     """
-    assert outcome in ("open", "win", "loss", "scratch")
+    if outcome not in OUTCOMES:
+        raise ValueError(f"outcome must be one of {OUTCOMES}, got {outcome!r}")
     r = realised or {}
     if outcome == "open":
         r = {}
@@ -236,11 +273,57 @@ def release_order_claim(order_id):
 
 
 def update_order(order_id, status, ib_order_id=None, detail=None):
-    assert status in ORDER_STATUSES
+    # The one that matters most: under `python -O` an arbitrary status string
+    # could otherwise be written to an order row, and 'pending_confirmation' is
+    # what claim_order_for_submission() gates on.
+    if status not in ORDER_STATUSES:
+        raise ValueError(f"status must be one of {ORDER_STATUSES}, got {status!r}")
     with _connect() as conn:
         conn.execute(
             "UPDATE orders SET status=?, ib_order_id=?, detail=?, updated_at=? WHERE id=?",
             (status, ib_order_id, detail, _now(), order_id))
+
+
+# Statuses meaning "this ticket reached the broker", i.e. it consumed one of
+# your daily order attempts. A ticket cancelled before submission did not.
+SUBMITTED_STATUSES = ("submitting", "submitted", "accepted", "filled", "rejected", "error")
+
+
+def _utc_today():
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def orders_submitted_today():
+    """How many orders actually went to the broker today (UTC).
+
+    Counts tickets that were claimed for submission, not tickets prepared:
+    looking at a ticket and cancelling it is not spending an attempt.
+    """
+    placeholders = ",".join("?" for _ in SUBMITTED_STATUSES)
+    with _connect() as conn:
+        row = conn.execute(
+            f"""SELECT COUNT(*) AS n FROM orders
+                WHERE status IN ({placeholders}) AND substr(updated_at, 1, 10) = ?""",
+            (*SUBMITTED_STATUSES, _utc_today())).fetchone()
+    return row["n"]
+
+
+def realised_pnl_today():
+    """Base-currency P&L booked today (UTC), or 0.0 when nothing closed.
+
+    Only ideas carrying pnl_base can be summed — pnl_instrument mixes
+    currencies. Ideas closed before that column existed contribute nothing,
+    which understates a loss rather than overstating it, so the breaker errs
+    towards letting you trade; it is a backstop, not an accountant.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT SUM(pnl_base) AS total FROM ideas
+               WHERE outcome IN ('win','loss','scratch')
+                 AND pnl_base IS NOT NULL
+                 AND substr(updated_at, 1, 10) = ?""",
+            (_utc_today(),)).fetchone()
+    return float(row["total"] or 0.0)
 
 
 def list_orders(limit=50):

@@ -16,6 +16,33 @@ from ..strategies import registry as strategy_registry
 app = Flask(__name__, template_folder=os.path.join(os.path.dirname(__file__), "templates"))
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
+# Hostnames this server will answer to. Binding to 127.0.0.1 keeps other
+# machines out, but it does NOT stop DNS rebinding: a page on evil.example
+# whose DNS record flips to 127.0.0.1 becomes same-origin with the dashboard
+# and can then POST JSON to these endpoints. Nothing here is authenticated, so
+# that page could read /api/state for a ticker and drive the order flow with
+# it. Checking the Host header defeats rebinding outright — a rebound request
+# still carries the attacker's hostname.
+ALLOWED_HOSTNAMES = frozenset({"127.0.0.1", "localhost", "[::1]"})
+
+
+def _hostname_of(host_header):
+    """Strip the port, keeping an IPv6 literal's brackets: '[::1]:5002' -> '[::1]'."""
+    host = (host_header or "").strip().lower()
+    if host.startswith("["):
+        return host.split("]")[0] + "]" if "]" in host else host
+    return host.rsplit(":", 1)[0] if ":" in host else host
+
+
+@app.before_request
+def _reject_foreign_host_headers():
+    hostname = _hostname_of(request.host)
+    if hostname not in ALLOWED_HOSTNAMES:
+        return jsonify({
+            "error": f"Refused: this server only answers to localhost, not '{hostname}'. "
+                     "If you did not type this address yourself, a web page may be "
+                     "trying to reach your dashboard."}), 403
+
 _state = {"scan": None, "scanning": False, "error": None,
           "progress": None, "cancel": False}
 _lock = threading.Lock()
@@ -332,7 +359,10 @@ def api_confirm_order(ticket_id):
     """Step 2 of 2: place the order — requires the typed ticker confirmation."""
     typed = (request.json or {}).get("confirmation", "")
     try:
-        result = execution.confirm_ticket(ticket_id, typed, load_config())
+        config = load_config()
+        # The router lets confirm re-check the live price before placing.
+        result = execution.confirm_ticket(ticket_id, typed, config,
+                                          router=pipeline.get_router(config))
         return jsonify(result)
     except ExecutionRefused as exc:
         return jsonify({"error": str(exc)}), 409

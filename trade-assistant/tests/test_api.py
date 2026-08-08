@@ -8,6 +8,13 @@ import tempfile
 
 import pytest
 
+# The dashboard imports the whole data stack, so the Flask app genuinely needs
+# yfinance to start. Skip the module rather than aborting collection on a
+# clean checkout (audit finding D-8).
+pytest.importorskip("yfinance", reason="the web server imports the data providers")
+
+from .optional_deps import requires_ib   # noqa: E402
+
 from assistant import journal
 from assistant.providers.base import ProviderUnavailable
 
@@ -124,6 +131,7 @@ def test_confirm_order_when_execution_disabled_is_409(client):
     assert resp.status_code == 409
 
 
+@requires_ib
 def test_gateway_unreachable_maps_to_503(client, monkeypatch):
     """A dead IB Gateway is a service problem, not an app crash."""
     from assistant.broker.ibkr import GatewayUnreachable

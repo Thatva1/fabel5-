@@ -8,7 +8,8 @@ GET /api/state -> the browser DOM. These tests pin every link in that chain.
 import pytest
 
 from assistant.providers.base import ProviderUnavailable, redact
-from assistant.providers.router import DataRouter
+
+from .optional_deps import requires_yfinance
 
 SECRET = "SECRETKEY123"
 
@@ -61,16 +62,20 @@ def test_redact_handles_none_and_non_strings():
     assert redact(ValueError("api_key=abc123")) == "api_key=***"
 
 
+@requires_yfinance
 def test_router_health_record_scrubs_provider_errors():
     """Belt and braces: even a provider that forgets to scrub its own message
     cannot get a key into the health record."""
+    from assistant.providers.router import DataRouter
     router = DataRouter({})
     router._record("fred", ProviderUnavailable(FRED_LEAK))
     assert SECRET not in router.health["fred"]["last_error"]
 
 
+@requires_yfinance
 def test_provider_status_note_is_safe_to_serve_over_http():
     """provider_status() is the payload of GET /api/state."""
+    from assistant.providers.router import DataRouter
     router = DataRouter({})
     router._record("fred", ProviderUnavailable(FRED_LEAK))
     router._record("finnhub", ProviderUnavailable(
@@ -80,6 +85,7 @@ def test_provider_status_note_is_safe_to_serve_over_http():
     assert "degraded" in blob      # the outage is still reported honestly
 
 
+@requires_yfinance
 def test_fred_provider_scrubs_its_own_exception(monkeypatch):
     """The provider must not rely on the router's second pass."""
     from assistant.providers import fred_provider
@@ -95,6 +101,7 @@ def test_fred_provider_scrubs_its_own_exception(monkeypatch):
     assert "DGS10" in str(excinfo.value)
 
 
+@requires_yfinance
 def test_finnhub_provider_scrubs_its_own_exception(monkeypatch):
     from assistant.providers import finnhub_provider
 

@@ -5,6 +5,8 @@ so macro must cover their home region, and search must prefer their exchanges.
 """
 import pytest
 
+from .optional_deps import requires_yfinance
+
 from assistant.providers.base import ProviderUnavailable
 from assistant.providers.global_macro import COUNTRIES, GlobalMacroProvider
 
@@ -92,6 +94,7 @@ def test_get_macro_all_dead_raises(p, monkeypatch):
 
 # ---------- exchange-preference ranking ----------
 
+@requires_yfinance
 def test_search_prefers_home_exchange(monkeypatch):
     """A UK trader searching 'tesco' must get the London line, not Frankfurt."""
     from assistant.providers.yfinance_provider import YFinanceProvider
@@ -109,6 +112,7 @@ def test_search_prefers_home_exchange(monkeypatch):
     assert res[0]["symbol"] == "TSCO.L"
 
 
+@requires_yfinance
 def test_search_without_preference_keeps_source_order(monkeypatch):
     from assistant.providers.yfinance_provider import YFinanceProvider
 
@@ -124,6 +128,7 @@ def test_search_without_preference_keeps_source_order(monkeypatch):
     assert res[0]["symbol"] == "TCO2.F"
 
 
+@requires_yfinance
 def test_equities_rank_above_funds(monkeypatch):
     from assistant.providers.yfinance_provider import YFinanceProvider
 
@@ -155,6 +160,7 @@ UK_PREFS = ["LSE", "IOB", "AMS", "PAR", "GER", "EBS", "MIL", "MCE",
             "ISE", "STO", "CPH", "OSL", "NMS", "NYQ"]
 
 
+@requires_yfinance
 def test_german_cross_listing_never_beats_home_listing(monkeypatch):
     """Yahoo returns the Frankfurt line first for 'tesco'; it must not win."""
     res = _search(monkeypatch, [
@@ -164,6 +170,7 @@ def test_german_cross_listing_never_beats_home_listing(monkeypatch):
     assert res[0]["symbol"] == "TSCO.L"
 
 
+@requires_yfinance
 def test_us_company_keeps_its_us_listing(monkeypatch):
     """Regression: a hard preference sort resolved 'apple' to APC.DE. The user
     is UK-based, but Apple's primary listing is still Nasdaq."""
@@ -174,6 +181,7 @@ def test_us_company_keeps_its_us_listing(monkeypatch):
     assert res[0]["symbol"] == "AAPL"
 
 
+@requires_yfinance
 def test_uk_company_prefers_london_over_us_adr(monkeypatch):
     """Yahoo puts the NYSE ADR first for HSBC; a UK trader wants the LSE line."""
     res = _search(monkeypatch, [
@@ -184,6 +192,7 @@ def test_uk_company_prefers_london_over_us_adr(monkeypatch):
     assert res[0]["symbol"] == "HSBA.L"
 
 
+@requires_yfinance
 def test_etfs_rank_below_equities(monkeypatch):
     res = _search(monkeypatch, [
         {"symbol": "XSHL.L", "shortname": "Shell ETF", "exchange": "LSE", "quoteType": "ETF"},
@@ -193,6 +202,7 @@ def test_etfs_rank_below_equities(monkeypatch):
 
 
 @pytest.mark.parametrize("noisy", ["FRA", "STU", "DUS", "MEX", "PNK", "OID"])
+@requires_yfinance
 def test_all_noise_venues_are_demoted(monkeypatch, noisy):
     res = _search(monkeypatch, [
         {"symbol": "NOISE", "shortname": "X", "exchange": noisy, "quoteType": "EQUITY"},

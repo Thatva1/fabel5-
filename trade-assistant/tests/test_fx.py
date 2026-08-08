@@ -44,12 +44,21 @@ def test_position_value_normalization():
 
 
 # ---------- minor-unit quotes (the 100x trap) ----------
+#
+# Everything below needs yfinance. This module used to import the provider at
+# module level, so on a clean checkout the whole file aborted COLLECTION with
+# ModuleNotFoundError — taking the pure-arithmetic tests above down with it and
+# turning one missing optional dependency into a suite that cannot run at all.
+#
+# A skipif marker rather than importorskip: importorskip at module scope would
+# skip this entire file, including the conversion tests that need nothing.
 
 import pytest as _pytest
 
-from assistant.providers.yfinance_provider import resolve_currency
+from .optional_deps import requires_yfinance
 
 
+@requires_yfinance
 @_pytest.mark.parametrize("raw,expected", [
     ("GBp", ("GBP", 100.0)),    # LSE pence — Shell at 3328.50 GBp is £33.29
     ("GBX", ("GBP", 100.0)),
@@ -63,16 +72,20 @@ from assistant.providers.yfinance_provider import resolve_currency
     ("",    ("USD", 1.0)),
 ])
 def test_minor_units_resolved(raw, expected):
+    from assistant.providers.yfinance_provider import resolve_currency
     assert resolve_currency(raw) == expected
 
 
+@requires_yfinance
 def test_pence_detection_is_case_sensitive():
     """'GBp' is pence, 'GBP' is pounds — uppercasing one into the other is a
     100x error in position size, exposure and max loss."""
+    from assistant.providers.yfinance_provider import resolve_currency
     assert resolve_currency("GBp")[1] == 100.0
     assert resolve_currency("GBP")[1] == 1.0
 
 
+@requires_yfinance
 def test_prices_are_divided_for_pence_quotes(monkeypatch):
     import pandas as pd
 
@@ -93,6 +106,7 @@ def test_prices_are_divided_for_pence_quotes(monkeypatch):
     assert YFinanceProvider().get_instrument_currency("SHEL.L") == "GBP"
 
 
+@requires_yfinance
 def test_prices_untouched_for_major_units(monkeypatch):
     import pandas as pd
 

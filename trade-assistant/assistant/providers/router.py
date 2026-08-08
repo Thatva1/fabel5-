@@ -44,6 +44,12 @@ class DataRouter:
     def _ttl(self, kind, default):
         return self.ttl.get(kind, default)
 
+    @staticmethod
+    def _key(prefix, ticker, *parts):
+        """Cache key with the ticker upper-cased, so 'aapl' and 'AAPL' share an
+        entry instead of each fetching and storing their own DataFrame."""
+        return ":".join([prefix, (ticker or "").upper(), *(str(p) for p in parts)])
+
     def _record(self, provider_name, error=None):
         """Track real request outcomes so the dashboard can report what is
         actually working, rather than just which API keys are present."""
@@ -86,11 +92,11 @@ class DataRouter:
             self._record("yfinance")
             return df
         return self.cache.get_or_fetch(
-            f"prices:{ticker}:{period}", self._ttl("prices", 600), fetch)
+            self._key("prices", ticker, period), self._ttl("prices", 600), fetch)
 
     def get_instrument_currency(self, ticker):
         return self.cache.get_or_fetch(
-            f"ccy:{ticker}", self._ttl("fundamentals", 3600),
+            self._key("ccy", ticker), self._ttl("fundamentals", 3600),
             lambda: self.yf.get_instrument_currency(ticker))
 
     def get_fx_rates(self, currencies, base_ccy):
@@ -159,7 +165,7 @@ class DataRouter:
 
     def get_fundamentals(self, ticker):
         return self.cache.get_or_fetch(
-            f"fund:{ticker}", self._ttl("fundamentals", 3600),
+            self._key("fund", ticker), self._ttl("fundamentals", 3600),
             lambda: self.yf.get_fundamentals(ticker))
 
     # ---- news / earnings (Finnhub -> yfinance) ----
@@ -169,7 +175,7 @@ class DataRouter:
             result, _ = self._first([self.finnhub, self.yf], "get_news", ticker, limit)
             return result
         try:
-            return self.cache.get_or_fetch(f"news:{ticker}", self._ttl("news", 3600), fetch)
+            return self.cache.get_or_fetch(self._key("news", ticker), self._ttl("news", 3600), fetch)
         except ProviderUnavailable:
             return []
 
@@ -178,7 +184,7 @@ class DataRouter:
             result, _ = self._first([self.finnhub, self.yf], "get_earnings", ticker)
             return result
         try:
-            return self.cache.get_or_fetch(f"earn:{ticker}", self._ttl("earnings", 3600), fetch)
+            return self.cache.get_or_fetch(self._key("earn", ticker), self._ttl("earnings", 3600), fetch)
         except ProviderUnavailable:
             return {"next_earnings_date": None, "recent_quarters": []}
 
@@ -207,7 +213,7 @@ class DataRouter:
             return out
         try:
             return self.cache.get_or_fetch(
-                f"peers:{ticker}", self._ttl("fundamentals", 3600), fetch)
+                self._key("peers", ticker), self._ttl("fundamentals", 3600), fetch)
         except ProviderUnavailable:
             return []
 
@@ -234,7 +240,7 @@ class DataRouter:
             return self.finnhub.get_recommendations(ticker)
         try:
             return self.cache.get_or_fetch(
-                f"recs:{ticker}", self._ttl("fundamentals", 3600), fetch)
+                self._key("recs", ticker), self._ttl("fundamentals", 3600), fetch)
         except ProviderUnavailable:
             return None
 
