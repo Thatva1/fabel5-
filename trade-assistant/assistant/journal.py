@@ -119,6 +119,12 @@ def _connect():
     calls, so a long-running server drifted towards the file-descriptor limit.
     """
     os.makedirs(DATA_DIR, exist_ok=True)
+    # Checked BEFORE connecting, because sqlite3.connect() recreates the file:
+    # by the time _ensure_schema runs, a deleted database exists again but is
+    # empty. Per-call CREATE TABLE IF NOT EXISTS used to make a deleted
+    # journal.db heal itself, and caching the migration must not cost that.
+    if DB_PATH in _migrated_paths and not os.path.exists(DB_PATH):
+        _migrated_paths.discard(DB_PATH)
     with closing(sqlite3.connect(DB_PATH, timeout=BUSY_TIMEOUT_SECONDS)) as conn:
         conn.row_factory = sqlite3.Row
         _ensure_schema(conn)

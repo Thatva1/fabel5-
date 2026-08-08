@@ -245,3 +245,25 @@ def test_fence_markers_in_hostile_text_are_neutralised():
     assert UNTRUSTED_OPEN not in _fence_safe(f"x {UNTRUSTED_OPEN} y")
     # The rest of the text survives so it can still be analysed as data.
     assert "Great quarter" in cleaned
+
+
+# ---------- D-1: connection handling must not cost self-healing ----------
+
+def test_a_deleted_journal_db_is_recreated(monkeypatch):
+    """Schema setup is cached per process now, but per-call CREATE TABLE used
+    to make a deleted journal.db heal itself on the next request. Caching must
+    not quietly remove that."""
+    _seed_idea()
+    assert len(journal.list_ideas()) == 1
+
+    os.remove(journal.DB_PATH)
+    assert journal.list_ideas() == []          # must not raise
+
+    _seed_idea()
+    assert len(journal.list_ideas()) == 1
+
+
+def test_the_journal_uses_a_generous_busy_timeout():
+    """The default 5s is thin with a background scan thread writing while
+    request threads read."""
+    assert journal.BUSY_TIMEOUT_SECONDS >= 15
