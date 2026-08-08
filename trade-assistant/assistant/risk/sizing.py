@@ -11,11 +11,18 @@ ATR_STOP_MULTIPLE = 1.5   # fallback stop distance
 STRUCTURE_BUFFER = 0.25   # stop sits 0.25*ATR beyond the 20d extreme
 
 
-def position_size(risk_budget, risk_per_share, max_position_value=None):
+def position_size(risk_budget, risk_per_share, max_shares=None):
     """Whole shares satisfying BOTH constraints:
 
-      * shares * risk_per_share  <= risk_budget        (max loss)
-      * shares * entry_price     <= max_position_value (concentration cap)
+      * shares * risk_per_share <= risk_budget   (max loss)
+      * shares                  <= max_shares    (concentration cap, in SHARES)
+
+    max_shares is a SHARE COUNT, not a currency amount. It was previously named
+    max_position_value, which promised a cash figure the implementation never
+    honoured — it compared the value against shares. The only caller divided by
+    the entry price first, so the behaviour was right and the name was wrong;
+    the next caller to trust the name would have got a position orders of
+    magnitude too large. Use position_size_by_value() if you have a cash cap.
 
     Taking the smaller of the two is standard practice. Sizing on the risk
     budget alone means a tight stop produces a huge share count, so the position
@@ -26,9 +33,24 @@ def position_size(risk_budget, risk_per_share, max_position_value=None):
     if risk_per_share <= 0 or risk_budget <= 0:
         return 0
     by_risk = math.floor(risk_budget / risk_per_share)
-    if max_position_value is None:
+    if max_shares is None:
         return by_risk
-    return min(by_risk, max(0, math.floor(max_position_value)))
+    return min(by_risk, max(0, math.floor(max_shares)))
+
+
+def position_size_by_value(risk_budget, risk_per_share, max_position_value, entry_price):
+    """position_size() with the concentration cap expressed in CASH.
+
+    The explicit entry_price is the point: converting a cash cap to a share cap
+    requires it, and making the caller pass it is what stops the two units
+    being confused again.
+    """
+    if entry_price is None or entry_price <= 0:
+        raise ValueError("entry_price must be positive to convert a cash cap to shares")
+    if max_position_value is None:
+        return position_size(risk_budget, risk_per_share)
+    return position_size(risk_budget, risk_per_share,
+                         max_shares=max_position_value / entry_price)
 
 
 def long_levels(price, atr, sma20=None, prior_low=None):
@@ -156,11 +178,10 @@ def build_plan(snapshot, thesis, risk_budget_instrument_ccy, instrument_ccy="USD
     if levels["risk_per_share"] <= 0:
         return None
 
-    max_shares_by_cap = (max_position_value / levels["entry"]
-                         if max_position_value else None)
     shares_by_risk = position_size(risk_budget_instrument_ccy, levels["risk_per_share"])
-    shares = position_size(risk_budget_instrument_ccy, levels["risk_per_share"],
-                           max_position_value=max_shares_by_cap)
+    # max_position_value is a cash cap, so the conversion to shares is explicit.
+    shares = position_size_by_value(risk_budget_instrument_ccy, levels["risk_per_share"],
+                                    max_position_value, levels["entry"])
     if shares < 1:
         return None
     sized_down = shares < shares_by_risk

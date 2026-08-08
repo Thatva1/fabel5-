@@ -18,7 +18,7 @@ class PaperBroker(Broker):
     def get_positions(self):
         return list(self._config.get("positions", []))
 
-    def is_shortable(self, ticker):
+    def is_shortable(self, ticker, currency="USD"):
         return {"status": "unknown", "source": "paper",
                 "detail": ("No broker connection, so borrow availability is unverified. "
                            "Confirm with your broker before shorting.")}

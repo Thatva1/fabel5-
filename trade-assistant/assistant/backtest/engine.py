@@ -265,9 +265,10 @@ def _size(idea, entry_price, config):
     risk_per_share = abs(entry_price - idea.stop)
     if risk_per_share <= 0:
         return 0
-    return sizing.position_size(
-        risk_budget, risk_per_share,
-        max_position_value=(max_position / entry_price) if entry_price else None)
+    if not entry_price:
+        return sizing.position_size(risk_budget, risk_per_share)
+    return sizing.position_size_by_value(
+        risk_budget, risk_per_share, max_position, entry_price)
 
 
 def convert_trades(trades, instrument_ccy, base_ccy, fx_series, notes):

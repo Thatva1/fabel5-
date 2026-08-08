@@ -42,6 +42,46 @@ CONNECT_TIMEOUT = 6
 PAPER_ACCOUNT_PREFIXES = ("DU", "DF")
 
 
+# Yahoo exchange suffixes covering this app's preferred_exchanges list. Anything
+# not listed here is left untouched rather than guessed at.
+YAHOO_EXCHANGE_SUFFIXES = {
+    "L", "IL",                      # London (LSE, international order book)
+    "AS", "PA", "BR", "LS",         # Amsterdam, Paris, Brussels, Lisbon
+    "DE", "F", "BE", "DU", "HM", "HA", "MU", "SG",   # German venues
+    "SW", "VX",                     # Switzerland
+    "MI", "MC", "VI",               # Milan, Madrid, Vienna
+    "ST", "CO", "OL", "HE",         # Stockholm, Copenhagen, Oslo, Helsinki
+    "IR",                           # Dublin
+    "TO", "V", "NE", "CN",          # Canada
+    "SA", "MX",                     # São Paulo, Mexico
+    "T", "HK", "SI", "AX", "NZ",    # Tokyo, Hong Kong, Singapore, Sydney, NZ
+    "NS", "BO",                     # India (NSE, BSE)
+    "KS", "KQ", "TW", "TWO",        # Korea, Taiwan
+    "JO", "TA",                     # Johannesburg, Tel Aviv
+    "IS",                           # Istanbul
+}
+
+
+def ib_symbol(ticker):
+    """Yahoo-style symbol -> the plain symbol IB expects.
+
+    Yahoo suffixes the exchange ('TSCO.L', 'AIR.PA', 'SAP.DE'); IB takes the
+    bare symbol plus a currency and routes with SMART. Passing 'TSCO.L' simply
+    fails to resolve, which is how the borrow check came to answer UNKNOWN for
+    every non-US name.
+
+    Only known exchange suffixes are stripped. US symbols that legitimately
+    contain a dot are share-class markers (BRK.B, BF.A) and must survive
+    untouched — guessing from the shape would break them.
+    """
+    if not ticker or "." not in ticker:
+        return ticker
+    stem, _, suffix = ticker.rpartition(".")
+    if stem and suffix.upper() in YAHOO_EXCHANGE_SUFFIXES:
+        return stem
+    return ticker
+
+
 def accounts_are_paper(accounts):
     """True only when EVERY reported account is a paper account.
     Empty/unknown -> False, i.e. assume live and warn loudly (fail safe)."""
@@ -193,13 +233,15 @@ class IBKRBroker(Broker):
         not resolvable — returns UNKNOWN rather than a guess, because the risk
         gate must never read "we couldn't check" as "yes, go ahead".
         """
+        symbol = ib_symbol(ticker)
         try:
             with self._session() as ib:
-                contract = Stock(ticker, "SMART", currency)
+                contract = Stock(symbol, "SMART", (currency or "USD").upper())
                 qualified = ib.qualifyContracts(contract)
                 if not qualified:
                     return {"status": "unknown", "source": "IBKR",
-                            "detail": f"IB could not resolve {ticker} on SMART routing."}
+                            "detail": (f"IB could not resolve {symbol} ({currency}) "
+                                       "on SMART routing.")}
                 ticker_data = ib.reqMktData(qualified[0], "236", False, False)
                 ib.sleep(2)
                 shares = getattr(ticker_data, "shortableShares", None)
@@ -244,11 +286,12 @@ class IBKRBroker(Broker):
 
         with self._session() as ib:
             self.is_paper = accounts_are_paper(ib.managedAccounts())
-            contract = Stock(order_intent.ticker, "SMART", order_intent.currency)
+            symbol = ib_symbol(order_intent.ticker)
+            contract = Stock(symbol, "SMART", order_intent.currency)
             qualified = ib.qualifyContracts(contract)
             if not qualified:
                 raise ValueError(
-                    f"IB could not resolve {order_intent.ticker} ({order_intent.currency}) "
+                    f"IB could not resolve {symbol} ({order_intent.currency}) "
                     "on SMART routing — check the symbol/currency.")
             contract = qualified[0]
 

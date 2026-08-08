@@ -71,6 +71,24 @@ def _clean(value):
     return value
 
 
+def _fraction_to_pct(value):
+    """yfinance fraction (0.18) -> percentage (18.0).
+
+    Unconditional, because at this boundary the unit is known: yfinance reports
+    shortPercentOfFloat as a fraction for every ticker. Downstream code must not
+    re-guess from the magnitude — a genuine 0.8% of float and the fraction 0.8
+    (80%) are indistinguishable once the unit is lost, and the old heuristic
+    resolved that ambiguity the dangerous way.
+    """
+    cleaned = _clean(value)
+    if cleaned is None:
+        return None
+    try:
+        return round(float(cleaned) * 100, 2)
+    except (TypeError, ValueError):
+        return None
+
+
 class YFinanceProvider(DataProvider):
     name = "yfinance"
 
@@ -159,7 +177,13 @@ class YFinanceProvider(DataProvider):
             "free_cash_flow": info.get("freeCashflow"),
             "shares_outstanding": info.get("sharesOutstanding"),
             "beta": info.get("beta"),
-            "short_percent_of_float": info.get("shortPercentOfFloat"),
+            # Normalised HERE, at the boundary, because this is the only place
+            # that knows the unit: yfinance's shortPercentOfFloat is always a
+            # FRACTION (0.18 = 18%). borrow.py used to guess from the magnitude
+            # and reported 0.8% of float as 80% — flagging the safest kind of
+            # short as one of the most crowded trades on the market.
+            "short_percent_of_float": _fraction_to_pct(
+                info.get("shortPercentOfFloat")),
             # Dividend picture — central to the case for income/staple names.
             "dividend_yield_pct": info.get("dividendYield"),
             "payout_ratio": info.get("payoutRatio"),

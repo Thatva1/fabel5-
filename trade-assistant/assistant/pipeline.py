@@ -135,7 +135,8 @@ def analyze_ticker(ticker, config=None, snapshot=None, strategy_idea=None,
     shortability = None
     if plan and plan.get("direction") == "short":
         shortability = borrow.check_shortability(
-            ticker, config, broker=broker, fundamentals=ctx.get("fundamentals"))
+            ticker, config, broker=broker, fundamentals=ctx.get("fundamentals"),
+            currency=instrument_ccy)
 
     # The gate's percentage caps must measure against the SAME portfolio value
     # the position was sized from. Passing config's figure while sizing used the

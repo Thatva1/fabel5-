@@ -148,3 +148,35 @@ def test_us_fundamentals_are_untouched(us):
     assert _v(f, "fifty_two_week_high") == pytest.approx(344.57)
     assert _v(f, "analyst_target_mean") == pytest.approx(324.01)
     assert _v(f, "market_cap") == 4_538_800_000_000
+
+
+# --- short interest units (audit finding B-2) --------------------------------
+
+def test_short_interest_fraction_becomes_a_percentage(monkeypatch):
+    """yfinance reports shortPercentOfFloat as a FRACTION. Normalising here is
+    what lets borrow.py stop guessing from the magnitude."""
+    info = {**US_INFO, "shortPercentOfFloat": 0.18}
+    monkeypatch.setattr(yfp.yf, "Ticker", lambda t: _FakeTicker(info, close=311.0))
+    assert _v(YFinanceProvider().get_fundamentals("AAPL"),
+              "short_percent_of_float") == pytest.approx(18.0)
+
+
+def test_a_lightly_shorted_name_stays_lightly_shorted(monkeypatch):
+    """0.008 is 0.8% of float. The old magnitude heuristic reported it as 80%."""
+    info = {**US_INFO, "shortPercentOfFloat": 0.008}
+    monkeypatch.setattr(yfp.yf, "Ticker", lambda t: _FakeTicker(info, close=311.0))
+    assert _v(YFinanceProvider().get_fundamentals("AAPL"),
+              "short_percent_of_float") == pytest.approx(0.8)
+
+
+def test_one_percent_of_float_is_not_reported_as_one_hundred(monkeypatch):
+    info = {**US_INFO, "shortPercentOfFloat": 0.01}
+    monkeypatch.setattr(yfp.yf, "Ticker", lambda t: _FakeTicker(info, close=311.0))
+    assert _v(YFinanceProvider().get_fundamentals("AAPL"),
+              "short_percent_of_float") == pytest.approx(1.0)
+
+
+def test_missing_short_interest_stays_none(monkeypatch):
+    monkeypatch.setattr(yfp.yf, "Ticker", lambda t: _FakeTicker(US_INFO, close=311.0))
+    assert _v(YFinanceProvider().get_fundamentals("AAPL"),
+              "short_percent_of_float") is None

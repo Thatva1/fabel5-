@@ -1,7 +1,8 @@
 import pytest
 
 from assistant.risk.sizing import (
-    build_plan, confidence_score, long_levels, position_size, short_levels,
+    build_plan, confidence_score, long_levels, position_size,
+    position_size_by_value, short_levels,
 )
 
 
@@ -115,18 +116,49 @@ def test_position_size_respects_concentration_cap():
     """Regression: a tight stop used to produce a position far over the cap."""
     # $1000 budget / $1.60 risk = 625 shares, but the cap allows only 240
     assert position_size(1000, 1.60) == 625
-    assert position_size(1000, 1.60, max_position_value=240) == 240
+    assert position_size(1000, 1.60, max_shares=240) == 240
 
 
 def test_position_size_uses_risk_when_it_is_the_tighter_limit():
-    assert position_size(1000, 20.0, max_position_value=500) == 50   # risk binds
+    assert position_size(1000, 20.0, max_shares=500) == 50   # risk binds
 
 
 def test_cap_sizing_never_exceeds_either_constraint():
     entry, risk_per_share, budget, cap_value = 62.36, 1.60, 1000, 15000
-    shares = position_size(budget, risk_per_share, max_position_value=cap_value / entry)
+    shares = position_size_by_value(budget, risk_per_share, cap_value, entry)
     assert shares * risk_per_share <= budget          # max loss respected
     assert shares * entry <= cap_value + entry        # cap respected (whole shares)
+
+
+# ---------- B-1: the cap parameter's units ----------
+
+def test_max_shares_is_a_share_count():
+    """The parameter is a SHARE COUNT. Named max_position_value it read as a
+    cash figure the implementation never honoured."""
+    assert position_size(1000, 1.0, max_shares=50) == 50
+
+
+def test_position_size_by_value_takes_a_cash_cap():
+    """The cash-capped API needs the entry price, and says so in its signature.
+    $5,000 cap at $100 a share is 50 shares — not 5,000."""
+    assert position_size_by_value(1000, 1.0, max_position_value=5000,
+                                  entry_price=100) == 50
+
+
+def test_the_two_apis_agree_when_converted_by_hand():
+    assert (position_size_by_value(1000, 1.60, 15000, 62.36)
+            == position_size(1000, 1.60, max_shares=15000 / 62.36))
+
+
+def test_position_size_by_value_needs_a_usable_price():
+    for bad in (0, -1, None):
+        with pytest.raises(ValueError):
+            position_size_by_value(1000, 1.0, 5000, bad)
+
+
+def test_position_size_by_value_without_a_cap_is_risk_only():
+    assert (position_size_by_value(1000, 1.60, None, 62.36)
+            == position_size(1000, 1.60))
 
 
 def test_build_plan_sizes_down_and_flags_it():

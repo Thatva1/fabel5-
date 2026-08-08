@@ -156,7 +156,7 @@ def test_your_own_override_list_wins_over_everything():
     class AlwaysYes:
         name = "fake"
 
-        def is_shortable(self, ticker):
+        def is_shortable(self, ticker, currency="USD"):
             return {"status": "yes", "detail": "broker says yes"}
 
     result = borrow.check_shortability("TSCO.L", config, broker=AlwaysYes())
@@ -168,7 +168,7 @@ def test_broker_answer_is_used_when_there_is_no_override():
     class Broker:
         name = "ibkr"
 
-        def is_shortable(self, ticker):
+        def is_shortable(self, ticker, currency="USD"):
             return {"status": "yes", "source": "IBKR", "detail": "2m shares available"}
 
     result = borrow.check_shortability("VOD.L", {}, broker=Broker())
@@ -182,7 +182,7 @@ def test_a_broker_that_raises_becomes_unknown_never_yes():
     class Broken:
         name = "ibkr"
 
-        def is_shortable(self, ticker):
+        def is_shortable(self, ticker, currency="USD"):
             raise ConnectionError("gateway down")
 
     result = borrow.check_shortability("VOD.L", {}, broker=Broken())
@@ -196,11 +196,11 @@ def test_no_broker_at_all_is_unknown_with_an_actionable_message():
     assert "shortable_overrides" in result["detail"]
 
 
-def test_short_interest_fraction_is_normalised_to_a_percentage():
-    """yfinance reports 18% as 0.18. Reporting that as '0.2% of float is short'
-    would turn a crowded name into a non-event."""
+def test_borrow_takes_short_interest_as_a_percentage_unchanged():
+    """B-2: normalisation belongs at the provider boundary, which is the only
+    place that knows the source unit. borrow.py must not re-guess it."""
     result = borrow.check_shortability(
-        "VOD.L", {}, fundamentals={"short_percent_of_float": {"value": 0.18,
+        "VOD.L", {}, fundamentals={"short_percent_of_float": {"value": 18.0,
                                                               "source": "Yahoo Finance"}})
     assert result["crowding"]["short_percent_of_float"] == pytest.approx(18.0)
 
@@ -209,6 +209,22 @@ def test_short_interest_already_in_percent_is_left_alone():
     result = borrow.check_shortability(
         "VOD.L", {}, fundamentals={"short_percent_of_float": 22.0})
     assert result["crowding"]["short_percent_of_float"] == pytest.approx(22.0)
+
+
+def test_a_lightly_shorted_name_is_not_reported_as_crowded():
+    """The B-2 symptom: 0.8% of float used to be reported as 80%, well over the
+    10% crowding flag — the safest kind of short flagged as the most crowded."""
+    result = borrow.check_shortability(
+        "VOD.L", {}, fundamentals={"short_percent_of_float": 0.8})
+    pct = result["crowding"]["short_percent_of_float"]
+    assert pct == pytest.approx(0.8)
+    assert pct < gate.SHORT_RULE_DEFAULTS["crowding_flag_pct"]
+
+
+def test_one_percent_of_float_is_not_reported_as_one_hundred():
+    result = borrow.check_shortability(
+        "VOD.L", {}, fundamentals={"short_percent_of_float": 1.0})
+    assert result["crowding"]["short_percent_of_float"] == pytest.approx(1.0)
 
 
 def test_missing_short_interest_is_none_not_zero():
@@ -235,3 +251,52 @@ def test_agreement_produces_no_disagreement_flag():
     result = gate.evaluate(_snapshot(), _thesis(bias="bearish"), plan, _config(), {},
                            shortability=_borrow())
     assert not any("disagree" in f for f in result["soft_flags"])
+
+
+# --- B-3: the borrow check must ask about the right contract ----------------
+
+def test_broker_is_asked_in_the_instruments_currency():
+    """IBKR resolved every symbol as USD, so every London/Paris/Frankfurt short
+    came back UNKNOWN — a safety feature switched off for most of the markets
+    this tool is pointed at."""
+    seen = {}
+
+    class RecordingBroker:
+        name = "ibkr"
+
+        def is_shortable(self, ticker, currency="USD"):
+            seen["ticker"], seen["currency"] = ticker, currency
+            return {"status": "yes", "source": "IBKR", "detail": "available"}
+
+    result = borrow.check_shortability("TSCO.L", {}, broker=RecordingBroker(),
+                                       currency="GBP")
+    assert seen["currency"] == "GBP"
+    assert result["status"] == borrow.YES
+
+
+def test_currency_defaults_to_usd_when_not_supplied():
+    seen = {}
+
+    class RecordingBroker:
+        name = "ibkr"
+
+        def is_shortable(self, ticker, currency="USD"):
+            seen["currency"] = currency
+            return {"status": "yes", "source": "IBKR", "detail": "available"}
+
+    borrow.check_shortability("AAPL", {}, broker=RecordingBroker())
+    assert seen["currency"] == "USD"
+
+
+def test_paper_broker_accepts_the_currency_argument():
+    """Every implementation of the interface must take it."""
+    from assistant.broker.paper import PaperBroker
+
+    answer = PaperBroker({}).is_shortable("TSCO.L", "GBP")
+    assert answer["status"] == borrow.UNKNOWN
+
+
+def test_base_broker_accepts_the_currency_argument():
+    from assistant.broker.base import Broker
+
+    assert Broker().is_shortable("TSCO.L", "GBP")["status"] == borrow.UNKNOWN

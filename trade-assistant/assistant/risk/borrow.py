@@ -18,11 +18,16 @@ NO = "no"
 UNKNOWN = "unknown"
 
 
-def check_shortability(ticker, config, broker=None, fundamentals=None):
+def check_shortability(ticker, config, broker=None, fundamentals=None, currency="USD"):
     """Best available answer, with its provenance attached.
 
     Sources are tried in order of authority: your own explicit list, then the
     broker (the only source that truly knows), then nothing.
+
+    currency: the INSTRUMENT's currency. The broker needs it to resolve the
+    contract — without it IBKR asked about a USD line for every symbol and
+    answered UNKNOWN for every London, Paris or Frankfurt name, quietly
+    switching this check off for most of the markets this tool is aimed at.
 
     Returns {status, source, detail, crowding{}}.
     """
@@ -42,7 +47,7 @@ def check_shortability(ticker, config, broker=None, fundamentals=None):
 
     if broker is not None:
         try:
-            answer = broker.is_shortable(ticker)
+            answer = broker.is_shortable(ticker, currency)
         except Exception as exc:
             answer = {"status": UNKNOWN,
                       "detail": f"Broker check failed ({type(exc).__name__}: {exc})."}
@@ -69,7 +74,18 @@ def check_shortability(ticker, config, broker=None, fundamentals=None):
 
 
 def _crowding(fundamentals):
-    """Short interest as a percentage of float, when the data layer supplied it."""
+    """Short interest as a percentage of float, when the data layer supplied it.
+
+    The value arrives ALREADY normalised to a percentage — see
+    providers/yfinance_provider._fraction_to_pct, which is the only place that
+    knows the source unit.
+
+    This used to normalise here with `if pct <= 1.0: pct *= 100`, which cannot
+    tell a fraction from a small percentage: 0.8% of float was reported as 80%
+    and 1% as 100%. That flagged the *least* crowded names — the safest ones to
+    short — as the most crowded, training you to ignore the one warning you
+    want to trust when it is real.
+    """
     if not isinstance(fundamentals, dict):
         return {"short_percent_of_float": None}
     raw = fundamentals.get("short_percent_of_float")
@@ -81,7 +97,4 @@ def _crowding(fundamentals):
         pct = float(value)
     except (TypeError, ValueError):
         return {"short_percent_of_float": None}
-    # yfinance reports this as a fraction (0.18); normalise to a percentage.
-    if pct <= 1.0:
-        pct *= 100
     return {"short_percent_of_float": round(pct, 2), "source": source}

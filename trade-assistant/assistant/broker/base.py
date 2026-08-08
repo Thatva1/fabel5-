@@ -28,10 +28,16 @@ class Broker:
         """Layer 2 only. order_intent: core.models.OrderIntent."""
         raise ExecutionNotEnabled(f"{self.name}: order placement is not enabled")
 
-    def is_shortable(self, ticker):
+    def is_shortable(self, ticker, currency="USD"):
         """Read-only: can this instrument be borrowed and sold short?
 
         {"status": "yes" | "no" | "unknown", "source": str, "detail": str}
+
+        `currency` is part of the interface because a broker has to resolve the
+        contract before it can answer, and a London line is not a USD contract.
+        Omitting it here meant IBKR resolved every symbol as USD and returned
+        UNKNOWN for every non-US short — a safety feature switched off for most
+        of the markets this tool is pointed at.
 
         The default is UNKNOWN, and that is the honest answer for any broker
         that cannot check. The risk gate treats unknown as a flag, never as
