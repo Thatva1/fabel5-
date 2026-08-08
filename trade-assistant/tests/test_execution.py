@@ -13,6 +13,7 @@ from assistant import journal
 from assistant.broker.base import ExecutionNotEnabled
 from assistant.broker.paper import PaperBroker
 from assistant.core.models import OrderIntent
+from assistant.providers.base import ProviderUnavailable
 
 
 @pytest.fixture(autouse=True)
@@ -27,13 +28,15 @@ class FakeBroker:
     """Stands in for IBKRBroker: records orders instead of sending them."""
     is_paper = True
 
-    def __init__(self, portfolio_value=100000, positions=None):
+    def __init__(self, portfolio_value=100000, positions=None, base_currency="USD"):
         self.placed = []
         self._value = portfolio_value
         self._positions = positions or []
+        self._base_currency = base_currency
 
     def get_account(self):
-        return {"portfolio_value": self._value, "base_currency": "USD", "source": "FakeBroker"}
+        return {"portfolio_value": self._value, "base_currency": self._base_currency,
+                "source": "FakeBroker"}
 
     def get_positions(self):
         return list(self._positions)
@@ -45,8 +48,26 @@ class FakeBroker:
 
 
 class FakeRouter:
+    """Stands in for the DataRouter.
+
+    get_prices matters: prepare_ticket refuses to build a ticket when the
+    current price can't be read (audit finding R-3), so a router that returns
+    nothing is a router that blocks every order. `price=None` simulates exactly
+    that outage; the default sits on the seeded plan's entry so the drift check
+    passes and the other safety properties can be tested in isolation.
+    """
+
+    def __init__(self, price=100.0):
+        self._price = price
+
     def get_fx_rates(self, currencies, base):
         return {}
+
+    def get_prices(self, ticker, period="1y"):
+        if self._price is None:
+            raise ProviderUnavailable(f"no market data for {ticker}")
+        import pandas as pd
+        return pd.DataFrame({"Close": [self._price] * 5})
 
 
 CONFIG_EXEC_ON = {
@@ -77,11 +98,12 @@ def _seed_idea(decision="approved", verdict="approved_for_review", with_plan=Tru
     return idea_id
 
 
-def _prepare(idea_id, config=CONFIG_EXEC_ON, broker=None, monkeypatch=None):
+def _prepare(idea_id, config=CONFIG_EXEC_ON, broker=None, monkeypatch=None,
+             router=None):
     from assistant import execution
     broker = broker or FakeBroker()
     monkeypatch.setattr("assistant.broker.factory.get_execution_broker", lambda cfg: broker)
-    return execution.prepare_ticket(idea_id, config, FakeRouter()), broker
+    return execution.prepare_ticket(idea_id, config, router or FakeRouter()), broker
 
 
 # ---------- The Layer 1 guarantee ----------

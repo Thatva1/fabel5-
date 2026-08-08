@@ -140,8 +140,18 @@ class IBKRBroker(Broker):
             self.is_paper = accounts_are_paper(ib.managedAccounts())
             values = {r.tag: r for r in ib.accountSummary(self.account or "")}
             nlv = values.get("NetLiquidation")
+            # None means "IB told us nothing", which is NOT the same as an
+            # account worth zero. The caller must refuse rather than substitute
+            # an assumed balance — 0.0 here used to be falsy enough to fall
+            # through to the config.yaml figure. See audit finding R-2.
+            portfolio_value = None
+            if nlv is not None:
+                try:
+                    portfolio_value = float(nlv.value)
+                except (TypeError, ValueError):
+                    portfolio_value = None
             return {
-                "portfolio_value": float(nlv.value) if nlv else 0.0,
+                "portfolio_value": portfolio_value,
                 "base_currency": (nlv.currency if nlv else "USD") or "USD",
                 "paper": self.is_paper,
                 "source": f"IBKR ({'paper' if self.is_paper else 'LIVE'})",

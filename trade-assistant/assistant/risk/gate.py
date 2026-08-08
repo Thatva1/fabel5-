@@ -31,13 +31,20 @@ def short_rules(config):
 
 
 def evaluate(snapshot, thesis, plan, config, fx_rates, price_history_fn=None,
-             shortability=None):
+             shortability=None, strict_fx=False):
+    """strict_fx: treat a missing FX rate as a hard failure rather than a flag.
+
+    False on the research path (an FX outage shouldn't blank the idea list),
+    True in execution.prepare_ticket, where the numbers turn into an order.
+    """
     account = config.get("account", {})
     positions = config.get("positions", [])
     base_ccy = config.get("base_currency", "USD")
     portfolio_value = account.get("portfolio_value", 0) or 1
 
     hard, soft = [], []
+    # Passed to _to_base as the destination for FX failures. None => soft flag.
+    fx_hard = hard if strict_fx else None
 
     if plan is None:
         return {
@@ -48,9 +55,9 @@ def evaluate(snapshot, thesis, plan, config, fx_rates, price_history_fn=None,
         }
 
     plan_value_base = _to_base(plan["position_value"], plan.get("currency", base_ccy),
-                               base_ccy, fx_rates, soft)
+                               base_ccy, fx_rates, soft, fx_hard)
     plan_risk_base = _to_base(plan["risk_amount"], plan.get("currency", base_ccy),
-                              base_ccy, fx_rates, soft)
+                              base_ccy, fx_rates, soft, fx_hard)
 
     # 1. Single-position cap
     max_pos_pct = account.get("max_position_pct", 15.0)
@@ -59,7 +66,8 @@ def evaluate(snapshot, thesis, plan, config, fx_rates, price_history_fn=None,
         hard.append(f"Position would be {pos_pct:.1f}% of portfolio (cap {max_pos_pct}%)")
 
     # 2. Total exposure after adding this position
-    exposure = exposure_summary(positions, portfolio_value, plan_value_base, base_ccy, fx_rates)
+    exposure = exposure_summary(positions, portfolio_value, plan_value_base, base_ccy,
+                                fx_rates, fx_hard)
     max_total = account.get("max_total_exposure_pct", 60.0)
     if exposure["total_after_pct"] > max_total:
         hard.append(f"Total exposure would reach {exposure['total_after_pct']:.1f}% (cap {max_total}%)")
@@ -85,7 +93,7 @@ def evaluate(snapshot, thesis, plan, config, fx_rates, price_history_fn=None,
                 f"{unknown_sector} existing position(s) have no sector data "
                 "(IBKR doesn't supply it) — sector concentration may be understated")
         sector_value = sum(
-            _position_value_base(p, base_ccy, fx_rates, soft)
+            _position_value_base(p, base_ccy, fx_rates, soft, fx_hard)
             for p in positions if p.get("sector") == sector
         ) + plan_value_base
         sector_pct = sector_value / portfolio_value * 100
@@ -106,7 +114,8 @@ def evaluate(snapshot, thesis, plan, config, fx_rates, price_history_fn=None,
     # 7. Short-selling rules — additional to everything above, never instead of it.
     if plan.get("direction") == "short":
         _short_checks(snapshot, plan, config, positions, portfolio_value,
-                      plan_value_base, base_ccy, fx_rates, shortability, hard, soft)
+                      plan_value_base, base_ccy, fx_rates, shortability, hard, soft,
+                      fx_hard)
 
     # 8. Strategy vs thesis disagreement. The strategy decides the setup; the
     #    LLM's read is a second opinion, so a clash is a flag, not a veto.
@@ -138,14 +147,29 @@ def evaluate(snapshot, thesis, plan, config, fx_rates, price_history_fn=None,
     for gap in thesis.get("data_gaps", []) or []:
         soft.append(f"Data gap: {gap}")
 
+    # One missing FX rate is reached by several checks (plan value, exposure
+    # sum, sector total, short total). Report it once, not five times.
+    hard, soft = _dedupe(hard), _dedupe(soft)
+
     verdict = ("rejected" if hard
                else "needs_more_research" if soft
                else "approved_for_review")
     return {"verdict": verdict, "hard_failures": hard, "soft_flags": soft, "exposure": exposure}
 
 
+def _dedupe(messages):
+    """Drop repeats, keep first-seen order."""
+    seen, out = set(), []
+    for message in messages:
+        if message not in seen:
+            seen.add(message)
+            out.append(message)
+    return out
+
+
 def _short_checks(snapshot, plan, config, positions, portfolio_value,
-                  plan_value_base, base_ccy, fx_rates, shortability, hard, soft):
+                  plan_value_base, base_ccy, fx_rates, shortability, hard, soft,
+                  fx_hard=None):
     """The extra bar a short has to clear. Every threshold is configurable, but
     "no stop" and "confirmed not borrowable" are always hard failures — an
     uncapped short is exactly the thing this tool must never wave through."""
@@ -194,7 +218,7 @@ def _short_checks(snapshot, plan, config, positions, portfolio_value,
 
     existing_shorts = [p for p in positions if float(p.get("shares", 0) or 0) < 0]
     scratch = []
-    short_value = sum(_position_value_base(p, base_ccy, fx_rates, scratch)
+    short_value = sum(_position_value_base(p, base_ccy, fx_rates, scratch, fx_hard)
                       for p in existing_shorts)
     total_short_pct = (short_value + plan_value_base) / portfolio_value * 100
     if total_short_pct > rules["max_total_short_exposure_pct"]:
@@ -206,15 +230,35 @@ def _short_checks(snapshot, plan, config, positions, portfolio_value,
                     f"you already hold {len(existing_shorts)}")
 
 
-def _to_base(amount, ccy, base_ccy, fx_rates, soft_flags):
+def _to_base(amount, ccy, base_ccy, fx_rates, soft_flags, hard_failures=None):
+    """Convert to the base currency, recording what happened when we can't.
+
+    The 1:1 fallback is a DISPLAY convenience and nothing more. A $10,000
+    position treated as £10,000 understates it by about 25%, and every check
+    downstream — position cap, total exposure, sector concentration, short
+    exposure, risk budget — is then wrong in the permissive direction.
+
+    So when hard_failures is supplied (the execution re-check, where real money
+    is at stake) a missing rate is a hard failure. In the research path it stays
+    a soft flag, because a temporary FX outage should not silently blank the
+    whole idea list — but it can then never become an order, because
+    prepare_ticket re-runs this gate in strict mode.
+    """
     try:
         return fx.convert(amount, ccy, base_ccy, fx_rates)
     except fx.MissingRateError:
-        soft_flags.append(f"No FX rate for {ccy}->{base_ccy}; treating amount as {base_ccy} 1:1")
+        message = (
+            f"No FX rate for {ccy}->{base_ccy}. Every exposure and max-loss "
+            f"figure below would be computed as if {ccy} 1 = {base_ccy} 1, which "
+            "understates or overstates them by the whole exchange rate.")
+        if hard_failures is not None:
+            hard_failures.append(message + " Refusing to size a trade on that.")
+        else:
+            soft_flags.append(message + " Treated 1:1 for display only.")
         return float(amount)
 
 
-def _position_value_base(position, base_ccy, fx_rates, soft_flags):
+def _position_value_base(position, base_ccy, fx_rates, soft_flags, hard_failures=None):
     """GROSS exposure of a position in the base currency.
 
     abs() is essential: IBKR reports shorts as negative share counts, and a
@@ -224,12 +268,15 @@ def _position_value_base(position, base_ccy, fx_rates, soft_flags):
     """
     price = position.get("mark_price") or position.get("entry_price", 0)
     value = abs(position.get("shares", 0)) * abs(price)
-    return _to_base(value, position.get("currency", base_ccy), base_ccy, fx_rates, soft_flags)
+    return _to_base(value, position.get("currency", base_ccy), base_ccy, fx_rates,
+                    soft_flags, hard_failures)
 
 
-def exposure_summary(positions, portfolio_value, plan_value_base, base_ccy, fx_rates):
+def exposure_summary(positions, portfolio_value, plan_value_base, base_ccy, fx_rates,
+                     hard_failures=None):
     scratch = []
-    current = sum(_position_value_base(p, base_ccy, fx_rates, scratch) for p in positions)
+    current = sum(_position_value_base(p, base_ccy, fx_rates, scratch, hard_failures)
+                  for p in positions)
     added = plan_value_base or 0
     return {
         "base_currency": base_ccy,

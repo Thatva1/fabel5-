@@ -95,7 +95,20 @@ def analyze_ticker(ticker, config=None, snapshot=None, strategy_idea=None,
     currencies = {base_ccy, instrument_ccy} | {p.get("currency", base_ccy) for p in positions}
     fx_rates = router.get_fx_rates(currencies, base_ccy)
 
-    risk_budget_base = (account["portfolio_value"]
+    # get_account() returns None when the broker reported no account value at
+    # all (see broker/ibkr.py). Research may continue on the config.yaml figure
+    # — it costs nothing to look at an idea — but it must say so out loud, and
+    # prepare_ticket refuses outright rather than sizing a real order on it.
+    portfolio_value = account.get("portfolio_value")
+    if portfolio_value is None:
+        portfolio_value = config["account"]["portfolio_value"]
+        broker_note = (
+            "Your broker did not report an account value, so every figure below is "
+            f"based on the config.yaml portfolio value of {portfolio_value:,.0f} "
+            f"{base_ccy}, not your real balance. No order can be prepared until the "
+            "broker reports one.")
+
+    risk_budget_base = (portfolio_value
                         * config["account"].get("risk_per_trade_pct", 1.0) / 100)
     try:
         risk_budget_instrument = fx.convert(risk_budget_base, base_ccy, instrument_ccy, fx_rates)
@@ -105,7 +118,7 @@ def analyze_ticker(ticker, config=None, snapshot=None, strategy_idea=None,
     # Concentration cap converted to the instrument's currency, so the sizer can
     # respect it directly instead of building an oversized plan that the gate
     # would only reject.
-    max_position_base = (account["portfolio_value"]
+    max_position_base = (portfolio_value
                          * config["account"].get("max_position_pct", 15.0) / 100)
     try:
         max_position_instrument = fx.convert(max_position_base, base_ccy,
@@ -124,7 +137,17 @@ def analyze_ticker(ticker, config=None, snapshot=None, strategy_idea=None,
         shortability = borrow.check_shortability(
             ticker, config, broker=broker, fundamentals=ctx.get("fundamentals"))
 
-    gate_config = {**config, "positions": positions}
+    # The gate's percentage caps must measure against the SAME portfolio value
+    # the position was sized from. Passing config's figure while sizing used the
+    # broker's meant that whenever the two differed, every cap was evaluated
+    # against the wrong denominator — a real £1m account checked against a
+    # £100k config value makes every position look 10x its true weight.
+    gate_config = {
+        **config,
+        "base_currency": base_ccy,
+        "account": {**config["account"], "portfolio_value": portfolio_value},
+        "positions": positions,
+    }
     gate_result = gate.evaluate(snapshot, thesis, plan, gate_config, fx_rates,
                                 price_history_fn=router.get_prices,
                                 shortability=shortability)

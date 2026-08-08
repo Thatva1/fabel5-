@@ -113,7 +113,30 @@ def prepare_ticket(idea_id, config, router):
     positions = broker.get_positions()
 
     base_ccy = account.get("base_currency", config.get("base_currency", "USD"))
-    portfolio_value = account.get("portfolio_value") or config["account"]["portfolio_value"]
+
+    # R-2: "IB reported nothing" and "IB reported zero" are different answers,
+    # and neither may be replaced with the config.yaml figure. Falling back to
+    # an assumed balance means every risk percentage below is computed against
+    # an account that isn't yours — if the real one is smaller, the gate waves
+    # through a position far larger than your rules intend.
+    portfolio_value = account.get("portfolio_value")
+    if portfolio_value is None:
+        raise ExecutionRefused(
+            "Your broker did not report an account value (no NetLiquidation figure), "
+            "so every risk percentage would be measured against a guess. This is "
+            "usually a market-data subscription problem or an account-summary "
+            "timeout — reconnect IB Gateway and try again.")
+    try:
+        portfolio_value = float(portfolio_value)
+    except (TypeError, ValueError):
+        raise ExecutionRefused(
+            f"Your broker reported an unreadable account value ({portfolio_value!r}). "
+            "Refusing to size a trade against it.")
+    if portfolio_value <= 0:
+        raise ExecutionRefused(
+            f"Your broker reports an account value of {portfolio_value:,.2f} {base_ccy}. "
+            "Nothing can be sized against a zero or negative balance.")
+
     currencies = {base_ccy, plan.get("currency", base_ccy)} | {
         p.get("currency", base_ccy) for p in positions}
     fx_rates = router.get_fx_rates(currencies, base_ccy)
@@ -127,36 +150,50 @@ def prepare_ticket(idea_id, config, router):
         "positions": positions,
     }
     snapshot = payload.get("snapshot") or {"ticker": idea["ticker"]}
+    # strict_fx: a missing rate is a hard failure here. On the research path it
+    # is only a flag, but this is the step that turns numbers into an order.
     recheck = gate.evaluate(snapshot, payload.get("thesis") or {}, plan,
-                            recheck_config, fx_rates)
+                            recheck_config, fx_rates, strict_fx=True)
     if recheck["verdict"] == "rejected":
         raise ExecutionRefused(
             "Risk re-check against your CURRENT portfolio rejects this order: "
             + "; ".join(recheck["hard_failures"]))
 
-    # The plan's entry/stop were computed from the quote at analysis time. Check
-    # the CURRENT price before offering a ticket: if the market has moved past
-    # the plan, the levels (and the max-loss figure) are no longer meaningful.
-    current_price = _current_price(router, idea["ticker"])
-    drift_pct = None
-    if current_price:
-        drift_pct = (current_price / plan["entry"] - 1) * 100
-        if abs(drift_pct) > MAX_ENTRY_DRIFT_PCT:
-            raise ExecutionRefused(
-                f"{idea['ticker']} now trades at {current_price:.2f}, "
-                f"{drift_pct:+.1f}% away from the planned entry {plan['entry']:.2f} "
-                f"(limit {MAX_ENTRY_DRIFT_PCT}%). The plan's stop and position size were "
-                "sized for the old price — re-run the analysis to get a current plan.")
-        if not _stop_still_valid(plan, current_price):
-            raise ExecutionRefused(
-                f"{idea['ticker']} at {current_price:.2f} has already passed the planned "
-                f"stop {plan['stop']:.2f} — this setup is invalidated, not tradable.")
-
+    # A plan with no stop is unplaceable whatever the market is doing, so this
+    # is settled before anything is asked of the price feed.
     stop_price = plan.get("stop")
     if not stop_price:
         raise ExecutionRefused(
             "This plan has no stop level, so no protective stop could be attached. "
             "Unprotected orders are not supported.")
+
+    # The plan's entry/stop were computed from the quote at analysis time. Check
+    # the CURRENT price before offering a ticket: if the market has moved past
+    # the plan, the levels (and the max-loss figure) are no longer meaningful.
+    # R-3: no price means no drift check AND no "already past the stop" check.
+    # Skipping both and issuing the ticket anyway is trading blind on levels
+    # that may be days old — and a data-feed failure is most likely exactly
+    # when the market is moving hardest. Not being able to see the market is a
+    # reason not to trade, not a reason to proceed.
+    current_price = _current_price(router, idea["ticker"])
+    if not current_price:
+        raise ExecutionRefused(
+            f"Could not read a current price for {idea['ticker']}, so neither the "
+            f"{MAX_ENTRY_DRIFT_PCT}% entry-drift check nor the 'price has already passed "
+            "your stop' check could run. The plan's levels may be days old. No ticket "
+            "is prepared while the market can't be seen — try again when data returns.")
+
+    drift_pct = (current_price / plan["entry"] - 1) * 100
+    if abs(drift_pct) > MAX_ENTRY_DRIFT_PCT:
+        raise ExecutionRefused(
+            f"{idea['ticker']} now trades at {current_price:.2f}, "
+            f"{drift_pct:+.1f}% away from the planned entry {plan['entry']:.2f} "
+            f"(limit {MAX_ENTRY_DRIFT_PCT}%). The plan's stop and position size were "
+            "sized for the old price — re-run the analysis to get a current plan.")
+    if not _stop_still_valid(plan, current_price):
+        raise ExecutionRefused(
+            f"{idea['ticker']} at {current_price:.2f} has already passed the planned "
+            f"stop {plan['stop']:.2f} — this setup is invalidated, not tradable.")
 
     side = "buy" if plan["direction"] == "long" else "sell"
     ticket_id = journal.create_order_ticket(
