@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from flask import Flask, jsonify, render_template, request
 
 from .. import closeout, execution, journal, pipeline
-from ..core.config import DISCLAIMER, load_config, save_config
+from ..core.config import (DISCLAIMER, add_to_watchlist, load_config,
+                           remove_from_watchlist, set_execution_enabled)
 from ..execution import ExecutionRefused
 from ..providers.base import ProviderUnavailable
 from ..strategies import registry as strategy_registry
@@ -239,22 +240,16 @@ def api_watchlist_add():
                 return jsonify({"error": f"no market data found for {raw}"}), 404
         else:
             return jsonify({"error": f"no market data found for {raw}"}), 404
-    watchlist = config.setdefault("watchlist", [])
-    if ticker not in watchlist:
-        watchlist.append(ticker)
-        save_config(config)
+    watchlist = add_to_watchlist(ticker)
     return jsonify({"status": "ok", "ticker": ticker, "watchlist": watchlist})
 
 
 @app.post("/api/watchlist/remove")
 def api_watchlist_remove():
     ticker = ((request.json or {}).get("ticker") or "").strip().upper()
-    config = load_config()
-    watchlist = config.get("watchlist", [])
-    if ticker not in watchlist:
+    removed, watchlist = remove_from_watchlist(ticker)
+    if not removed:
         return jsonify({"error": "not on watchlist"}), 404
-    watchlist.remove(ticker)
-    save_config(config)
     return jsonify({"status": "ok", "watchlist": watchlist})
 
 
@@ -309,11 +304,10 @@ def api_execution_toggle():
     if want_enabled and (body.get("confirmation") or "").strip().upper() != "ENABLE":
         return jsonify({"error": "To turn execution ON, type ENABLE to confirm."}), 400
 
-    config = load_config()
-    config.setdefault("execution", {})["enabled"] = want_enabled
-    save_config(config)
-
-    status = execution.execution_status(config)
+    set_execution_enabled(want_enabled)
+    # Re-read so the status reflects what was actually persisted, not what we
+    # intended to persist.
+    status = execution.execution_status(load_config())
     return jsonify({"status": "ok", "enabled": want_enabled, "execution": status})
 
 

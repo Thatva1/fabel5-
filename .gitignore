@@ -29,7 +29,7 @@ state.yaml
 
 # The v1 archive contains a copy of trade-assistant/.env, so it carries a live
 # API key. Never commit it. See AUDIT-2026-08-08.md finding S-2.
-trade-research-assistant-v1-archive.zip
+trade-research-assistant-v1-archive*.zip
 
 # Logs and scratch
 *.log

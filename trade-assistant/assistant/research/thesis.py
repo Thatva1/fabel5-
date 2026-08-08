@@ -11,6 +11,8 @@ the pipeline always produces something reviewable.
 """
 import json
 
+from ..providers.base import redact
+
 THESIS_SCHEMA = {
     "type": "object",
     "properties": {
@@ -227,7 +229,10 @@ def _explain_ai_error(exc):
         return "Anthropic API rate limit hit — try again shortly."
     if "overloaded" in low or "529" in low:
         return "Anthropic API temporarily overloaded — try again shortly."
-    return f"{type(exc).__name__}: {text[:200]}"
+    # This lands in gate soft_flags, which are served by GET /api/state and
+    # rendered in the dashboard, so scrub anything key-shaped the SDK may have
+    # echoed back before it becomes user-facing text.
+    return f"{type(exc).__name__}: {redact(text)[:200]}"
 
 
 def build_thesis(snapshot, snapshot_cited, context, config):

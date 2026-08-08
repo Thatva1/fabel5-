@@ -143,7 +143,11 @@ def test_gateway_unreachable_maps_to_503(client, monkeypatch):
 
 @pytest.fixture
 def temp_config(monkeypatch, tmp_path):
-    """Isolate config.yaml so toggle tests never touch the real one."""
+    """Isolate config.yaml so toggle tests never touch the real one.
+
+    state.yaml is derived from CONFIG_PATH's directory, so pointing CONFIG_PATH
+    at the temp copy isolates the mutable state file too.
+    """
     import shutil
 
     from assistant.core import config as cfg
@@ -152,7 +156,11 @@ def temp_config(monkeypatch, tmp_path):
     shutil.copy(real, tmp)
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp))
     monkeypatch.setattr("assistant.web.server.load_config", cfg.load_config)
-    monkeypatch.setattr("assistant.web.server.save_config", cfg.save_config)
+    monkeypatch.setattr("assistant.web.server.set_execution_enabled",
+                        cfg.set_execution_enabled)
+    monkeypatch.setattr("assistant.web.server.add_to_watchlist", cfg.add_to_watchlist)
+    monkeypatch.setattr("assistant.web.server.remove_from_watchlist",
+                        cfg.remove_from_watchlist)
     yield cfg
 
 

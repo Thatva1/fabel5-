@@ -11,7 +11,7 @@ import requests
 
 from ..core.config import api_key
 from ..core.models import FRESH_EOD, fact
-from .base import DataProvider, ProviderUnavailable
+from .base import DataProvider, ProviderUnavailable, redact
 
 # Scheduled releases worth knowing about before taking a position. FRED's
 # releases/dates endpoint publishes these ahead of time, free.
@@ -42,6 +42,11 @@ SERIES = {
 CPI_SERIES = "CPIAUCSL"  # index level; YoY computed deterministically below
 
 
+def _safe(exc):
+    """Exception type + redacted message. Never the raw string."""
+    return f"{type(exc).__name__}: {redact(exc)}"
+
+
 class FredProvider(DataProvider):
     name = "fred"
 
@@ -62,7 +67,11 @@ class FredProvider(DataProvider):
             resp.raise_for_status()
             obs = resp.json().get("observations", [])
         except Exception as exc:
-            raise ProviderUnavailable(f"fred: request failed for {series_id}: {exc}")
+            # NOT str(exc): requests puts the full request URL — api_key query
+            # parameter and all — into its transport exceptions, and this text
+            # is published by provider_status() over HTTP.
+            raise ProviderUnavailable(
+                f"fred: request failed for {series_id}: {_safe(exc)}")
         rows = [(o["date"], float(o["value"])) for o in obs if o.get("value") not in (None, ".")]
         if not rows:
             raise ProviderUnavailable(f"fred: no observations for {series_id}")
@@ -91,7 +100,7 @@ class FredProvider(DataProvider):
             resp.raise_for_status()
             rows = resp.json().get("release_dates", [])
         except Exception as exc:
-            raise ProviderUnavailable(f"fred: release calendar failed: {exc}")
+            raise ProviderUnavailable(f"fred: release calendar failed: {_safe(exc)}")
 
         events, seen = [], set()
         for row in rows:
@@ -119,7 +128,7 @@ class FredProvider(DataProvider):
             resp.raise_for_status()
             html = resp.text
         except Exception as exc:
-            raise ProviderUnavailable(f"fed: FOMC calendar fetch failed: {exc}")
+            raise ProviderUnavailable(f"fed: FOMC calendar fetch failed: {_safe(exc)}")
 
         today = date.today()
         horizon = today + timedelta(days=days_ahead)

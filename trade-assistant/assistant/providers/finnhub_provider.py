@@ -10,11 +10,21 @@ import requests
 
 from ..core.config import api_key
 from ..core.models import FRESH_LIVE, utcnow
-from .base import DataProvider, ProviderUnavailable
+from .base import DataProvider, ProviderUnavailable, redact
 from .cache import RateLimiter
 
 BASE_URL = "https://finnhub.io/api/v1"
 SOURCE = "Finnhub"
+
+
+def _safe(exc):
+    """Exception type + redacted message. Never the raw string.
+
+    Finnhub takes the key as a `token` query parameter, so requests' transport
+    exceptions embed the whole URL — key included — and that text is published
+    by provider_status() over HTTP.
+    """
+    return f"{type(exc).__name__}: {redact(exc)}"
 
 
 class FinnhubProvider(DataProvider):
@@ -35,7 +45,7 @@ class FinnhubProvider(DataProvider):
                                 params={**params, "token": api_key("FINNHUB_API_KEY")},
                                 timeout=15)
         except Exception as exc:
-            raise ProviderUnavailable(f"finnhub: request failed: {exc}")
+            raise ProviderUnavailable(f"finnhub: request failed: {_safe(exc)}")
         if resp.status_code in (401, 403):
             raise ProviderUnavailable(f"finnhub: {path} not available on this plan "
                                       f"(HTTP {resp.status_code})")
@@ -45,7 +55,7 @@ class FinnhubProvider(DataProvider):
             resp.raise_for_status()
             return resp.json()
         except Exception as exc:
-            raise ProviderUnavailable(f"finnhub: bad response from {path}: {exc}")
+            raise ProviderUnavailable(f"finnhub: bad response from {path}: {_safe(exc)}")
 
     def get_news(self, ticker, limit=8):
         now = datetime.now(timezone.utc)

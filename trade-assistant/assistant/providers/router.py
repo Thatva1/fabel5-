@@ -6,7 +6,7 @@ Routing (v1):
   macro                                -> FRED, falling back to yfinance tickers
   news / earnings                      -> Finnhub, falling back to yfinance
 """
-from .base import ProviderUnavailable
+from .base import ProviderUnavailable, redact
 from .cache import TTLCache
 from .finnhub_provider import FinnhubProvider
 from .fred_provider import FredProvider
@@ -55,7 +55,10 @@ class DataRouter:
         else:
             from datetime import datetime, timezone
             entry["fail"] += 1
-            entry["last_error"] = str(error)[:200]
+            # Redact again here, not only in the providers. last_error is served
+            # to the browser by provider_status() -> GET /api/state, and a
+            # provider added later will not have scrubbed its own message.
+            entry["last_error"] = redact(error)[:200]
             entry["last_error_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     def _first(self, providers, method, *args, **kwargs):
