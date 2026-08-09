@@ -155,14 +155,68 @@ def save_cached(symbols, report):
         pass
 
 
+# Names that are among the most heavily traded on the US market on any given
+# day. This is not a curated watchlist and nothing is ever added to the universe
+# because it appears here — the list exists only as a canary. A screen of the
+# full US listing that drops NVDA and SPY did not discover anything about
+# liquidity; it failed, and the only question is whether it admits it.
+SANITY_CANARIES = ("AAPL", "MSFT", "NVDA", "AMZN", "SPY", "QQQ", "META", "GOOGL")
+MIN_CANARIES_PRESENT = 4
+
+
+def sanity_check(symbols, report, config):
+    """Why this screened universe cannot be trusted, or None if it can.
+
+    Written after a full 28,192-symbol run returned 537 "tradable" names with
+    NVDA, MSFT, SPY, QQQ, META and GOOGL all missing and 88% of symbols marked
+    "no data" — yfinance had rate-limited partway through and whole chunks came
+    back empty. Nothing detected it, so the wreckage was cached as a universe.
+    A throttled run is indistinguishable from a market of delisted shells unless
+    something checks, and this is that something.
+    """
+    cfg = settings(config)
+    # Only meaningful for a wide screen. A deliberate 20-name universe has no
+    # reason to contain SPY, and failing it there would be nonsense.
+    if not cfg["enabled"] or report.get("considered", 0) < 1000:
+        return None
+
+    present = [c for c in SANITY_CANARIES if c in set(symbols)]
+    if len(present) < MIN_CANARIES_PRESENT:
+        return (f"only {len(present)} of {len(SANITY_CANARIES)} reference names "
+                f"survived the screen ({', '.join(present) or 'none'}). A screen "
+                "of the whole US market cannot lose the most heavily traded "
+                "shares on it — this run was rate-limited, not selective.")
+
+    considered = report.get("considered") or 0
+    if considered and report.get("no_data", 0) / considered > 0.75:
+        return (f"{report['no_data']:,} of {considered:,} symbols returned no data. "
+                "Some of a full exchange listing really is defunct, but not "
+                "three quarters of it.")
+    return None
+
+
 def tradable_universe(config, router, force_refresh=False, progress_cb=None):
-    """The screened, cached universe. Returns (symbols, report, from_cache)."""
+    """The screened, cached universe. Returns (symbols, report, from_cache).
+
+    Raises ThrottleSuspected when the result is not trustworthy. Refusing is the
+    point: a caller handed a silently truncated universe will build a book on an
+    arbitrary slice of the market and have no way to know.
+    """
     if not force_refresh:
         cached = load_cached()
         if cached:
             return cached["symbols"], cached["report"], True
+
     symbols, report = apply(candidate_symbols(config, router), config,
                             progress_cb=progress_cb)
+    problem = sanity_check(symbols, report, config)
+    if problem:
+        report["rejected"] = problem
+        raise bulk.ThrottleSuspected(
+            f"Refusing to cache this universe: {problem} Nothing was saved, so "
+            "the previous universe (if any) is still in place. Re-run when the "
+            "rate limit has reset.")
+
     save_cached(symbols, report)
     return symbols, report, False
 

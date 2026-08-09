@@ -15,18 +15,59 @@ five columns for 28,000 symbols is several gigabytes of memory spent to answer a
 question that uses one of them.
 """
 import math
+import time
 
 import pandas as pd
 
-# Yahoo rejects very long symbol lists on one URL. 200 is comfortably inside
-# what it accepts and large enough that per-request overhead stops mattering.
-CHUNK = 200
+# Yahoo rejects very long symbol lists on one URL. 100 is comfortably inside
+# what it accepts, and small enough that one throttled chunk loses less.
+CHUNK = 100
+
+# A chunk of 100 real listings never legitimately returns nothing. When it does,
+# the request was rate-limited, and retrying after a pause recovers it. Getting
+# this wrong is expensive in a way that is easy to miss: a throttled run looks
+# exactly like a universe of delisted shells, and screening the full US listing
+# once produced 537 "tradable" names with NVDA, MSFT, SPY and QQQ all absent.
+EMPTY_CHUNK_RETRIES = 4
+RETRY_BACKOFF_SECONDS = 5
+# Breathing room between chunks. Cheap insurance against tripping the limiter
+# in the first place, which is far cheaper than recovering from it.
+CHUNK_PAUSE_SECONDS = 0.4
 
 
-def _download(symbols, period, threads):
+class ThrottleSuspected(Exception):
+    """Raised when a wide pull yields so little that the data cannot be trusted.
+
+    Deliberately an exception rather than a partial result. A caller that gets
+    back 12% of a universe has no way to tell throttling from genuine delisting,
+    and the failure mode is silent: it caches, and every later run is built on
+    an arbitrary slice of the market.
+    """
+
+
+def _download(symbols, period, threads=True):
     import yfinance as yf
     return yf.download(list(symbols), period=period, auto_adjust=True,
                        progress=False, group_by="ticker", threads=threads)
+
+
+def _download_with_retry(symbols, period, extract, threads=True):
+    """Download one chunk, retrying while it comes back completely empty.
+
+    Returns (rows, recovered) so the caller can count how much of the run needed
+    a retry — a high count is the signal to slow down, not to carry on.
+    """
+    for attempt in range(EMPTY_CHUNK_RETRIES + 1):
+        try:
+            frame = _download(symbols, period, threads)
+            rows = extract(frame, symbols)
+        except Exception:
+            rows = {}
+        if rows or len(symbols) < 5:
+            return rows, attempt > 0
+        if attempt < EMPTY_CHUNK_RETRIES:
+            time.sleep(RETRY_BACKOFF_SECONDS * (2 ** attempt))
+    return {}, True
 
 
 def _closes_from(frame, symbols):
@@ -71,12 +112,10 @@ def close_history(symbols, period="2y", chunk=CHUNK, threads=True, progress_cb=N
     closes, chunks = {}, math.ceil(len(symbols) / chunk) if symbols else 0
     for index in range(chunks):
         batch = symbols[index * chunk:(index + 1) * chunk]
-        try:
-            frame = _download(batch, period, threads)
-        except Exception:
-            # One bad chunk must not lose the other 27,000 symbols.
-            frame = None
-        closes.update(_closes_from(frame, batch))
+        rows, _ = _download_with_retry(batch, period, _closes_from, threads)
+        closes.update(rows)
+        if index + 1 < chunks:
+            time.sleep(CHUNK_PAUSE_SECONDS)
         if progress_cb:
             progress_cb(min((index + 1) * chunk, len(symbols)), len(symbols), len(closes))
     return closes
@@ -89,42 +128,57 @@ def liquidity_table(symbols, period="3mo", chunk=CHUNK, progress_cb=None):
     untraded shell would clear a mean-based filter, and that is exactly the kind
     of name a momentum ranking reaches for first.
     """
-    import yfinance as yf
-
     symbols = [s for s in dict.fromkeys(symbols) if s]
     table, chunks = {}, math.ceil(len(symbols) / chunk) if symbols else 0
+    exhausted = 0
     for index in range(chunks):
         batch = symbols[index * chunk:(index + 1) * chunk]
-        try:
-            frame = yf.download(batch, period=period, auto_adjust=True,
-                                progress=False, group_by="ticker", threads=True)
-        except Exception:
-            frame = None
-        if frame is not None and len(frame):
-            single = len(batch) == 1
-            available = set(getattr(frame.columns, "levels", [[]])[0]) if not single else set(batch)
-            for symbol in batch:
-                if symbol not in available:
-                    continue
-                try:
-                    part = frame if single else frame[symbol]
-                    close = part["Close"].dropna()
-                    volume = part["Volume"].dropna()
-                except (KeyError, IndexError):
-                    continue
-                if close.empty or volume.empty:
-                    continue
-                paired = close.to_frame("c").join(volume.to_frame("v"), how="inner").dropna()
-                if paired.empty:
-                    continue
-                table[symbol] = {
-                    "price": float(paired["c"].iloc[-1]),
-                    "dollar_volume": float((paired["c"] * paired["v"]).median()),
-                    "bars": int(len(paired)),
-                }
+        rows, recovered = _download_with_retry(batch, period, _liquidity_from)
+        if not rows and len(batch) >= 5:
+            exhausted += 1
+        table.update(rows)
+        if index + 1 < chunks:
+            time.sleep(CHUNK_PAUSE_SECONDS)
         if progress_cb:
             progress_cb(min((index + 1) * chunk, len(symbols)), len(symbols), len(table))
+
+    # A handful of dead chunks is ordinary — parts of an exchange listing really
+    # are all defunct. A third of them is the rate limiter, and continuing would
+    # cache an arbitrary slice of the market as though it were the market.
+    if chunks >= 10 and exhausted > chunks / 3:
+        raise ThrottleSuspected(
+            f"{exhausted} of {chunks} chunks returned nothing even after retries. "
+            "This is rate limiting, not delisting — the result would be an "
+            "arbitrary subset of the market. Re-run when the limit has reset.")
     return table
+
+
+def _liquidity_from(frame, symbols):
+    """Price / median dollar volume / bar count, from one grouped frame."""
+    out = {}
+    if frame is None or len(frame) == 0:
+        return out
+    single = len(symbols) == 1
+    available = set(symbols) if single else set(getattr(frame.columns, "levels", [[]])[0])
+    for symbol in symbols:
+        if symbol not in available:
+            continue
+        try:
+            part = frame if single else frame[symbol]
+            close, volume = part["Close"].dropna(), part["Volume"].dropna()
+        except (KeyError, IndexError):
+            continue
+        if close.empty or volume.empty:
+            continue
+        paired = close.to_frame("c").join(volume.to_frame("v"), how="inner").dropna()
+        if paired.empty:
+            continue
+        out[symbol] = {
+            "price": float(paired["c"].iloc[-1]),
+            "dollar_volume": float((paired["c"] * paired["v"]).median()),
+            "bars": int(len(paired)),
+        }
+    return out
 
 
 def ohlcv_history(symbols, period="2y", chunk=CHUNK, progress_cb=None):

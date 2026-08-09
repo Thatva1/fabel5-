@@ -136,6 +136,50 @@ def test_the_cap_keeps_the_most_liquid_names_not_the_alphabet(monkeypatch):
     assert report["capped"] == 1
 
 
+def test_a_throttled_screen_refuses_to_cache_itself(monkeypatch, tmp_path):
+    """The bug this pins, exactly as it happened: a full 28,192-symbol run
+    returned 537 "tradable" names with NVDA, MSFT, SPY, QQQ, META and GOOGL all
+    missing and 88% marked "no data". yfinance had rate-limited partway through
+    and whole chunks came back empty. Nothing noticed, so the wreckage was
+    cached and every later session would have traded an arbitrary slice of the
+    market believing it was the market.
+    """
+    monkeypatch.setattr(screen, "CACHE_PATH", str(tmp_path / "u.json"))
+    survivors = {f"JUNK{i}": {"price": 50.0, "dollar_volume": 90e6, "bars": 60}
+                 for i in range(537)}
+    monkeypatch.setattr(screen.bulk, "liquidity_table", lambda s, **kw: survivors)
+    monkeypatch.setattr(screen, "candidate_symbols",
+                        lambda config, router: [f"S{i}" for i in range(28_192)])
+
+    with pytest.raises(screen.bulk.ThrottleSuspected) as caught:
+        screen.tradable_universe({}, None, force_refresh=True)
+    assert "rate-limited" in str(caught.value)
+    assert not os.path.exists(screen.CACHE_PATH), "a bad universe must not be cached"
+
+
+def test_a_healthy_wide_screen_is_accepted(monkeypatch, tmp_path):
+    monkeypatch.setattr(screen, "CACHE_PATH", str(tmp_path / "u.json"))
+    table = {name: {"price": 100.0, "dollar_volume": 900e6, "bars": 60}
+             for name in screen.SANITY_CANARIES}
+    table.update({f"OK{i}": {"price": 50.0, "dollar_volume": 20e6, "bars": 60}
+                  for i in range(900)})
+    monkeypatch.setattr(screen.bulk, "liquidity_table", lambda s, **kw: table)
+    monkeypatch.setattr(screen, "candidate_symbols",
+                        lambda config, router: [f"S{i}" for i in range(2_000)])
+
+    symbols, report, cached = screen.tradable_universe({}, None, force_refresh=True)
+    assert cached is False
+    assert "NVDA" in symbols
+    assert os.path.exists(screen.CACHE_PATH)
+
+
+def test_the_canary_check_does_not_fire_on_a_deliberately_small_universe(monkeypatch):
+    """A hand-picked 20-name universe has no reason to contain SPY. Failing it
+    there would make the guard useless noise."""
+    report = {"considered": 20, "no_data": 0, "kept": 20}
+    assert screen.sanity_check(["AAPL", "KO"], report, {}) is None
+
+
 def test_turning_the_screen_off_says_so_out_loud():
     kept, report = screen.apply(["ANYTHING"], {"paper": {"screen": {"enabled": False}}})
     assert kept == ["ANYTHING"]
