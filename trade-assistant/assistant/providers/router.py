@@ -163,6 +163,15 @@ class DataRouter:
     def universe_size(self):
         return len(self.universe.symbols())
 
+    def universe_rows(self):
+        """Every cached listing row: {symbol, name, type}.
+
+        universe_size() answers "how many"; this answers "which", which is what
+        a wide-universe strategy run needs in order to screen by instrument type
+        before spending a network request on each name.
+        """
+        return list(self.universe.symbols())
+
     def get_fundamentals(self, ticker):
         return self.cache.get_or_fetch(
             self._key("fund", ticker), self._ttl("fundamentals", 3600),

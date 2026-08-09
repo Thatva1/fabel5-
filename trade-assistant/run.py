@@ -7,6 +7,10 @@
   python run.py backtest [TICKERS...]   replay the strategies over history
                                  (defaults to your watchlist; --years N,
                                   --csv FILE to write every trade to a spreadsheet)
+  python run.py paper            one paper-trading session (marks the book,
+                                 takes exits, rebalances if a month has turned;
+                                 --status to just read it, --rebalance to force,
+                                 --refresh-universe to re-screen)
   python run.py journal          journal stats in the terminal
   python run.py selftest         run the deterministic-math unit tests
   python run.py ibkr-check       test the IB Gateway/TWS connection (places nothing)
@@ -196,6 +200,75 @@ def _write_trades_csv(path, out):
     return len(out["trades"])
 
 
+def _paper(argv):
+    """One paper-trading session. Places nothing — there is no broker in it."""
+    from assistant.paper import screen, session
+    from assistant.paper.book import Book
+
+    force = "--refresh-universe" in argv
+    rebalance = True if "--rebalance" in argv else None
+
+    if "--status" in argv:
+        book = Book.load()
+        if not book.started:
+            print("No paper book yet. Run `python run.py paper` to start one.")
+            return
+        summary = book.summary()
+        ccy = summary["base_currency"]
+        print(f"Paper book — started {summary['started_at'][:10]}, "
+              f"{summary['days']} sessions")
+        print(f"  Equity        {summary['equity']:,.2f} {ccy}  "
+              f"({summary['return_pct']:+.2f}% from {summary['starting_equity']:,.0f})")
+        print(f"  Cash          {summary['cash']:,.2f} {ccy}   "
+              f"exposure {summary['exposure_pct']}%")
+        print(f"  Positions     {summary['open_positions']} open, "
+              f"{summary['closed_trades']} closed")
+        if summary["win_rate_pct"] is not None:
+            print(f"  Win rate      {summary['win_rate_pct']}%")
+        print(f"  Max drawdown  {summary['max_drawdown_pct']}%")
+        for position in book.positions:
+            value = position["shares"] * position["last_price"]
+            move = (position["last_price"] / position["entry_price"] - 1) * 100
+            print(f"    {position['ticker']:<8} {position['strategy']:<14} "
+                  f"{position['shares']:>8.0f} @ {position['entry_price']:>9.2f}  "
+                  f"now {position['last_price']:>9.2f} ({move:+.1f}%)  "
+                  f"value {value:>11,.0f}")
+        print(f"\n{DISCLAIMER}")
+        return
+
+    print("Running one paper session. Nothing is traded; no broker is involved.\n")
+    out = session.run(force_refresh=force, rebalance_override=rebalance,
+                      progress_cb=lambda stage: print(f"  … {stage}", flush=True))
+
+    print(f"\n{out['date']} — universe {out['universe']:,} instruments"
+          f"{' (cached)' if out['universe_from_cache'] else ' (freshly screened)'}")
+    if out.get("screen"):
+        print(f"  {screen.describe(out['screen'])}")
+    if out["rebalanced"]:
+        print(f"  REBALANCE DAY — {out.get('candidates', 0)} candidates qualified")
+    for closed in out["closed"]:
+        print(f"  CLOSED  {closed['ticker']:<8} {closed['reason']:<7} "
+              f"{closed['pnl']:>10,.2f}  ({closed['r']}R)")
+    for opened in out["opened"]:
+        print(f"  OPENED  {opened['ticker']:<8} {opened['strategy']:<14} "
+              f"{opened['shares']:>8.0f} @ {opened['price']:>9.2f}  "
+              f"stop {opened['stop']}")
+    if out["skipped"]:
+        blocked = {k: v for k, v in out["skipped"].items() if v}
+        if blocked:
+            print(f"  blocked by limits: {blocked}")
+    for note in out["notes"]:
+        print(f"  note: {note}")
+
+    summary = out.get("summary")
+    if summary:
+        print(f"\n  Equity {summary['equity']:,.2f} {summary['base_currency']}  "
+              f"({summary['return_pct']:+.2f}%)  "
+              f"{summary['open_positions']} open  "
+              f"exposure {summary['exposure_pct']}%")
+    print(f"\n{DISCLAIMER}")
+
+
 def _backtest(argv):
     """Replay the strategies over history. Places nothing, touches no journal."""
     from assistant.backtest import HONEST_LIMITATIONS, engine, report
@@ -370,6 +443,9 @@ def main():
 
     elif cmd == "backtest":
         _backtest(args[1:])
+
+    elif cmd == "paper":
+        _paper(args[1:])
 
     elif cmd == "journal":
         from assistant import journal

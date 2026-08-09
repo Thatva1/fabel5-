@@ -171,6 +171,37 @@ strategies:
     stop_atr: 2.5
     reward_multiple: 2.5
 
+# --- Paper trading -----------------------------------------------------------
+# The rules trading forward with nobody intervening. `python run.py paper` runs
+# one session: marks open positions, takes exits, and rebalances when a calendar
+# month turns. It places no orders — there is no broker in that code path.
+#
+# Distinct from the journal, which records ideas YOU decide on. This measures
+# the rules; the journal measures you. Keeping them apart is what lets you tell
+# a good month from good judgement.
+paper:
+  starting_equity: null       # null = account.portfolio_value
+  max_holding_bars: 40        # matches the backtest; the dominant exit
+  slippage_bps: 5.0           # charged against you on entry AND exit
+  history_period: 2y          # 12-month signal + 200-day average needs ~1.5y
+  screen:
+    # "us_all" is every symbol in the cached Finnhub US listing (~28,000).
+    # "watchlist" restricts to config.watchlist. A list of symbols also works.
+    universe: us_all
+    # Without these a momentum ranking over 28,000 symbols reliably puts a
+    # sub-dollar shell that tripled on one news day at the top, every month.
+    # A random sample of forty symbols from that list returned four already
+    # delisted. These are what make the universe tradable rather than merely
+    # large; turning the screen off is a real choice with a real consequence.
+    enabled: true
+    min_price: 5.0
+    min_dollar_volume: 5000000   # MEDIAN daily traded value, not mean
+    min_history_bars: 60
+    # Applied after screening, most liquid first. Raise it for a wider book;
+    # the cost is the monthly history fetch, ~0.16s per instrument.
+    max_symbols: 1500
+    liquidity_period: 3mo
+
 # --- Backtesting -------------------------------------------------------------
 # Replays the strategies over history so you can see whether a rule set has an
 # edge without waiting months. Assumptions are deliberately pessimistic: a
