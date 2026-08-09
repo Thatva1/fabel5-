@@ -42,7 +42,13 @@ class SymbolUniverse:
             if time.time() - os.path.getmtime(CACHE_PATH) > CACHE_MAX_AGE:
                 return None
             with open(CACHE_PATH) as f:
-                return json.load(f)
+                rows = json.load(f)
+            # A cache written before exchange codes were kept is missing the one
+            # field that makes a wide screen affordable. Treat it as stale
+            # rather than silently returning rows the caller cannot filter.
+            if rows and "mic" not in rows[0]:
+                return None
+            return rows
         except Exception:
             return None
 
@@ -69,8 +75,13 @@ class SymbolUniverse:
             # like BRK.A / BRK.B, which are Common Stock.
             if s.get("type") and s["type"] not in KEEP_TYPES:
                 continue
+            # `mic` is the exchange. Keeping it costs nothing and is the
+            # difference between a tradable universe and a 17,608-symbol
+            # over-the-counter tail: screening the full list without it spends
+            # the entire rate limit on foreign OTC shells nobody can trade.
             rows.append({"symbol": normalize_symbol(sym), "name": desc.title(),
-                         "type": s.get("type") or "Equity"})
+                         "type": s.get("type") or "Equity",
+                         "mic": s.get("mic") or ""})
         rows.sort(key=lambda r: r["symbol"])
         self._symbols = rows
         self._save_cache(rows)

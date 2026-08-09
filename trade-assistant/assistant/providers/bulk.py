@@ -121,7 +121,8 @@ def close_history(symbols, period="2y", chunk=CHUNK, threads=True, progress_cb=N
     return closes
 
 
-def liquidity_table(symbols, period="3mo", chunk=CHUNK, progress_cb=None):
+def liquidity_table(symbols, period="3mo", chunk=CHUNK, progress_cb=None,
+                    on_batch=None):
     """{symbol: {price, dollar_volume}} — the screen inputs, in one pass.
 
     Median dollar volume, not mean: a single news-day spike on an otherwise
@@ -137,19 +138,24 @@ def liquidity_table(symbols, period="3mo", chunk=CHUNK, progress_cb=None):
         if not rows and len(batch) >= 5:
             exhausted += 1
         table.update(rows)
+        # Hand each batch to the caller as it lands, so a run that dies to the
+        # rate limiter later still leaves this work behind.
+        if on_batch and rows:
+            on_batch(dict(table))
         if index + 1 < chunks:
             time.sleep(CHUNK_PAUSE_SECONDS)
         if progress_cb:
             progress_cb(min((index + 1) * chunk, len(symbols)), len(symbols), len(table))
 
-    # A handful of dead chunks is ordinary — parts of an exchange listing really
-    # are all defunct. A third of them is the rate limiter, and continuing would
-    # cache an arbitrary slice of the market as though it were the market.
-    if chunks >= 10 and exhausted > chunks / 3:
-        raise ThrottleSuspected(
-            f"{exhausted} of {chunks} chunks returned nothing even after retries. "
-            "This is rate limiting, not delisting — the result would be an "
-            "arbitrary subset of the market. Re-run when the limit has reset.")
+        # Stop as soon as the limiter is clearly winning. Pressing on makes it
+        # worse — every further request deepens the throttle — and the partial
+        # table is already safe, so there is nothing to gain by continuing.
+        done_chunks = index + 1
+        if done_chunks >= 10 and exhausted > done_chunks / 3:
+            raise ThrottleSuspected(
+                f"{exhausted} of {done_chunks} chunks returned nothing even after "
+                "retries. This is rate limiting, not delisting. Measurements taken "
+                "so far are kept; re-run when the limit has reset to continue.")
     return table
 
 

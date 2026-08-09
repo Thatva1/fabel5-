@@ -17,6 +17,20 @@ from assistant.paper import screen, session
 from assistant.paper.book import Book
 
 
+@pytest.fixture(autouse=True)
+def isolated_caches(tmp_path, monkeypatch):
+    """Keep every test out of the real data directory.
+
+    Both of the screen's caches live in DATA_DIR by default. Without this the
+    suite writes into the user's actual universe and partial-liquidity files —
+    and worse, tests leak into each other: one test's 537 synthetic survivors
+    become the next test's resumed measurements, which is exactly how the cap
+    test started reporting 1,447 capped symbols out of two.
+    """
+    monkeypatch.setattr(screen, "CACHE_PATH", str(tmp_path / "universe.json"))
+    monkeypatch.setattr(screen, "PARTIAL_PATH", str(tmp_path / "partial.json"))
+
+
 @pytest.fixture
 def book_path(tmp_path):
     return str(tmp_path / "book.json")
@@ -144,7 +158,6 @@ def test_a_throttled_screen_refuses_to_cache_itself(monkeypatch, tmp_path):
     cached and every later session would have traded an arbitrary slice of the
     market believing it was the market.
     """
-    monkeypatch.setattr(screen, "CACHE_PATH", str(tmp_path / "u.json"))
     survivors = {f"JUNK{i}": {"price": 50.0, "dollar_volume": 90e6, "bars": 60}
                  for i in range(537)}
     monkeypatch.setattr(screen.bulk, "liquidity_table", lambda s, **kw: survivors)
@@ -158,7 +171,6 @@ def test_a_throttled_screen_refuses_to_cache_itself(monkeypatch, tmp_path):
 
 
 def test_a_healthy_wide_screen_is_accepted(monkeypatch, tmp_path):
-    monkeypatch.setattr(screen, "CACHE_PATH", str(tmp_path / "u.json"))
     table = {name: {"price": 100.0, "dollar_volume": 900e6, "bars": 60}
              for name in screen.SANITY_CANARIES}
     table.update({f"OK{i}": {"price": 50.0, "dollar_volume": 20e6, "bars": 60}
@@ -171,6 +183,56 @@ def test_a_healthy_wide_screen_is_accepted(monkeypatch, tmp_path):
     assert cached is False
     assert "NVDA" in symbols
     assert os.path.exists(screen.CACHE_PATH)
+
+
+def test_a_throttled_run_keeps_the_measurements_it_already_took(monkeypatch):
+    """Rate limiting is not an edge case at this width — it is what happens.
+    Losing an hour of successful measurements every time the limiter trips
+    makes the screen impossible to finish rather than merely slow."""
+    def die_after_measuring(symbols, period=None, progress_cb=None, on_batch=None):
+        if on_batch:
+            on_batch({"AAPL": {"price": 200.0, "dollar_volume": 90e6, "bars": 60}})
+        raise screen.bulk.ThrottleSuspected("limiter tripped")
+
+    monkeypatch.setattr(screen.bulk, "liquidity_table", die_after_measuring)
+    with pytest.raises(screen.bulk.ThrottleSuspected):
+        screen.apply(["AAPL", "MSFT"], {})
+
+    assert screen.load_partial()["AAPL"]["price"] == 200.0
+
+
+def test_a_resumed_run_does_not_remeasure_what_it_already_has(monkeypatch):
+    screen.save_partial({"AAPL": {"price": 200.0, "dollar_volume": 90e6, "bars": 60}})
+    asked = {}
+
+    def record(symbols, **kw):
+        asked["symbols"] = list(symbols)
+        return {"MSFT": {"price": 400.0, "dollar_volume": 90e6, "bars": 60}}
+
+    monkeypatch.setattr(screen.bulk, "liquidity_table", record)
+    kept, report = screen.apply(["AAPL", "MSFT"], {})
+
+    assert asked["symbols"] == ["MSFT"], "already-measured symbols must be skipped"
+    assert set(kept) == {"AAPL", "MSFT"}
+    assert report["resumed_from"] == 1 and report["measured_now"] == 1
+
+
+def test_the_over_the_counter_tail_is_dropped_before_any_request():
+    """17,608 of the 30,935 symbols Finnhub lists for "US" are OOTC. Screening
+    them spends the whole rate limit on foreign shells nobody can trade, which
+    is what exhausted it and lost NVDA, MSFT and SPY from the universe."""
+    class FakeRouter:
+        @staticmethod
+        def universe_rows():
+            return [{"symbol": "AAPL", "type": "Common Stock", "mic": "XNAS"},
+                    {"symbol": "SPY", "type": "ETP", "mic": "ARCX"},
+                    {"symbol": "YMECF", "type": "Common Stock", "mic": "OOTC"},
+                    {"symbol": "ZAUIF", "type": "Common Stock", "mic": "OOTC"}]
+
+    assert screen.candidate_symbols({}, FakeRouter()) == ["AAPL", "SPY"]
+
+    keep_all = {"paper": {"screen": {"exclude_exchanges": []}}}
+    assert len(screen.candidate_symbols(keep_all, FakeRouter())) == 4
 
 
 def test_the_canary_check_does_not_fire_on_a_deliberately_small_universe(monkeypatch):

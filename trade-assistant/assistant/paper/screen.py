@@ -30,6 +30,12 @@ from ..core.config import DATA_DIR
 from ..providers import bulk
 
 CACHE_PATH = os.path.join(DATA_DIR, "paper_universe.json")
+# Liquidity measurements survive a failed run. Rate limiting is not an edge
+# case at this width — it is what happens — and losing an hour of successful
+# measurements every time the limiter trips makes the screen impossible to
+# finish rather than merely slow. Each run continues where the last stopped.
+PARTIAL_PATH = os.path.join(DATA_DIR, "paper_liquidity_partial.json")
+PARTIAL_MAX_AGE = 3 * 24 * 3600
 # Screening the full 28,192-symbol listing takes roughly eighty minutes of
 # network time. Listings and liquidity move slowly, so it is re-run weekly
 # rather than on every session — otherwise the trader would spend most of its
@@ -41,6 +47,12 @@ DEFAULTS = {
     # "us_all"     — every symbol in the cached Finnhub US listing
     # a list       — an explicit set of symbols
     "universe": "us_all",
+    # 17,608 of the 30,935 symbols Finnhub lists for "US" are OOTC — the
+    # over-the-counter tail of foreign ordinaries and shells. They are not
+    # tradable in any useful sense, and screening them burns the entire data
+    # rate limit before reaching the exchanges that matter. Excluding them more
+    # than halves the work and removes nothing anyone would have held.
+    "exclude_exchanges": ["OOTC"],
     "min_price": 5.0,
     "min_dollar_volume": 5_000_000.0,   # median daily traded value
     "min_history_bars": 60,             # inside the 3-month liquidity window
@@ -74,10 +86,13 @@ def candidate_symbols(config, router):
         rows = router.universe_rows()
     except Exception:
         rows = []
+
+    excluded = {str(m).upper() for m in (cfg.get("exclude_exchanges") or ())}
     symbols = []
     for row in rows:
-        kind = str(row.get("type", "")).upper()
-        if kind in EXCLUDED_TYPES:
+        if str(row.get("type", "")).upper() in EXCLUDED_TYPES:
+            continue
+        if excluded and str(row.get("mic", "")).upper() in excluded:
             continue
         symbol = row.get("symbol")
         if symbol:
@@ -103,8 +118,39 @@ def apply(symbols, config, progress_cb=None):
         report["capped"] = max(0, len(symbols) - len(kept))
         return kept, report
 
-    table = bulk.liquidity_table(symbols, period=cfg["liquidity_period"],
-                                 progress_cb=progress_cb)
+    # Resume: anything measured recently is not measured again. A run that dies
+    # to the rate limiter three quarters of the way through leaves those three
+    # quarters behind for the next one.
+    measured = load_partial()
+    outstanding = [s for s in symbols if s not in measured]
+    report["resumed_from"] = len(measured)
+    report["measured_now"] = len(outstanding)
+
+    table = dict(measured)
+
+    def remember(rows):
+        # Mutates `table` rather than merging into a copy. When the limiter
+        # trips, the exception unwinds before the return value is ever
+        # assigned, so anything measured has to already be in `table` — a
+        # version of this that merged into a temporary wrote an EMPTY file over
+        # the partial results on the way out, destroying exactly what it existed
+        # to preserve.
+        table.update(rows)
+        save_partial(table)
+
+    throttled = None
+    if outstanding:
+        try:
+            table.update(bulk.liquidity_table(
+                outstanding, period=cfg["liquidity_period"],
+                progress_cb=progress_cb, on_batch=remember))
+        except bulk.ThrottleSuspected as exc:
+            throttled = exc
+    save_partial(table)
+    if throttled is not None:
+        # Re-raised only after the partial work is safely on disk.
+        raise throttled
+
     report["priced"] = len(table)
     report["no_data"] = len(symbols) - len(table)
 
@@ -129,6 +175,38 @@ def apply(symbols, config, progress_cb=None):
     kept = [symbol for _, symbol in survivors[:limit]]
     report["kept"] = len(kept)
     return kept, report
+
+
+def load_partial():
+    """Liquidity rows measured by earlier runs, or {} when absent or stale."""
+    try:
+        if not os.path.exists(PARTIAL_PATH):
+            return {}
+        if time.time() - os.path.getmtime(PARTIAL_PATH) > PARTIAL_MAX_AGE:
+            return {}
+        with open(PARTIAL_PATH) as handle:
+            rows = json.load(handle)
+        return rows if isinstance(rows, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_partial(table):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        tmp = PARTIAL_PATH + ".tmp"
+        with open(tmp, "w") as handle:
+            json.dump(table, handle)
+        os.replace(tmp, PARTIAL_PATH)
+    except Exception:
+        pass
+
+
+def clear_partial():
+    try:
+        os.remove(PARTIAL_PATH)
+    except OSError:
+        pass
 
 
 def load_cached():
