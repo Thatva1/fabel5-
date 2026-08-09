@@ -83,7 +83,11 @@ scanner:
   # Index used for relative strength ("is this beating the market?").
   # ^FTSE = FTSE 100. Others: ^GSPC S&P 500 · ^GDAXI DAX · ^STOXX50E Euro Stoxx 50.
   # Leave blank to switch relative strength off.
-  benchmark: ^FTSE
+  # US-only book, so the benchmark is the US market. This drives three things:
+  # relative strength, low_beta's beta, and xs_momentum's market-trend overlay.
+  # Pointing it at ^FTSE while trading US shares gave NVDA a beta of 0.43 —
+  # weak cross-market correlation reading as defensiveness.
+  benchmark: ^GSPC
   relative_strength_days: 63     # about three months of trading
   adx_period: 14
   bollinger_period: 20
@@ -145,10 +149,12 @@ strategies:
   ts_momentum:
     enabled: true
     regimes: [TRENDING_UP, TRENDING_DOWN, SIDEWAYS, VOLATILITY_SQUEEZE]
-    # The only strategy here with a short leg. Every backtest this project has
-    # run has lost money short; set `directions: [long]` to switch it off and
-    # let the rule go flat instead of short.
-    directions: [long, short]
+    # The only strategy here with a short leg, and it is switched off. Measured
+    # over ten years on the watchlist: longs +£145,479, shorts -£68,694, and
+    # turning shorts off moved portfolio CAGR from 2.93% to 9.13%. The rule now
+    # goes FLAT on a negative trailing year instead of short, which is the
+    # behaviour that makes it a diversifier rather than a drag.
+    directions: [long]
     lookback_bars: 252
     min_abs_return_pct: 0.0      # 0 = the published rule, pure sign
     rebalance: monthly
@@ -181,6 +187,12 @@ strategies:
 # a good month from good judgement.
 paper:
   starting_equity: null       # null = account.portfolio_value
+  # A paper book holds ONE cash balance, so every instrument in it must price in
+  # one currency. US shares are dollars. The account is in GBP, so the opening
+  # balance is converted once at the rate on the day the book starts and the
+  # book runs in USD from there — otherwise its return would measure the
+  # strategy plus the exchange rate, and you could not tell which was which.
+  trading_currency: USD
   max_holding_bars: 40        # matches the backtest; the dominant exit
   slippage_bps: 5.0           # charged against you on entry AND exit
   history_period: 2y          # 12-month signal + 200-day average needs ~1.5y
@@ -283,6 +295,13 @@ portfolio:
 # whole market falls is what lost money in 2018 and 2020.
 market_filter:
   enabled: true
+  # US only. An unmapped suffix returns NO index rather than falling back to the
+  # S&P, so if a non-US ticker ever appears it goes ungated instead of being
+  # gated on the wrong market — which would look like a working filter while
+  # measuring a different continent. Restore the other entries from
+  # research/market_regime.py DEFAULTS to trade those markets again.
+  indices:
+    '': ^GSPC
   ma_period: 200
   reentry_buffer_pct: 2.0         # must clear the average by this to buy back in
   risk_off_action: half_size      # half_size | skip — half measured better on both

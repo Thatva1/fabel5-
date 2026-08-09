@@ -23,6 +23,7 @@ optimistic against a real market open and is stated as such in the output.
 from datetime import datetime, timezone
 
 from ..backtest import portfolio as portfolio_limits, simulator
+from ..core import fx
 from ..core.config import load_config
 from ..research import scanner
 from ..risk import sizing
@@ -93,7 +94,10 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
 
     book = Book.load(book_path) if book_path else Book.load()
     if not book.started:
-        book.start(cfg["starting_equity"], config.get("base_currency", "USD"), today)
+        equity, currency, note = _opening_balance(config, router, cfg)
+        book.start(equity, currency, today)
+        if note:
+            book.sessions.append({"date": today, "ran_at": today, "note": note})
 
     out = {"date": today, "started_fresh": not book.closed and not book.positions,
            "universe": 0, "universe_from_cache": None, "screen": None,
@@ -259,6 +263,70 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
                               "shares": shares, "price": round(fill, 2),
                               "stop": idea.stop, "headline": idea.headline})
     out["skipped"] = skipped
+
+
+def trading_currency(config):
+    """The single currency this book trades in.
+
+    A paper book holds ONE cash balance. Buying a US share subtracts its dollar
+    cost from that balance, so unless every instrument prices in the same
+    currency the balance is pounds and dollars added together — the exact error
+    `convert_trades` exists to prevent in the backtest, and one that looks like
+    a working number rather than a broken one.
+
+    Yahoo gives US listings no suffix, so a universe of unsuffixed symbols is
+    dollars. Anything else has to be stated explicitly, and a mixed universe is
+    refused rather than silently summed.
+    """
+    cfg = (config or {}).get("paper", {}) or {}
+    declared = cfg.get("trading_currency")
+    if declared:
+        return str(declared).upper()
+    universe = (cfg.get("screen") or {}).get("universe")
+    symbols = universe if isinstance(universe, (list, tuple)) else None
+    if universe == "watchlist":
+        symbols = config.get("watchlist") or []
+    if symbols is not None:
+        suffixes = {("" if "." not in str(s).upper() else
+                     "." + str(s).upper().rsplit(".", 1)[-1]) for s in symbols}
+        if suffixes and suffixes != {""}:
+            raise ValueError(
+                f"The paper book holds one cash balance, but this universe spans "
+                f"{sorted(suffixes)}. Set paper.trading_currency explicitly, or "
+                "restrict the universe to one market — a single balance cannot "
+                "hold two currencies without silently adding them together.")
+    return "USD"
+
+
+def _opening_balance(config, router, cfg):
+    """(equity, currency, note) for a brand-new book.
+
+    The account is denominated in whatever the user banks in; the book trades in
+    whatever the market prices in. When those differ the opening balance is
+    converted ONCE, here, and the book runs in the market's currency from then
+    on. Converting every position on every mark instead would bury a currency
+    return inside what is supposed to be a measurement of the strategy.
+    """
+    currency = trading_currency(config)
+    account_ccy = config.get("base_currency", "USD")
+    equity = float(cfg["starting_equity"])
+    if account_ccy == currency:
+        return equity, currency, None
+
+    try:
+        rates = router.get_fx_rates({account_ccy, currency}, currency)
+        converted = fx.convert(equity, account_ccy, currency, rates)
+    except Exception as exc:
+        raise ValueError(
+            f"The account is in {account_ccy} and this universe trades in "
+            f"{currency}, but no {account_ccy}->{currency} rate is available "
+            f"({exc}). Refusing to start a book whose balance would be two "
+            "currencies added together.")
+    note = (f"Opened with {equity:,.0f} {account_ccy} converted to "
+            f"{converted:,.0f} {currency} at {converted / equity:.4f}. The book "
+            f"is denominated in {currency} from here, so its return measures the "
+            "strategy rather than the strategy plus the exchange rate.")
+    return converted, currency, note
 
 
 def _hand_the_calendar_to_the_session(config):

@@ -293,6 +293,52 @@ def test_a_trader_switched_off_for_months_rebalances_when_it_returns(book_path):
     assert session._rebalance_due(book, "2026-06-17") is True
 
 
+def test_a_book_refuses_to_hold_two_currencies_in_one_balance():
+    """The book has ONE cash balance. Buying a US share subtracts its dollar
+    cost from it, so a universe spanning London and New York would add pounds
+    to dollars and produce a number that looks precise and means nothing —
+    the exact error convert_trades exists to prevent in the backtest."""
+    mixed = {"paper": {"screen": {"universe": ["AAPL", "TSCO.L"]}}}
+    with pytest.raises(ValueError, match="one cash balance"):
+        session.trading_currency(mixed)
+
+    us_only = {"paper": {"screen": {"universe": ["AAPL", "MSFT"]}}}
+    assert session.trading_currency(us_only) == "USD"
+
+    declared = {"paper": {"trading_currency": "gbp",
+                          "screen": {"universe": ["TSCO.L", "BP.L"]}}}
+    assert session.trading_currency(declared) == "GBP"
+
+
+def test_the_opening_balance_is_converted_once_and_says_so():
+    """The account is in whatever the user banks in; the book trades in whatever
+    the market prices in. Converting once at the start keeps a currency return
+    from being buried inside a measurement of the strategy."""
+    class FakeRouter:
+        @staticmethod
+        def get_fx_rates(currencies, base):
+            return {"GBPUSD": 1.25}          # core.fx keys on the PAIR
+
+    config = {"base_currency": "GBP", "paper": {"trading_currency": "USD"}}
+    equity, currency, note = session._opening_balance(
+        config, FakeRouter(), {"starting_equity": 100_000})
+
+    assert currency == "USD"
+    assert equity == pytest.approx(125_000.0)
+    assert "GBP" in note and "USD" in note
+
+
+def test_a_book_will_not_start_without_a_rate_to_convert_at():
+    class BrokenRouter:
+        @staticmethod
+        def get_fx_rates(currencies, base):
+            raise RuntimeError("no rate")
+
+    config = {"base_currency": "GBP", "paper": {"trading_currency": "USD"}}
+    with pytest.raises(ValueError, match="two currencies added together"):
+        session._opening_balance(config, BrokenRouter(), {"starting_equity": 100_000})
+
+
 def test_slippage_always_hurts():
     assert session._slipped(100.0, "long", 50.0, opening=True) > 100.0
     assert session._slipped(100.0, "long", 50.0, opening=False) < 100.0
