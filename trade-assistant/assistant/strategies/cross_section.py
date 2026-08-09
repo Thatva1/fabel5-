@@ -71,15 +71,37 @@ class CrossSection:
 
     # -- the two questions strategies ask ---------------------------------
 
-    def momentum(self, ticker, as_of, lookback_bars=252, skip_bars=21):
+    def momentum(self, ticker, as_of, lookback_bars=252, skip_bars=21,
+                 eligible=None):
         """Rank by return over `lookback_bars`, ending `skip_bars` ago.
 
         Rank 1 is the strongest name. The skip is not decoration: the most
         recent month reverses on average (Jegadeesh 1990), so including it
         contaminates a momentum signal with a reversal signal.
+
+        `eligible` restricts the ranking to a subset. Ranking the whole market
+        and then rejecting the winners on a separate test is not the same
+        strategy and can select nothing at all: over 1,500 liquid US names the
+        top twelve on this signal were up 700-3,900% and carried 85-226%
+        volatility, so a 60% ceiling applied after the ranking vetoed every
+        single one and the rotation held nothing. Rank inside the set you are
+        willing to own.
         """
         return self._lookup(("momentum", int(lookback_bars), int(skip_bars)),
-                            ticker, as_of)
+                            ticker, as_of, eligible=eligible)
+
+    def calm_enough(self, as_of, max_vol_pct, lookback_bars=60):
+        """The names whose annualised volatility is at or under a ceiling.
+
+        Computed from the volatility matrix that already exists, so defining an
+        eligible set costs one row lookup rather than a pass over the universe.
+        """
+        matrix = self._matrix(("volatility", int(lookback_bars)))
+        row = self._row(matrix, as_of)
+        if row is None:
+            return None
+        row = row.dropna()
+        return {str(t) for t, value in row.items() if float(value) <= float(max_vol_pct)}
 
     def volatility(self, ticker, as_of, lookback_bars=60):
         """Rank by annualised realised volatility. Rank 1 is the CALMEST name."""
@@ -87,7 +109,7 @@ class CrossSection:
 
     # -- machinery ---------------------------------------------------------
 
-    def _lookup(self, key, ticker, as_of):
+    def _lookup(self, key, ticker, as_of, eligible=None):
         """{value, rank, count, percentile} for one name, or None if unrankable.
 
         percentile is where the name sits in the universe, 0-100, counted from
@@ -100,6 +122,10 @@ class CrossSection:
         if row is None:
             return None
         row = row.dropna()
+        if eligible is not None:
+            if str(ticker) not in eligible:
+                return None
+            row = row[[c for c in row.index if str(c) in eligible]]
         # A rank against one other instrument is not a cross-section, and a rank
         # against nothing is meaningless. Refuse rather than report rank 1 of 1.
         if str(ticker) not in row.index or len(row) < 2:

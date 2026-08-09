@@ -250,6 +250,43 @@ def test_xs_momentum_only_acts_on_a_rebalance_bar():
     assert len(strategy.detect(daily)) == 1
 
 
+def test_xs_momentum_ranks_inside_the_names_it_is_willing_to_own():
+    """The bug this pins, found on the first live 1,500-name session. Ranking
+    the whole market and then vetoing the winners on volatility is a different
+    strategy, and at this width it selects NOTHING: the top twelve names were up
+    700-3,900% over the year with 85-226% annualised volatility, so a 60%
+    ceiling applied after the ranking rejected all twelve and the rotation held
+    nothing at all. The eligible set has to come first.
+    """
+    strategy = CrossSectionalMomentumStrategy()
+    index = _dates(400)
+    calm = _uptrend(400, daily=0.0015, seed=24)
+
+    closes = {"TEST": pd.Series(calm, index=index)}
+    # Twelve rockets: stronger than TEST on the signal, far too wild to hold.
+    for i in range(12):
+        closes[f"ROCKET{i}"] = pd.Series(
+            _walk(400, 10.0, 0.02, noise=0.09, seed=50 + i), index=index)
+    for i in range(12):
+        closes[f"CALM{i}"] = pd.Series(
+            _walk(400, 50.0, 0.0002, noise=0.004, seed=80 + i), index=index)
+    universe = CrossSection(closes)
+
+    # Ranked against everything, TEST is nowhere near the top twelve.
+    assert universe.momentum("TEST", index[-1])["rank"] > 12
+    # Ranked among the calm names, it is a leader — and now tradable.
+    eligible = universe.calm_enough(index[-1], 60.0)
+    assert "ROCKET0" not in eligible, "the rockets must fail the ceiling"
+    assert universe.momentum("TEST", index[-1], eligible=eligible)["rank"] <= 12
+
+    ctx = _ctx(strategy, calm, cross_section=universe,
+               benchmark_closes=_rising_benchmark())
+    ideas = strategy.detect(ctx)
+    assert len(ideas) == 1, "a calm leader must be reachable at any universe width"
+    assert ideas[0].meta["universe_size"] < len(closes), \
+        "the reported universe is the eligible set, not the whole market"
+
+
 def test_xs_momentum_skips_a_leader_whose_own_volatility_has_exploded():
     strategy = CrossSectionalMomentumStrategy()
     closes = _uptrend(400)

@@ -279,7 +279,7 @@ def test_a_rebalance_is_due_once_a_month_not_once_a_day(book_path):
     book = _started(book_path)
     assert session._rebalance_due(book, "2026-01-05") is True      # never run
 
-    book.sessions.append({"date": "2026-01-05"})
+    book.last_rebalance = "2026-01-05"
     assert session._rebalance_due(book, "2026-01-06") is False
     assert session._rebalance_due(book, "2026-01-30") is False
     assert session._rebalance_due(book, "2026-02-02") is True
@@ -289,8 +289,36 @@ def test_a_trader_switched_off_for_months_rebalances_when_it_returns(book_path):
     """Keyed on the book, not the calendar. A trader that missed March must
     rebalance the day it comes back rather than hold a stale book until April."""
     book = _started(book_path)
-    book.sessions.append({"date": "2026-01-05"})
+    book.last_rebalance = "2026-01-05"
     assert session._rebalance_due(book, "2026-06-17") is True
+
+
+def test_a_brand_new_book_rebalances_even_though_opening_it_wrote_a_note(book_path):
+    """The bug this pins, from the first real session. Opening the book logs a
+    note about the FX conversion, and the rebalance check read that same session
+    log — so the very first session concluded it had already rebalanced this
+    month and opened nothing. The clock now keys on actual rebalances, so
+    anything else writing a log line cannot move it."""
+    book = _started(book_path)
+    book.sessions.append({"date": "2026-01-05", "note": "opened with GBP->USD"})
+    assert session._rebalance_due(book, "2026-01-05") is True
+
+
+def test_a_mark_only_session_does_not_consume_the_month(book_path):
+    """A book marked daily through January must still rebalance in February;
+    the daily marks must not look like a rebalance."""
+    book = _started(book_path)
+    book.last_rebalance = "2026-01-05"
+    for day in range(6, 32):
+        book.mark(f"2026-01-{day:02d}", "marked only")
+    assert session._rebalance_due(book, "2026-02-02") is True
+
+
+def test_the_rebalance_clock_survives_a_reload(book_path):
+    book = _started(book_path)
+    book.last_rebalance = "2026-01-05"
+    book.save(book_path)
+    assert Book.load(book_path).last_rebalance == "2026-01-05"
 
 
 def test_a_book_refuses_to_hold_two_currencies_in_one_balance():
@@ -328,6 +356,28 @@ def test_the_opening_balance_is_converted_once_and_says_so():
     assert "GBP" in note and "USD" in note
 
 
+def test_the_rate_is_asked_for_from_both_directions():
+    """get_fx_rates builds its pairs from {base, "USD"}, so asking for GBP->USD
+    with USD as the base collapses to one pair — and the router swallows a
+    failed fetch, so one transient miss returns an empty dict rather than an
+    error. Asked the other way the same call returns both legs. That asymmetry
+    stopped the very first paper session from starting."""
+    class LopsidedRouter:
+        @staticmethod
+        def get_fx_rates(currencies, base):
+            if base == "USD":
+                return {}                       # the collapsed, unlucky direction
+            return {"GBPUSD": 1.35, "USDGBP": 0.74}
+
+    rates = session._rates_both_ways(LopsidedRouter(), "GBP", "USD")
+    assert rates["GBPUSD"] == 1.35
+
+    config = {"base_currency": "GBP", "paper": {"trading_currency": "USD"}}
+    equity, currency, note = session._opening_balance(
+        config, LopsidedRouter(), {"starting_equity": 100_000})
+    assert currency == "USD" and equity == pytest.approx(135_000.0)
+
+
 def test_a_book_will_not_start_without_a_rate_to_convert_at():
     class BrokenRouter:
         @staticmethod
@@ -337,6 +387,75 @@ def test_a_book_will_not_start_without_a_rate_to_convert_at():
     config = {"base_currency": "GBP", "paper": {"trading_currency": "USD"}}
     with pytest.raises(ValueError, match="two currencies added together"):
         session._opening_balance(config, BrokenRouter(), {"starting_equity": 100_000})
+
+
+def test_candidate_ranking_mirrors_the_backtest_in_both_stages():
+    """Two live sessions failed in opposite directions here.
+
+    Sorting on reward:risk alone let the most FREQUENT signal take every slot —
+    ts_momentum fires on hundreds of names, xs_momentum on twelve — and the
+    book opened eleven trend-following positions and no rotation. Then sorting
+    on strategy priority globally let the top-RANKED strategy take every slot
+    instead: twelve rotation positions and nothing else.
+
+    The backtest applies priority within a ticker and reward:risk across
+    tickers. Only that shape gives each instrument to its best strategy and
+    then lets instruments compete.
+    """
+    class Idea:
+        def __init__(self, ticker, strategy, reward_risk):
+            self.ticker, self.strategy = ticker, strategy
+            self.reward_risk = reward_risk
+
+    # AAA is wanted by both strategies; BBB only by the lower-priority one.
+    ideas = [Idea("AAA", "ts_momentum", 3.0), Idea("AAA", "xs_momentum", 3.0),
+             Idea("BBB", "ts_momentum", 3.5), Idea("CCC", "low_beta", 2.5)]
+    ranked = session._rank_candidates(ideas, {})
+
+    assert len(ranked) == 3, "one candidate per instrument"
+    by_ticker = {i.ticker: i.strategy for i in ranked}
+    assert by_ticker["AAA"] == "xs_momentum", "priority decides WITHIN a ticker"
+    assert by_ticker["BBB"] == "ts_momentum", \
+        "a lower-priority strategy still gets instruments nothing else wants"
+    assert ranked[0].ticker == "BBB", "reward:risk decides ACROSS tickers"
+
+
+def test_the_session_breaks_ties_the_same_way_the_backtest_does():
+    """The bug this pins, from the first real session. Every strategy targets a
+    fixed multiple of its stop, so xs_momentum and ts_momentum both score
+    exactly 3.0 on reward:risk and the tie fell to iteration order. ts_momentum
+    fires on any name with a positive year — hundreds — while xs_momentum takes
+    the top twelve of fifteen hundred, so the book filled entirely with
+    ts_momentum and opened not one rotation position: the strategy with the best
+    measured expectancy got starved by the one that simply fires more often.
+    """
+    from assistant.backtest import engine
+
+    priority = engine.DEFAULTS["strategy_priority"]
+    assert priority.index("xs_momentum") < priority.index("ts_momentum")
+
+    class Idea:
+        def __init__(self, strategy, reward_risk):
+            self.strategy, self.reward_risk = strategy, reward_risk
+
+    ideas = [Idea("ts_momentum", 3.0), Idea("low_beta", 2.5),
+             Idea("xs_momentum", 3.0), Idea("ts_momentum", 3.0)]
+    ranks = {name: i for i, name in enumerate(priority)}
+    ideas.sort(key=lambda i: (ranks.get(i.strategy, len(ranks)), -(i.reward_risk or 0)))
+    assert [i.strategy for i in ideas][0] == "xs_momentum", \
+        "the rarer, better-ranked strategy must be offered a slot first"
+
+
+def test_a_token_position_is_refused(book_path):
+    """The first real session opened NOK at ONE share — nine dollars inside a
+    $135,000 book, left over when the exposure cap was nearly full. It cannot
+    move the result, its commission is a pure loss, and it takes a slot."""
+    cfg = session.settings({"paper": {}, "account": {"portfolio_value": 100_000}})
+    equity = 135_000.0
+    floor = equity * cfg["min_position_pct"] / 100
+
+    assert 1 * 9.36 < floor, "a one-share NOK position must fall under the floor"
+    assert 48 * 313.49 > floor, "a real AAPL position must clear it"
 
 
 def test_slippage_always_hurts():

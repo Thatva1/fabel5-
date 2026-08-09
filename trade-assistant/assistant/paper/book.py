@@ -43,6 +43,13 @@ class Book:
         self.closed = list(state.get("closed", []))
         self.curve = list(state.get("curve", []))          # [{date, equity, exposure_pct}]
         self.sessions = list(state.get("sessions", []))    # [{date, ran_at, note}]
+        # Tracked separately from `sessions` on purpose. Deriving "have I
+        # rebalanced this month" from the session log couples the trading
+        # calendar to anything else that happens to write a log line — and it
+        # already broke once: the note recording the opening FX conversion was
+        # appended before the check ran, so a brand-new book decided it had
+        # already rebalanced and opened nothing on its first day.
+        self.last_rebalance = state.get("last_rebalance")
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -75,6 +82,7 @@ class Book:
             "closed": self.closed,
             "curve": self.curve,
             "sessions": self.sessions,
+            "last_rebalance": self.last_rebalance,
         }
 
     @property

@@ -22,7 +22,7 @@ optimistic against a real market open and is stated as such in the output.
 """
 from datetime import datetime, timezone
 
-from ..backtest import portfolio as portfolio_limits, simulator
+from ..backtest import engine as backtest_engine, portfolio as portfolio_limits, simulator
 from ..core import fx
 from ..core.config import load_config
 from ..research import scanner
@@ -37,6 +37,10 @@ DEFAULTS = {
     "slippage_bps": 5.0,        # against you, both sides
     "starting_equity": None,    # defaults to account.portfolio_value
     "history_period": "2y",     # enough for a 12-month signal plus a 200-day MA
+    # Floor on a new position, as a percentage of equity. Below this the
+    # position cannot affect the result but still pays commission and occupies
+    # a slot — the sliver left when the exposure cap is nearly full.
+    "min_position_pct": 1.0,
 }
 
 
@@ -159,6 +163,7 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
         return out
 
     out["rebalanced"] = True
+    book.last_rebalance = today
     report_stage(f"fetching history for {len(universe)} instruments")
     from ..providers import bulk
     universe_frames = bulk.ohlcv_history(universe, period=cfg["history_period"])
@@ -196,7 +201,7 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
                 ideas.append(idea)
 
     out["candidates"] = len(ideas)
-    ideas.sort(key=lambda i: -(i.reward_risk or 0))
+    ideas = _rank_candidates(ideas, config)
     _open_positions(book, ideas, universe_frames, config, cfg, limits, today, out)
 
     row = book.mark(today, f"rebalanced — {len(out['opened'])} opened, "
@@ -204,6 +209,48 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
     book.save(book_path) if book_path else book.save()
     out.update({"equity": row["equity"], "summary": book.summary()})
     return out
+
+
+def _rank_candidates(ideas, config):
+    """Order candidates for the slots, in the two stages the backtest uses.
+
+    Getting this wrong produced the opposite failure twice in a row, so the
+    shape is worth stating plainly.
+
+    Stage one, WITHIN a ticker: strategy priority decides which strategy claims
+    that instrument, ties broken on reward:risk. This is engine.backtest_ticker.
+
+    Stage two, ACROSS tickers: reward:risk alone, with no strategy priority at
+    all. This is portfolio.simulate.
+
+    Applying priority globally instead — one sort over everything — lets the
+    top-ranked strategy take every slot in the book: the rotation filled all
+    twelve and neither other strategy got one. Applying no priority lets the
+    most frequent signal take every slot instead, which is how the first
+    session ended up entirely trend-following. Only the two-stage shape gives
+    each instrument to its best strategy and then lets instruments compete.
+
+    A caveat the numbers cannot express: every strategy here targets a fixed
+    multiple of its own stop, so reward:risk is 3.0, 3.0 and 2.5 by
+    construction and discriminates almost nothing at stage two. Order there is
+    effectively the order instruments arrive, which is liquidity order from the
+    screen. That is inherited from the backtest rather than invented here, but
+    it means the strategy mix in the book is not a considered judgement about
+    which signal is better today.
+    """
+    priority = {name: rank for rank, name in enumerate(
+        backtest_engine.settings(config)["strategy_priority"])}
+
+    best_per_ticker = {}
+    for idea in ideas:
+        rank = (priority.get(idea.strategy, len(priority)), -(idea.reward_risk or 0))
+        current = best_per_ticker.get(idea.ticker)
+        if current is None or rank < current[0]:
+            best_per_ticker[idea.ticker] = (rank, idea)
+
+    winners = [idea for _, idea in best_per_ticker.values()]
+    winners.sort(key=lambda i: -(i.reward_risk or 0))
+    return winners
 
 
 def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
@@ -241,10 +288,17 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
             continue
 
         fill = _slipped(idea.entry, idea.direction, cfg["slippage_bps"], opening=True)
+        room = exposure_cap - book.market_value()
         shares = sizing.position_size_by_value(risk_budget, risk_per_share,
-                                               min(max_position, exposure_cap - book.market_value()),
-                                               fill)
-        if shares < 1:
+                                               min(max_position, room), fill)
+        # A token position is not a position. Once the exposure cap is nearly
+        # full the remaining room converts to a handful of shares, and the first
+        # real session opened NOK at ONE share — nine dollars inside a
+        # hundred-and-thirty-five-thousand-dollar book. It cannot move the
+        # result, its commission is a pure loss, and it occupies a slot a real
+        # position could have used.
+        value = shares * fill
+        if shares < 1 or value < equity * float(cfg["min_position_pct"]) / 100:
             skipped["size_too_small"] += 1
             continue
         cost = simulator.cost_config_for(idea.ticker, config)
@@ -298,6 +352,28 @@ def trading_currency(config):
     return "USD"
 
 
+def _rates_both_ways(router, account_ccy, currency):
+    """Every rate leg between two currencies, asked for from both directions.
+
+    get_fx_rates builds its pairs from {base, "USD"}, so asking for GBP->USD
+    with USD as the base collapses that set to one target and yields a single
+    pair — and because the router swallows a failed fetch and returns what it
+    has, one transient miss comes back as an empty dict rather than an error.
+    Asked the other way round the same call returns both GBPUSD and USDGBP.
+
+    Depending on that asymmetry would be depending on an accident, so both
+    directions are requested and merged. A genuinely unavailable rate still
+    ends up as an empty dict, and the caller still refuses to start the book.
+    """
+    rates = {}
+    for base in (currency, account_ccy):
+        try:
+            rates.update(router.get_fx_rates({account_ccy, currency}, base) or {})
+        except Exception:
+            continue
+    return rates
+
+
 def _opening_balance(config, router, cfg):
     """(equity, currency, note) for a brand-new book.
 
@@ -314,8 +390,8 @@ def _opening_balance(config, router, cfg):
         return equity, currency, None
 
     try:
-        rates = router.get_fx_rates({account_ccy, currency}, currency)
-        converted = fx.convert(equity, account_ccy, currency, rates)
+        converted = fx.convert(equity, account_ccy, currency,
+                               _rates_both_ways(router, account_ccy, currency))
     except Exception as exc:
         raise ValueError(
             f"The account is in {account_ccy} and this universe trades in "
@@ -360,15 +436,19 @@ def _hand_the_calendar_to_the_session(config):
 def _rebalance_due(book, today):
     """First session of a new calendar month.
 
-    Keyed on the book's own history rather than the calendar, so a trader that
-    was switched off for six weeks rebalances on the day it comes back instead
-    of waiting for the next month boundary and holding a stale book.
+    Keyed on the last REBALANCE, not on the last session. A trader switched off
+    for six weeks rebalances the day it comes back rather than waiting for the
+    next month boundary and holding a stale book.
+
+    Deriving this from the session log instead coupled the trading calendar to
+    anything that wrote a log line, and it broke immediately: the note recording
+    the opening FX conversion landed in `sessions` before this ran, so the very
+    first session of a brand-new book concluded it had already rebalanced and
+    opened nothing.
     """
-    previous = [s["date"] for s in book.sessions if s.get("date")]
-    if not previous:
+    if not book.last_rebalance:
         return True
-    last = max(previous)
-    return last[:7] != today[:7]
+    return book.last_rebalance[:7] != today[:7]
 
 
 def _benchmark(router, config):

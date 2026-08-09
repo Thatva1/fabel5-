@@ -1,0 +1,220 @@
+{
+  "schema": 1,
+  "started_at": "2026-08-09T20:29:17+00:00",
+  "starting_equity": 134949.12385940552,
+  "cash": 14514.040909405503,
+  "base_currency": "USD",
+  "positions": [
+    {
+      "ticker": "SPY",
+      "direction": "long",
+      "shares": 26.0,
+      "entry_price": 773.64663,
+      "entry_date": "2026-08-09",
+      "stop": 745.87,
+      "target": 855.43,
+      "strategy": "ts_momentum",
+      "regime": "SIDEWAYS",
+      "headline": "Trend-following long \u2014 its own 12-month return is +23.6%",
+      "bars_held": 0,
+      "last_price": 773.64663,
+      "meta": {
+        "trailing_return_pct": 23.55,
+        "lookback_bars": 252,
+        "realized_vol_pct": 14.16,
+        "inverse_vol_weight": 1.06,
+        "rebalance": "any"
+      }
+    },
+    {
+      "ticker": "NVDA",
+      "direction": "long",
+      "shares": 57.0,
+      "entry_price": 224.07198,
+      "entry_date": "2026-08-09",
+      "stop": 200.47,
+      "target": 294.43,
+      "strategy": "ts_momentum",
+      "regime": "SIDEWAYS",
+      "headline": "Trend-following long \u2014 its own 12-month return is +25.0%",
+      "bars_held": 0,
+      "last_price": 224.07198,
+      "meta": {
+        "trailing_return_pct": 24.99,
+        "lookback_bars": 252,
+        "realized_vol_pct": 41.39,
+        "inverse_vol_weight": 0.36,
+        "rebalance": "any"
+      }
+    },
+    {
+      "ticker": "AAPL",
+      "direction": "long",
+      "shares": 48.0,
+      "entry_price": 313.48666499999996,
+      "entry_date": "2026-08-09",
+      "stop": 285.28,
+      "target": 397.48,
+      "strategy": "ts_momentum",
+      "regime": "SIDEWAYS",
+      "headline": "Trend-following long \u2014 its own 12-month return is +47.5%",
+      "bars_held": 0,
+      "last_price": 313.48666499999996,
+      "meta": {
+        "trailing_return_pct": 47.51,
+        "lookback_bars": 252,
+        "realized_vol_pct": 31.88,
+        "inverse_vol_weight": 0.47,
+        "rebalance": "any"
+      }
+    },
+    {
+      "ticker": "AMD",
+      "direction": "long",
+      "shares": 11.0,
+      "entry_price": 483.60168,
+      "entry_date": "2026-08-09",
+      "stop": 363.57,
+      "target": 842.73,
+      "strategy": "ts_momentum",
+      "regime": "SIDEWAYS",
+      "headline": "Trend-following long \u2014 its own 12-month return is +196.3%",
+      "bars_held": 0,
+      "last_price": 483.60168,
+      "meta": {
+        "trailing_return_pct": 196.32,
+        "lookback_bars": 252,
+        "realized_vol_pct": 79.03,
+        "inverse_vol_weight": 0.19,
+        "rebalance": "any"
+      }
+    },
+    {
+      "ticker": "AMZN",
+      "direction": "long",
+      "shares": 45.0,
+      "entry_price": 274.61724000000004,
+      "entry_date": "2026-08-09",
+      "stop": 244.51,
+      "target": 364.39,
+      "strategy": "ts_momentum",
+      "regime": "TRENDING_UP",
+      "headline": "Trend-following long \u2014 its own 12-month return is +23.5%",
+      "bars_held": 0,
+      "last_price": 274.61724000000004,
+      "meta": {
+        "trailing_return_pct": 23.47,
+        "lookback_bars": 252,
+        "realized_vol_pct": 44.78,
+        "inverse_vol_weight": 0.33,
+        "rebalance": "any"
+      }
+    },
+    {
+      "ticker": "GOOGL",
+      "direction": "long",
+      "shares": 33.0,
+      "entry_price": 354.47715,
+      "entry_date": "2026-08-09",
+      "stop": 314.61,
+      "target": 473.37,
+      "strategy": "ts_momentum",
+      "regime": "SIDEWAYS",
+      "headline": "Trend-following long \u2014 its own 12-month return is +81.2%",
+      "bars_held": 0,
+      "last_price": 354.47715,
+      "meta": {
+        "trailing_return_pct": 81.2,
+        "lookback_bars": 252,
+        "realized_vol_pct": 38.09,
+        "inverse_vol_weight": 0.39,
+        "rebalance": "any"
+      }
+    },
+    {
+      "ticker": "AVGO",
+      "direction": "long",
+      "shares": 27.0,
+      "entry_price": 427.97388,
+      "entry_date": "2026-08-09",
+      "stop": 379.16,
+      "target": 573.56,
+      "strategy": "ts_momentum",
+      "regime": "SIDEWAYS",
+      "headline": "Trend-following long \u2014 its own 12-month return is +42.8%",
+      "bars_held": 0,
+      "last_price": 427.97388,
+      "meta": {
+        "trailing_return_pct": 42.84,
+        "lookback_bars": 252,
+        "realized_vol_pct": 54.47,
+        "inverse_vol_weight": 0.28,
+        "rebalance": "any"
+      }
+    },
+    {
+      "ticker": "IWM",
+      "direction": "long",
+      "shares": 67.0,
+      "entry_price": 301.71078,
+      "entry_date": "2026-08-09",
+      "stop": 288.6,
+      "target": 340.44,
+      "strategy": "ts_momentum",
+      "regime": "SIDEWAYS",
+      "headline": "Trend-following long \u2014 its own 12-month return is +38.1%",
+      "bars_held": 0,
+      "last_price": 301.71078,
+      "meta": {
+        "trailing_return_pct": 38.14,
+        "lookback_bars": 252,
+        "realized_vol_pct": 18.32,
+        "inverse_vol_weight": 0.82,
+        "rebalance": "any"
+      }
+    },
+    {
+      "ticker": "TSM",
+      "direction": "long",
+      "shares": 27.0,
+      "entry_price": 420.25002,
+      "entry_date": "2026-08-09",
+      "stop": 370.36,
+      "target": 569.08,
+      "strategy": "ts_momentum",
+      "regime": "VOLATILITY_SQUEEZE",
+      "headline": "Trend-following long \u2014 its own 12-month return is +83.6%",
+      "bars_held": 0,
+      "last_price": 420.25002,
+      "meta": {
+        "trailing_return_pct": 83.55,
+        "lookback_bars": 252,
+        "realized_vol_pct": 50.11,
+        "inverse_vol_weight": 0.3,
+        "rebalance": "any"
+      }
+    }
+  ],
+  "closed": [],
+  "curve": [
+    {
+      "date": "2026-08-09",
+      "equity": 134940.12,
+      "exposure_pct": 89.2,
+      "positions": 9
+    }
+  ],
+  "sessions": [
+    {
+      "date": "2026-08-09",
+      "ran_at": "2026-08-09",
+      "note": "Opened with 100,000 GBP converted to 134,949 USD at 1.3495. The book is denominated in USD from here, so its return measures the strategy rather than the strategy plus the exchange rate."
+    },
+    {
+      "date": "2026-08-09",
+      "ran_at": "2026-08-09T20:32:01+00:00",
+      "note": "rebalanced \u2014 9 opened, 0 closed"
+    }
+  ],
+  "last_rebalance": "2026-08-09"
+}

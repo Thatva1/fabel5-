@@ -82,18 +82,34 @@ class CrossSectionalMomentumStrategy(Strategy):
         if universe is None or len(universe) < int(p["min_universe"]):
             return []
         as_of = factors.as_of_of(ctx.df)
+        # The eligible set FIRST, then the ranking inside it. Ranking the whole
+        # market and vetoing the winners afterwards is a different strategy and
+        # selects nothing at this width: over 1,500 liquid US names the top
+        # twelve were up 700-3,900% with 85-226% volatility, so a 60% ceiling
+        # applied after the fact rejected all twelve and the rotation held
+        # nothing at all. Rank inside the set you are willing to own.
+        eligible = universe.calm_enough(as_of, p["max_vol_pct"],
+                                        lookback_bars=p["vol_lookback_bars"])
+        if eligible is not None and len(eligible) < int(p["min_universe"]):
+            return []
         stats = universe.momentum(ctx.ticker, as_of,
                                   lookback_bars=p["lookback_bars"],
-                                  skip_bars=p["skip_bars"])
+                                  skip_bars=p["skip_bars"],
+                                  eligible=eligible)
         if stats is None or stats["rank"] > int(p["top_n"]):
             return []
 
         reasons = list(ctx.regime.get("reasons", []))
         months = int(p["lookback_bars"]) / 21
         reasons.append(
-            f"Ranked {stats['rank']} of {stats['count']} in the universe on "
-            f"{months:.0f}-month momentum skipping the last month "
-            f"({factors.pct(stats['value'])}) — inside the top {int(p['top_n'])}")
+            f"Ranked {stats['rank']} of {stats['count']} on {months:.0f}-month "
+            f"momentum skipping the last month ({factors.pct(stats['value'])}) "
+            f"— inside the top {int(p['top_n'])}")
+        reasons.append(
+            f"That ranking is against the {stats['count']} names calm enough to "
+            f"own (under {p['max_vol_pct']:.0f}% annualised), not the whole "
+            "market: the outright strongest names over a year are up several "
+            "hundred percent and far too wild to carry")
         reasons.append(
             f"The most recent {int(p['skip_bars'])} sessions are excluded from the "
             "signal on purpose: short-horizon moves tend to reverse, and including "
