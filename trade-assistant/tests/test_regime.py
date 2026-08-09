@@ -93,6 +93,49 @@ def test_relative_strength_is_none_without_a_benchmark():
     assert indicators.relative_strength(pd.Series([1.0, 2.0]), None) is None
 
 
+def _exchange_series(values, tz):
+    """Daily closes stamped in an exchange's own timezone, as yfinance returns them."""
+    index = pd.date_range("2023-01-02", periods=len(values), freq="B", tz=tz)
+    return pd.Series([float(v) for v in values], index=index)
+
+
+def test_two_exchanges_are_paired_on_the_trading_day_not_the_instant():
+    """The bug this pins: yfinance stamps a New York close midnight
+    America/New_York and a London close midnight Europe/London. Those are
+    different INSTANTS, so joining a US stock to a UK index on the raw index
+    matched zero rows — not a few missing days, zero — and every cross-market
+    comparison silently returned None. Silently is the problem: nothing looked
+    broken, the answers simply stopped existing.
+    """
+    us = _exchange_series([100.0] * 300 + [110.0], "America/New_York")
+    uk = _exchange_series([100.0] * 300 + [104.0], "Europe/London")
+
+    joined = indicators.align(us, uk)
+    assert len(joined) == 301, "the two calendars must overlap on their shared days"
+    assert indicators.relative_strength(us, uk, days=10) == pytest.approx(6.0)
+    assert indicators.beta(us, uk, lookback_bars=252) is not None
+
+
+def test_beta_is_one_against_the_index_itself_and_lower_for_a_damped_name():
+    """Both series carry their OWN exchange's midnight, which is how yfinance
+    delivers them — not one converted from the other."""
+    rng = np.random.default_rng(4)
+    levels, price = [], 1000.0
+    for step in rng.normal(0.0004, 0.011, 300):
+        price *= 1 + step
+        levels.append(price)
+    index = _exchange_series(levels, "Europe/London")
+
+    damped_levels, price = [], 100.0
+    for step in pd.Series(levels).pct_change().fillna(0.0):
+        price *= 1 + step * 0.4
+        damped_levels.append(price)
+    damped = _exchange_series(damped_levels, "America/New_York")
+
+    assert indicators.beta(index, index, lookback_bars=252) == pytest.approx(1.0, abs=1e-6)
+    assert indicators.beta(damped, index, lookback_bars=252) == pytest.approx(0.4, abs=0.01)
+
+
 def test_recent_extremes_exclude_today():
     """Today's own high must not be part of the high it is being compared to,
     or every new high 'breaks out' above itself."""

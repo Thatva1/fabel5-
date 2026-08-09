@@ -125,18 +125,53 @@ def slope_pct(series, periods=21):
     return round((float(clean.iloc[-1]) / past - 1) * 100, 2)
 
 
+def _calendar_date_index(series):
+    """A copy indexed by calendar DATE, timezone stripped.
+
+    yfinance stamps each bar with the exchange's own timezone: a New York close
+    is midnight America/New_York, a London close is midnight Europe/London.
+    Those are different instants, so joining a US stock to a UK index on the raw
+    index matches NOTHING — not a few missing days, zero rows — and every
+    cross-market comparison silently returns None. Trading days are the unit
+    that actually means something here, so both sides are reduced to a date
+    before they are paired.
+    """
+    index = series.index
+    try:
+        if getattr(index, "tz", None) is not None:
+            index = index.tz_localize(None)
+        index = index.normalize()
+    except (AttributeError, TypeError):
+        return series
+    out = series.copy()
+    out.index = index
+    # Two bars can collapse onto one date across a DST boundary; keep the last.
+    return out[~out.index.duplicated(keep="last")]
+
+
+def align(series, other):
+    """Two series paired on the trading days they share, as a two-column frame.
+
+    Empty when they genuinely do not overlap — which a caller must treat as "I
+    cannot answer", never as zero.
+    """
+    if series is None or other is None:
+        return None
+    return (_calendar_date_index(series).to_frame("t")
+            .join(_calendar_date_index(other).to_frame("b"), how="inner")
+            .dropna())
+
+
 def relative_strength(closes, benchmark_closes, days=63):
     """Ticker return minus benchmark return over `days` bars, in percentage points.
 
-    Positive means the name is outperforming its index — the momentum strategy
-    prefers those. Returns None when the two series cannot be aligned.
+    Positive means the name is outperforming its index. Returns None when the
+    two series cannot be aligned.
     """
     if benchmark_closes is None:
         return None
-    joined = (closes.to_frame("t")
-              .join(benchmark_closes.to_frame("b"), how="inner")
-              .dropna())
-    if len(joined) <= days:
+    joined = align(closes, benchmark_closes)
+    if joined is None or len(joined) <= days:
         return None
     t_ret = float(joined["t"].iloc[-1]) / float(joined["t"].iloc[-(days + 1)]) - 1
     b_ret = float(joined["b"].iloc[-1]) / float(joined["b"].iloc[-(days + 1)]) - 1
@@ -184,12 +219,8 @@ def beta(closes, benchmark_closes, lookback_bars=252):
     exchange calendars have different holidays, and pairing a Tuesday return
     with a Wednesday one produces a number that looks like beta and is not.
     """
-    if benchmark_closes is None or closes is None:
-        return None
-    joined = (closes.to_frame("t")
-              .join(benchmark_closes.to_frame("b"), how="inner")
-              .dropna())
-    if len(joined) < int(lookback_bars) + 1:
+    joined = align(closes, benchmark_closes)
+    if joined is None or len(joined) < int(lookback_bars) + 1:
         return None
     returns = joined.pct_change().dropna().tail(int(lookback_bars))
     if len(returns) < int(lookback_bars):
