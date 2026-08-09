@@ -107,52 +107,69 @@ regime:
 # Every strategy can be switched off with `enabled: false`, retuned by setting
 # any of its own settings, or moved to different market conditions with
 # `regimes:`. Deleting a block just restores that strategy's defaults.
+#
+# These are FACTOR strategies. They rebalance monthly, hold for weeks, and their
+# signal is a rank or a sign rather than a chart pattern — so a scan on a
+# non-rebalance day is meant to be silent, and a quiet week is the strategy
+# working, not the strategy broken.
+#
+# Two of them need more than one ticker's data:
+#   * xs_momentum ranks the watchlist against itself. A watchlist under
+#     `min_universe` names produces nothing at all, by design.
+#   * xs_momentum and low_beta both need `scanner.benchmark` set. Without it
+#     there is no market to be low-beta against and no trend to stand aside
+#     from, so they stay silent rather than guess.
 strategies:
-  momentum:
+  # Cross-sectional momentum rotation — Jegadeesh & Titman (1993),
+  # Asness-Moskowitz-Pedersen (2013), Daniel & Moskowitz (2016) for the overlay.
+  xs_momentum:
     enabled: true
-    regimes: [TRENDING_UP, TRENDING_DOWN]
-    min_volume_ratio: 1.2        # breakout volume vs the 20-day average
-    rsi_max_long: 80.0           # don't buy something already this overbought
-    rsi_min_short: 20.0
-    max_extension_atr: 1.0       # don't chase more than 1 ATR past the level
-    stop_buffer_atr: 0.35
-    max_stop_atr: 1.5
-    reward_multiple: 2.5
-    # Set to 0 to demand the name beats its index; null = prefer, don't require.
-    min_relative_strength_pct: null
-  mean_reversion:
+    # Registered in SIDEWAYS as well as TRENDING_UP deliberately. The regime
+    # classifier labels the great majority of bars sideways at adx_trend_min 25,
+    # and a monthly rotation gated on a per-ticker ADX reading is being filtered
+    # twice — once by a measure it never asked for. Its own market-trend overlay
+    # is the filter the research actually specifies.
+    regimes: [TRENDING_UP, SIDEWAYS, VOLATILITY_SQUEEZE]
+    lookback_bars: 252           # the 12 in "12-1": one trading year
+    skip_bars: 21                # the 1: last month excluded, it mean-reverts
+    top_n: 12                    # hold the top 10-15 of the ranking
+    min_universe: 10             # fewer names than this is not a cross-section
+    rebalance: monthly
+    require_market_trend: true   # the anti-crash overlay; false = the raw 1993 rule
+    max_vol_pct: 60.0            # skip a leader whose own vol has exploded
+    stop_atr: 3.0                # wide: this holds for weeks, not days
+    reward_multiple: 3.0
+  # Time-series momentum / trend-following — Moskowitz, Ooi & Pedersen (2012).
+  # Strongest on index ETFs and futures; a result from single mega-cap names is
+  # not a test of this paper. Point it at index instruments to test it properly.
+  ts_momentum:
     enabled: true
-    regimes: [SIDEWAYS]          # deliberately NOT run inside a strong trend
-    # Which sides this strategy may take. The 10-year UK backtest found longs
-    # net +£4,074 and shorts net -£5,616 for this rule set — see
-    # reports/STRATEGY-REVIEW.md. Left at both by default: that result comes
-    # from a decade with a rising market underneath it, so restricting to longs
-    # is partly fitting to that decade. Set `directions: [long]` if you accept
-    # that trade-off knowingly.
+    regimes: [TRENDING_UP, TRENDING_DOWN, SIDEWAYS, VOLATILITY_SQUEEZE]
+    # The only strategy here with a short leg. Every backtest this project has
+    # run has lost money short; set `directions: [long]` to switch it off and
+    # let the rule go flat instead of short.
     directions: [long, short]
-    rsi_overbought: 70.0
-    rsi_oversold: 30.0
-    min_stretch_atr: 1.0
-    stop_buffer_atr: 0.5
-    max_stop_atr: 2.0
-    min_reward_risk: 1.2
-  range_trading:
+    lookback_bars: 252
+    min_abs_return_pct: 0.0      # 0 = the published rule, pure sign
+    rebalance: monthly
+    require_ma_agreement: true   # false = the unmodified 2012 rule
+    max_vol_pct: 80.0
+    stop_atr: 3.0
+    reward_multiple: 3.0
+  # Long-only low-beta / low-volatility tilt — Frazzini & Pedersen (2014),
+  # Baker-Bradley-Wurgler (2011). The diversifier: it buys the end of the market
+  # momentum ignores, so the two lose money at different times.
+  low_beta:
     enabled: true
-    regimes: [SIDEWAYS]
-    lookback_days: 60
-    min_touches: 2               # each edge must have held at least twice
-    touch_tolerance_pct: 1.5
-    min_band_atr: 3.0
-    max_band_atr: 12.0
-    entry_zone_pct: 25.0
-    stop_buffer_atr: 0.5
-    target_buffer_pct: 15.0
-    min_reward_risk: 1.5
-  squeeze:
-    enabled: true
-    regimes: [VOLATILITY_SQUEEZE]
-    min_volume_ratio: 1.3
-    handoff_to_momentum: true    # once it breaks, Momentum's filters decide
+    regimes: [TRENDING_UP, SIDEWAYS, VOLATILITY_SQUEEZE]
+    max_beta: 0.85               # moves 85% as much as its index, or less
+    beta_lookback_bars: 252
+    max_vol_rank_pct: 40.0       # the calmest 40% of the watchlist
+    max_vol_pct: 30.0            # absolute fallback when there is no universe
+    require_above_trend: true    # calm is not the same as rising
+    rebalance: monthly
+    stop_atr: 2.5
+    reward_multiple: 2.5
 
 # --- Backtesting -------------------------------------------------------------
 # Replays the strategies over history so you can see whether a rule set has an
@@ -161,7 +178,12 @@ strategies:
 backtest:
   warmup_bars: 260            # no signals until the 200-day average is real
   history_window_bars: 400    # lookback per bar; every indicator fits inside this
-  max_holding_bars: 40        # abandon a trade that goes nowhere (~2 months)
+  # Abandon a trade that goes nowhere. This is now the dominant exit for a
+  # factor library: the ATR stops and targets are wide on purpose, so most
+  # positions leave here, roughly two rebalances after they were opened. Raising
+  # it lengthens the holding period; lowering it turns a monthly strategy into
+  # something the research it cites does not describe.
+  max_holding_bars: 40
   # next_open  = enter at the open AFTER the signal (honest — you only knew at the close)
   # signal_close = enter at the signal bar's close (optimistic; for comparison only)
   entry_timing: next_open

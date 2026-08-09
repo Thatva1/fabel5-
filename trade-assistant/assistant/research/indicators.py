@@ -143,6 +143,86 @@ def relative_strength(closes, benchmark_closes, days=63):
     return round((t_ret - b_ret) * 100, 2)
 
 
+def total_return(closes, lookback_bars, skip_bars=0):
+    """Return over `lookback_bars`, ending `skip_bars` bars ago, as a fraction.
+
+    The skip is what separates a momentum signal from a reversal one. The most
+    recent month tends to mean-revert (Jegadeesh 1990), so the classic momentum
+    signal is "12 months, skipping the last one" — 252 bars back, ending 21 bars
+    ago. Returns None when there is not enough history to measure it honestly.
+    """
+    clean = closes.dropna()
+    need = int(lookback_bars) + int(skip_bars) + 1
+    if len(clean) < need:
+        return None
+    recent = float(clean.iloc[-(int(skip_bars) + 1)])
+    base = float(clean.iloc[-need])
+    if base == 0 or not is_finite(base) or not is_finite(recent):
+        return None
+    return recent / base - 1
+
+
+def realized_vol(closes, lookback_bars=60, periods_per_year=252):
+    """Annualised standard deviation of daily returns, in percent."""
+    clean = closes.dropna()
+    if len(clean) < int(lookback_bars) + 1:
+        return None
+    returns = clean.pct_change().dropna().tail(int(lookback_bars))
+    if len(returns) < int(lookback_bars):
+        return None
+    sd = float(returns.std(ddof=0))
+    if not is_finite(sd):
+        return None
+    return round(sd * math.sqrt(periods_per_year) * 100, 2)
+
+
+def beta(closes, benchmark_closes, lookback_bars=252):
+    """Sensitivity to the benchmark: cov(stock, index) / var(index).
+
+    Beta 1.0 moves with the index, 0.6 moves 60% as much. Both series are joined
+    on their shared dates first, because a stock and an index on different
+    exchange calendars have different holidays, and pairing a Tuesday return
+    with a Wednesday one produces a number that looks like beta and is not.
+    """
+    if benchmark_closes is None or closes is None:
+        return None
+    joined = (closes.to_frame("t")
+              .join(benchmark_closes.to_frame("b"), how="inner")
+              .dropna())
+    if len(joined) < int(lookback_bars) + 1:
+        return None
+    returns = joined.pct_change().dropna().tail(int(lookback_bars))
+    if len(returns) < int(lookback_bars):
+        return None
+
+    stock, index = returns["t"], returns["b"]
+    index_centred = index - index.mean()
+    variance = float((index_centred ** 2).mean())
+    if not is_finite(variance) or variance <= 0:
+        return None
+    covariance = float(((stock - stock.mean()) * index_centred).mean())
+    if not is_finite(covariance):
+        return None
+    return round(covariance / variance, 3)
+
+
+def above_moving_average(closes, period=200):
+    """True/False for "the latest close is above its own average", or None.
+
+    None means "not enough history to say", which is different from False and
+    must stay different — a strategy that treats an unanswerable trend question
+    as a failed one behaves correctly; one that treats it as passed does not.
+    """
+    clean = closes.dropna()
+    if len(clean) < int(period):
+        return None
+    average = latest(clean.rolling(int(period)).mean())
+    price = latest(clean)
+    if average is None or price is None:
+        return None
+    return price > average
+
+
 def recent_extremes(df, lookback=20):
     """Highest high / lowest low over the last `lookback` COMPLETED bars.
 

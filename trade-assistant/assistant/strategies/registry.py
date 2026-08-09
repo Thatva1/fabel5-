@@ -6,21 +6,21 @@ the codebase needs to change, which is the entire point of the interface.
 Enabling, disabling and re-tuning happen in config.yaml, never in code:
 
     strategies:
-      mean_reversion:
+      xs_momentum:
         enabled: true
-        rsi_overbought: 75        # override any key from the strategy's defaults
-        regimes: [SIDEWAYS]       # override which regimes it may run in
+        top_n: 15                 # override any key from the strategy's defaults
+        regimes: [TRENDING_UP]    # override which regimes it may run in
 """
-from .mean_reversion import MeanReversionStrategy
-from .momentum import MomentumStrategy
-from .range_trading import RangeTradingStrategy
-from .squeeze import SqueezeStrategy
+from .low_beta import LowBetaStrategy
+from .ts_momentum import TimeSeriesMomentumStrategy
+from .xs_momentum import CrossSectionalMomentumStrategy
 
+# Ordered by the strength of the evidence behind them, which is also the order
+# the backtest engine breaks ties in when two of them want the same slot.
 BUILTIN = (
-    MomentumStrategy,
-    MeanReversionStrategy,
-    RangeTradingStrategy,
-    SqueezeStrategy,
+    CrossSectionalMomentumStrategy,
+    TimeSeriesMomentumStrategy,
+    LowBetaStrategy,
 )
 
 
@@ -46,12 +46,13 @@ def directions_for(strategy, config):
     """Which sides this strategy may take — config can restrict it.
 
         strategies:
-          range_trading:
-            directions: [long]      # stop shorting the range
+          ts_momentum:
+            directions: [long]      # go flat rather than short
 
     Useful because shorting carries costs and risks longs do not (borrow fees,
     stamp duty on the closing purchase, unlimited theoretical loss), so a rule
-    set can be profitable long and lose money short.
+    set can be profitable long and lose money short. Time-series momentum is the
+    only strategy here with a short leg, and this is how you switch it off.
     """
     block = ((config or {}).get("strategies") or {}).get(strategy.name) or {}
     configured = block.get("directions")

@@ -13,6 +13,7 @@ behaviour.
 from ..research import market_regime, scanner
 from ..risk import sizing
 from ..strategies import router as strategy_router
+from ..strategies.cross_section import CrossSection
 from . import simulator
 
 DEFAULTS = {
@@ -41,9 +42,11 @@ DEFAULTS = {
     #                   that, the backtest does not.
     "position_slots": "per_ticker",
     # Order of preference when two strategies signal on the SAME bar and only
-    # one slot exists. Measured global expectancy, best first — not alphabetical
-    # and not registry order, which is what it silently used before.
-    "strategy_priority": ["mean_reversion", "momentum", "squeeze", "range_trading"],
+    # one slot exists — not alphabetical and not registry order, which is what
+    # it silently used before. Ordered by the depth of the evidence behind each
+    # rule, pending a measured expectancy for this library; re-order it from
+    # your own out-of-sample results rather than leaving this as received wisdom.
+    "strategy_priority": ["xs_momentum", "ts_momentum", "low_beta"],
     # A market-order fill that drifts toward the stop shrinks the risk it was
     # sized against. Below this fraction of the planned risk the setup is no
     # longer the one that was approved, so it is skipped rather than entered
@@ -116,12 +119,19 @@ def settings(config):
 
 
 def backtest_ticker(ticker, df, config, benchmark_closes=None, progress_cb=None,
-                    unsized=False):
+                    unsized=False, cross_section=None):
     """Replay one instrument. Returns {ticker, trades, bars_tested, skipped}.
 
     unsized=True emits per-share CANDIDATES for the portfolio layer to size
     against live equity, rather than sizing each instrument in isolation
     against the whole book — which is what produced the accidental leverage.
+
+    cross_section: the universe's closes, so a strategy whose signal is a RANK
+    can ask where this instrument stood on each bar. Built once by run_backtest
+    and shared, because rebuilding it per bar would make a ten-year replay
+    unusable. It is safe to share precisely because every lookup is keyed on the
+    bar's own date and returns nothing later than it — the same guarantee the
+    price slice below gives, enforced the same way.
     """
     cfg = settings(config)
     costs = simulator.cost_config_for(ticker, config)
@@ -168,7 +178,9 @@ def backtest_ticker(ticker, df, config, benchmark_closes=None, progress_cb=None,
         if snapshot.get("error"):
             continue
 
-        routed = strategy_router.route(ticker, window, snapshot, config)
+        routed = strategy_router.route(ticker, window, snapshot, config,
+                                       cross_section=cross_section,
+                                       benchmark_closes=bench)
 
         # Contention: rank the candidates before choosing, so the slot goes to
         # the best available setup rather than to whichever strategy the
@@ -343,17 +355,30 @@ def run_backtest(tickers, config, price_fn, benchmark_fn=None, progress_cb=None,
     per_ticker, trades, notes = [], [], []
     fx_cache = {}
 
+    # Every instrument is loaded before any is replayed. A cross-sectional
+    # strategy asks "where did this name rank among the others on this bar",
+    # and that question cannot be answered while the others are still unread.
+    # The cost is holding the universe in memory for the length of the run; the
+    # alternative is a rank built from whichever tickers happened to load first.
+    frames, cancelled = {}, False
     for ticker in tickers:
         if should_cancel and should_cancel():
             notes.append("Cancelled before finishing.")
+            cancelled = True
             break
         try:
-            df = price_fn(ticker)
+            frames[ticker] = price_fn(ticker)
         except Exception as exc:
             notes.append(f"{ticker}: price data unavailable ({type(exc).__name__}: {exc})")
-            continue
+
+    cross_section = CrossSection.from_frames(frames)
+
+    for ticker, df in ([] if cancelled else frames.items()):
+        if should_cancel and should_cancel():
+            notes.append("Cancelled before finishing.")
+            break
         outcome = backtest_ticker(ticker, df, config, benchmark_closes, progress_cb,
-                                  unsized=unsized)
+                                  unsized=unsized, cross_section=cross_section)
 
         instrument_ccy = base_ccy
         if currency_fn:

@@ -55,13 +55,13 @@ def test_hit_rate_is_reported_per_strategy():
     for _ in range(3):
         _add(strategy="momentum", market=regime.TRENDING_UP, outcome="win", risk_base=100)
     _add(strategy="momentum", market=regime.TRENDING_UP, outcome="loss", risk_base=100)
-    _add(strategy="mean_reversion", market=regime.SIDEWAYS, outcome="loss", risk_base=50)
+    _add(strategy="ts_momentum", market=regime.SIDEWAYS, outcome="loss", risk_base=50)
 
     stats = journal.stats()
     momentum = stats["by_strategy"]["momentum"]
     assert (momentum["wins"], momentum["losses"]) == (3, 1)
     assert momentum["win_rate_pct"] == 75.0
-    assert stats["by_strategy"]["mean_reversion"]["win_rate_pct"] == 0.0
+    assert stats["by_strategy"]["ts_momentum"]["win_rate_pct"] == 0.0
 
 
 def test_hit_rate_is_reported_per_strategy_and_regime_combination():
@@ -101,11 +101,11 @@ def test_only_your_approved_ideas_count_toward_hit_rate():
 def test_ideas_produced_counts_everything_including_rejected():
     """Separate from hit rate on purpose: knowing a strategy fires 40 times and
     you approve none of them is itself a finding."""
-    _add(strategy="range_trading", market=regime.SIDEWAYS, decision="rejected")
-    _add(strategy="range_trading", market=regime.SIDEWAYS, decision="pending")
+    _add(strategy="low_beta", market=regime.SIDEWAYS, decision="rejected")
+    _add(strategy="low_beta", market=regime.SIDEWAYS, decision="pending")
     produced = {(r["strategy"], r["regime"]): r["count"]
                 for r in journal.stats()["ideas_produced"]}
-    assert produced[("range_trading", regime.SIDEWAYS)] == 2
+    assert produced[("low_beta", regime.SIDEWAYS)] == 2
 
 
 def test_watch_items_are_recorded_with_no_plan():

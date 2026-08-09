@@ -1,20 +1,27 @@
 """Regime router — decides WHICH strategies are allowed to look at a ticker.
 
-Momentum says "buy strength". Mean-reversion says "sell strength". Both are
-correct, in different markets. Run them together and they cancel; run the wrong
-one and it bleeds. So the regime is classified first, and only the strategies
-registered for that regime are given the data.
+A trend-following rule and a defensive tilt want different market conditions.
+Run one in the wrong regime and it bleeds, so the regime is classified first and
+only the strategies registered for that regime are given the data. With the
+current library the conflicts are milder than they were — these are diversifying
+factors rather than contradictory rule sets — so most strategies are registered
+in most regimes, and each one's own filters do the finer work.
 
 The router does no analysis of its own and makes no risk decisions. It returns
 tagged ideas that flow into the existing pipeline unchanged:
 Context Reader -> Thesis -> Trade Plan -> Risk Gate -> Human Approval.
+
+`cross_section` and `benchmark_closes` are passed straight through to every
+strategy. They are optional: a single-ticker analysis has no universe to rank
+against, and a strategy that needs one is expected to produce nothing rather
+than approximate it.
 """
 from ..research import regime as regime_mod
 from . import registry
 from .base import StrategyContext
 
 
-def route(ticker, df, snapshot, config):
+def route(ticker, df, snapshot, config, cross_section=None, benchmark_closes=None):
     """Classify the regime and run the matching strategies for one ticker.
 
     Returns {regime, strategies_run, ideas, notes} where ideas are StrategyIdea
@@ -50,6 +57,8 @@ def route(ticker, df, snapshot, config):
             regime=market_regime,
             params=strategy.params_for(config),
             config=config,
+            cross_section=cross_section,
+            benchmark_closes=benchmark_closes,
         )
         try:
             ideas = strategy.detect(ctx) or []

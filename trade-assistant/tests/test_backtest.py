@@ -178,6 +178,46 @@ def test_future_bars_cannot_change_a_past_signal():
         assert short_t["stop"] == full_t["stop"]
 
 
+def _universe_of(n, count=14, seed0=200):
+    """A spread of drifts, so a cross-sectional ranking has something to rank."""
+    return {f"T{i:02d}": _trending_market(n, seed=seed0 + i) for i in range(count)}
+
+
+def test_a_cross_sectional_rank_cannot_see_the_future_either():
+    """The same guarantee as the test above, for the riskiest shape in the
+    engine: the universe's ranking object is built from EVERY ticker's FULL
+    history and then handed into a bar-by-bar replay. If a rank as of bar 500
+    can be moved by bars that came after it, the ranking strategies are trading
+    on tomorrow's leaderboard and their results are fiction.
+
+    Truncating the whole universe must therefore reproduce the same early
+    trades that the full-length run produced, name for name and date for date.
+    """
+    full = _universe_of(900)
+    truncated = {t: df.iloc[:600] for t, df in full.items()}
+    # A benchmark is required, not optional garnish: without one the momentum
+    # rotation's market-trend overlay fails closed and never trades, and this
+    # test would pass while proving nothing. Truncated alongside the universe,
+    # or the shorter run would be judged against a market it could not see.
+    index = _trending_market(900, seed=77)["Close"]
+
+    def trades(universe):
+        bars = max(len(df) for df in universe.values())
+        out = engine.run_backtest(list(universe), CONFIG, lambda t: universe[t],
+                                  benchmark_fn=lambda: index.iloc[:bars])
+        return sorted((x["signal_date"], x["ticker"], x["strategy"], x["direction"],
+                       x["planned_entry"], x["stop"]) for x in out["trades"])
+
+    from_truncated = trades(truncated)
+    assert from_truncated, "fixture produced no trades — it cannot prove anything"
+    assert any(t[2] == "xs_momentum" for t in from_truncated), \
+        "no cross-sectional trades — this test would prove nothing about ranking"
+
+    cutoff = from_truncated[-1][0]
+    from_full = [t for t in trades(full) if t[0] <= cutoff]
+    assert from_truncated == from_full
+
+
 def test_the_history_window_does_not_change_the_results():
     """The engine caps each bar's lookback for speed. Every indicator is
     backward-looking, so a bigger window must produce identical trades — this
@@ -381,9 +421,18 @@ def test_trailing_without_an_atr_is_refused_rather_than_guessed():
 def test_priority_decides_who_gets_the_slot_not_registry_order():
     """The bug this fixes: with one slot per ticker, whichever strategy the
     registry listed first won it. That silently prioritised the strategy that
-    fires most often over the one that trades best."""
-    assert engine.DEFAULTS["strategy_priority"][0] == "mean_reversion"
-    assert engine.DEFAULTS["strategy_priority"][-1] == "range_trading"
+    fires most often over the one that trades best.
+
+    Asserted as a property rather than a fixed list of names, because the list
+    is meant to be re-ordered from measured expectancy. What must not drift is
+    the coverage: a registered strategy missing from the ordering falls to the
+    bottom of every tie silently, which is the original bug wearing a new hat.
+    """
+    from assistant.strategies import registry
+
+    priority = engine.DEFAULTS["strategy_priority"]
+    assert set(priority) == {s.name for s in registry.all_strategies()}
+    assert len(priority) == len(set(priority)), "a duplicate makes the order ambiguous"
 
 
 def test_per_strategy_slots_let_a_rare_signal_through():
@@ -524,14 +573,14 @@ def _trade(pnl, r, strategy="momentum", regime="TRENDING_UP", reason="target",
 
 def test_expectancy_and_profit_factor_are_computed_per_strategy():
     trades = [_trade(200, 2.0), _trade(200, 2.0), _trade(-100, -1.0),
-              _trade(-100, -1.0, strategy="range_trading")]
+              _trade(-100, -1.0, strategy="low_beta")]
     out = report.summarise(trades, lambda t: t["strategy"], lambda t: t["strategy_label"])
     momentum = out["momentum"]
     assert momentum["wins"] == 2 and momentum["losses"] == 1
     assert momentum["win_rate_pct"] == pytest.approx(66.7)
     assert momentum["expectancy_r"] == 1.0          # (2 + 2 - 1) / 3
     assert momentum["profit_factor"] == pytest.approx(4.0)
-    assert out["range_trading"]["expectancy_r"] == -1.0
+    assert out["low_beta"]["expectancy_r"] == -1.0
 
 
 def test_small_samples_are_marked_unreliable():

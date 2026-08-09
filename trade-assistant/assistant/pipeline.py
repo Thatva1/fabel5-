@@ -23,6 +23,7 @@ from .research.context import build_context, snapshot_facts
 from .research.thesis import build_thesis
 from .risk import borrow, gate, sizing
 from .strategies import router as strategy_router
+from .strategies.cross_section import CrossSection
 
 _router = None
 
@@ -36,10 +37,13 @@ def get_router(config):
 
 
 def _benchmark_closes(router, config):
-    """Close series for the relative-strength benchmark, or None.
+    """Close series for the benchmark, or None.
 
-    Failure here is never fatal: without it the momentum strategy simply skips
-    its relative-strength preference rather than blocking the whole scan.
+    Used three ways: relative strength in the scanner, beta in the low-beta
+    tilt, and the market-trend overlay on cross-sectional momentum. Failure here
+    is never fatal to the scan itself — but the two strategies that need it will
+    correctly produce nothing rather than guess, so a missing benchmark shows up
+    as a quiet scan, not as a wrong one.
     """
     symbol = (config.get("scanner", {}) or {}).get("benchmark")
     if not symbol:
@@ -203,10 +207,20 @@ def run_scan(config=None, analyze_flagged=True, progress_cb=None, should_cancel=
     """Scan the watchlist: measure every ticker, classify its regime, run the
     strategies that match, and put the resulting ideas through the pipeline.
 
+    Two passes, not one. The price history for the WHOLE watchlist is fetched
+    first, because the strategies now rank instruments against each other and a
+    rank computed while half the universe is still unfetched is not a rank. The
+    second pass does the per-ticker work. No extra requests are made: the same
+    frames are reused rather than re-fetched.
+
     progress_cb(done, total, ticker, stage) is called as work proceeds so the UI
     can show per-ticker progress rather than an opaque spinner.
-    should_cancel() lets the user stop a multi-minute scan; the partial result
-    is returned rather than discarded.
+
+    should_cancel() lets the user stop a multi-minute scan. Cancelling during
+    the second pass returns what was analysed so far, as before. Cancelling
+    during the FETCH returns nothing, deliberately: the universe is incomplete
+    at that point, and a rotation ranked against half a watchlist would be a
+    plausible-looking answer to a question nobody asked.
     """
     config = config or load_config()
     router = get_router(config)
@@ -221,17 +235,38 @@ def run_scan(config=None, analyze_flagged=True, progress_cb=None, should_cancel=
         if progress_cb:
             progress_cb(done, total, ticker, stage)
 
+    # Pass 1 — price history for the whole universe.
+    frames, fetch_errors = {}, {}
     for index, ticker in enumerate(watchlist):
         if should_cancel and should_cancel():
             cancelled = True
             break
-        report(index, ticker, "scanning price data")
+        report(index, ticker, "fetching price data")
         try:
-            df = router.get_prices(ticker)
-            snapshot = scanner.scan_ticker(ticker, df, scan_cfg, benchmark_closes=benchmark)
+            frames[ticker] = router.get_prices(ticker)
         except Exception as exc:
-            snapshot = {"ticker": ticker, "error": str(exc), "flagged": False, "signals": []}
-            df = None
+            fetch_errors[ticker] = str(exc)
+
+    cross_section = CrossSection.from_frames(frames)
+
+    # Pass 2 — measure, classify, run the strategies, research what fires.
+    for index, ticker in enumerate([] if cancelled else watchlist):
+        if should_cancel and should_cancel():
+            cancelled = True
+            break
+        report(index, ticker, "scanning price data")
+        df = frames.get(ticker)
+        if ticker in fetch_errors:
+            snapshot = {"ticker": ticker, "error": fetch_errors[ticker],
+                        "flagged": False, "signals": []}
+        else:
+            try:
+                snapshot = scanner.scan_ticker(ticker, df, scan_cfg,
+                                               benchmark_closes=benchmark)
+            except Exception as exc:
+                snapshot = {"ticker": ticker, "error": str(exc),
+                            "flagged": False, "signals": []}
+                df = None
         watchlist_results.append(snapshot)
 
         if not analyze_flagged or snapshot.get("error"):
@@ -240,7 +275,9 @@ def run_scan(config=None, analyze_flagged=True, progress_cb=None, should_cancel=
 
         # Regime first, then only the strategies that belong in it.
         report(index, ticker, "classifying regime")
-        routed = strategy_router.route(ticker, df, snapshot, config)
+        routed = strategy_router.route(ticker, df, snapshot, config,
+                                       cross_section=cross_section,
+                                       benchmark_closes=benchmark)
         snapshot["regime"] = (routed["regime"] or {}).get("regime")
         snapshot["regime_label"] = (routed["regime"] or {}).get("label")
         snapshot["regime_reasons"] = (routed["regime"] or {}).get("reasons", [])

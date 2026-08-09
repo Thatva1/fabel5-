@@ -38,6 +38,17 @@ class StrategyContext:
     regime: dict                  # regime.classify output
     params: dict = field(default_factory=dict)   # this strategy's settings
     config: dict = field(default_factory=dict)   # full config, read-only
+    # The rest of the universe, for strategies whose signal is a RANK rather
+    # than a level (see cross_section.py). None when only one instrument is
+    # being looked at — analysing a single ticker on the dashboard, or a
+    # single-name backtest. A cross-sectional strategy must produce nothing in
+    # that case rather than substitute an absolute threshold, which would be a
+    # different strategy answering to the same name.
+    cross_section: object = None
+    # The configured benchmark's close series, for beta and for the market-trend
+    # overlay. Already truncated to this bar by the backtest; strategies
+    # truncate it again themselves so the guarantee is local to where it matters.
+    benchmark_closes: object = None
 
     @property
     def price(self):

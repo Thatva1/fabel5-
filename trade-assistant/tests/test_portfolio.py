@@ -16,7 +16,7 @@ def _candidate(ticker="AAA", entry="2024-01-02", exit_="2024-01-10",
                market="US", reward_risk=2.0, currency="GBP", fx=1.0, **extra):
     out = {
         "ticker": ticker, "market": market, "currency": currency,
-        "strategy": "mean_reversion", "strategy_label": "Mean reversion",
+        "strategy": "ts_momentum", "strategy_label": "Time-series momentum",
         "regime": "SIDEWAYS", "direction": "long",
         "signal_date": entry, "entry_date": entry, "exit_date": exit_,
         "entry_price": entry_price, "stop": stop, "target": 115.0,

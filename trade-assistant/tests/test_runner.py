@@ -24,7 +24,7 @@ def _frame(closes, start="2020-01-01"):
 
 def _candidate(entry, pnl=1000.0, ticker="AAA"):
     return {"ticker": ticker, "market": "US", "currency": "GBP",
-            "strategy": "mean_reversion", "strategy_label": "Mean reversion",
+            "strategy": "ts_momentum", "strategy_label": "Time-series momentum",
             "regime": "SIDEWAYS", "direction": "long",
             "signal_date": entry, "entry_date": entry, "exit_date": entry,
             "entry_price": 100.0, "stop": 95.0, "target": 115.0,

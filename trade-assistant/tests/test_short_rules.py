@@ -237,8 +237,8 @@ def test_missing_short_interest_is_none_not_zero():
 def test_strategy_thesis_disagreement_is_flagged_not_vetoed():
     """The strategy found the setup; the LLM's read is a second opinion. A clash
     is worth knowing about, but it must not silently delete the idea."""
-    plan = _plan(direction="short", strategy="mean_reversion",
-                 strategy_label="Mean reversion")
+    plan = _plan(direction="short", strategy="ts_momentum",
+                 strategy_label="Time-series momentum")
     result = gate.evaluate(_snapshot(), _thesis(bias="bullish"), plan, _config(), {},
                            shortability=_borrow())
     assert result["verdict"] != "rejected"
@@ -246,8 +246,8 @@ def test_strategy_thesis_disagreement_is_flagged_not_vetoed():
 
 
 def test_agreement_produces_no_disagreement_flag():
-    plan = _plan(direction="short", strategy="mean_reversion",
-                 strategy_label="Mean reversion")
+    plan = _plan(direction="short", strategy="ts_momentum",
+                 strategy_label="Time-series momentum")
     result = gate.evaluate(_snapshot(), _thesis(bias="bearish"), plan, _config(), {},
                            shortability=_borrow())
     assert not any("disagree" in f for f in result["soft_flags"])

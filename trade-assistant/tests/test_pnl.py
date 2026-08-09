@@ -201,7 +201,7 @@ def test_pnl_and_expectancy_are_reported_per_strategy():
         closeout.close_idea(_log(strategy="momentum"),
                             "win" if exit_price > 100 else "loss",
                             exit_price=exit_price, config=CONFIG)
-    closeout.close_idea(_log(strategy="mean_reversion"), "loss",
+    closeout.close_idea(_log(strategy="ts_momentum"), "loss",
                         exit_price=95.0, config=CONFIG)
 
     stats = journal.stats()
@@ -209,7 +209,7 @@ def test_pnl_and_expectancy_are_reported_per_strategy():
     assert momentum["pnl"] == pytest.approx(150.0)     # +100 +100 -50
     assert momentum["expectancy_r"] == 1.0             # (2 + 2 - 1) / 3
     assert momentum["profit_factor"] == pytest.approx(4.0)   # 200 profit / 50 loss
-    assert stats["by_strategy"]["mean_reversion"]["expectancy_r"] == -1.0
+    assert stats["by_strategy"]["ts_momentum"]["expectancy_r"] == -1.0
 
 
 def test_a_strategy_with_no_losses_reports_no_profit_factor():

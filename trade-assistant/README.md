@@ -51,9 +51,45 @@ Design principles (enforced in code, not just documented):
 
 ## Strategy library & regime router
 
-Momentum says "buy strength", mean-reversion says "sell strength". Both are
-right, in different markets — run together blindly they cancel out. So each
-ticker is labelled first, and only the matching strategies see the data.
+The library holds **factor strategies**: published, monthly-rebalanced rules
+whose edge comes from a rank or a sign held for weeks, not from a chart pattern
+on today's bar. Each carries the paper it implements, because the point of a
+rule with a citation is that someone has already tested it out of sample.
+
+**The three strategies** (`assistant/strategies/`):
+
+- **Cross-sectional momentum** (`xs_momentum`) — each month, rank the whole
+  watchlist by its 12-month return *skipping the most recent month*, and buy the
+  top 12. Jegadeesh & Titman (1993); Asness, Moskowitz & Pedersen (2013). The
+  skip matters: short-horizon returns reverse, so including the last month mixes
+  a reversal signal into a momentum one. An anti-crash overlay (Daniel &
+  Moskowitz 2016) stands the strategy aside when the market itself is below
+  trend or its volatility is spiking — momentum's characteristic loss is a
+  violent unwind off a market bottom, not a slow bleed.
+- **Time-series momentum** (`ts_momentum`) — long an instrument whose *own*
+  12-month return is positive, short one whose own is negative, monthly.
+  Moskowitz, Ooi & Pedersen (2012). This is the diversifying second engine: its
+  signal is absolute, so when everything's trailing year turns negative it goes
+  flat instead of rotating into whatever is falling least. The evidence is
+  strongest on index ETFs and futures — a result from single mega-cap names is
+  not a test of this paper.
+- **Low beta** (`low_beta`) — tilt toward names that move less than their index
+  (beta ≤ 0.85), are calm relative to the rest of the watchlist, and are still
+  above their own 200-day average. Frazzini & Pedersen (2014); Baker, Bradley &
+  Wurgler (2011). Long leg only: the published factor's short leg needs leverage
+  this system does not use. It buys the end of the market momentum ignores,
+  which is the whole reason to run it alongside.
+
+**The cross-section** (`assistant/strategies/cross_section.py`) — the piece a
+per-ticker strategy cannot supply. "Up 40% this year" means nothing on its own;
+what matters is whether that is the best in the universe or the worst. One
+ranking object is built per scan (and per backtest) from the whole watchlist and
+handed to every strategy. Every lookup is keyed on the bar's own date and can
+never return a row after it, so a rank cannot see the future — the same
+guarantee the backtest's price slice gives, enforced the same way. A strategy
+that needs a universe and does not have one (analysing a single ticker from the
+dashboard) produces nothing rather than falling back to an absolute threshold,
+which would be a different strategy answering to the same name.
 
 **Regime classifier** (`assistant/research/regime.py`) — deterministic, from
 ADX (trend strength), price vs a *rising or falling* 200-day MA (direction), and
@@ -61,31 +97,36 @@ Bollinger band width percentile (volatility state):
 
 | Regime | Meaning | Strategies that run |
 |---|---|---|
-| `TRENDING_UP` | strong move higher | Momentum (long) |
-| `TRENDING_DOWN` | strong move lower | Momentum (short) |
-| `SIDEWAYS` | no trend worth following | Mean reversion, Range trading |
-| `VOLATILITY_SQUEEZE` | bands compressed to a multi-week low | Squeeze |
+| `TRENDING_UP` | strong move higher | all three |
+| `TRENDING_DOWN` | strong move lower | Time-series momentum (short side) |
+| `SIDEWAYS` | no trend worth following | all three |
+| `VOLATILITY_SQUEEZE` | bands compressed to a multi-week low | all three |
 | `UNKNOWN` | not enough history | none |
 
-A strong ADX where price and its own 200-day MA disagree is deliberately called
-`SIDEWAYS`. That is a turn, not a trend, and trading it as momentum is how you
-buy the top.
+Most strategies run in most regimes, which is a change from the pattern library
+that came before. That one held rules which actively contradicted each other, so
+the regime gate was doing real work keeping them apart; these are diversifying
+factors, and each does its own finer filtering. `low_beta` is kept out of
+`TRENDING_DOWN` on purpose — beta measures how much a share moves *with* the
+index, not which way it is going, and a stock that has quietly halved scores
+beautifully on beta alone.
 
-**The four strategies** (`assistant/strategies/`):
+**What a quiet day looks like.** These strategies act on a rebalance bar and
+stay silent otherwise. A scan on the 14th of the month producing nothing is the
+library working as designed, not a fault. The router still explains itself in
+`router_notes` so "the rotation ran and found nothing" never looks the same as
+"nothing ran at all".
 
-- **Momentum** — breakout above the 20-day high in a confirmed uptrend, with
-  volume confirmation, an overextension reject (RSI > 80, or price already more
-  than 1 ATR past the level), and an optional relative-strength requirement.
-  Mirror rules for shorts in a downtrend.
-- **Mean reversion** — fades RSI extremes stretched outside the Bollinger band
-  back toward the 20-day average, but only once the move has *stalled*. Never
-  runs inside a strong trend: "overbought" can stay overbought for months.
-- **Range trading** — finds a horizontal band that price has actually respected
-  (minimum touches at both edges, and a width that is neither noise nor a
-  disguised trend), buys the floor, sells the ceiling, targets the far side.
-- **Squeeze** — refuses to guess direction. While price is inside the bands it
-  produces a *watch item*, never a plan. On a confirmed break it hands off to
-  Momentum's own filters; if those reject it, it stays a watch item.
+**Two honest caveats.**
+- The engine sizes and gates every trade off a stop price and refuses ideas
+  without one. None of these papers has a stop — the published exit is falling
+  out of the ranking at the next rebalance. So a wide ATR stop is grafted on as
+  a risk control (`factors.atr_levels`). It is a deliberate departure, and in
+  practice most positions leave on `backtest.max_holding_bars` instead.
+- Time-series momentum computes the inverse-volatility weight its paper sizes
+  by, and records it in the idea's `meta`. The per-trade sizer does not consume
+  it — it sizes off the stop distance. Recorded as unused rather than quietly
+  dropped; the portfolio layer is where it would be applied.
 
 **Tuning** — every threshold is in `config.yaml` under `regime:` and
 `strategies:`. Any strategy can be switched off (`enabled: false`), retuned (set
@@ -99,11 +140,20 @@ Deleting a block restores that strategy's defaults.
    `detect(ctx)` returning `self.build(...)` ideas.
 2. Add the class to `BUILTIN` in `assistant/strategies/registry.py`.
 3. Optionally add a `strategies.your_strategy:` block to `config.yaml`.
+4. If it is cross-sectional, add its name to `backtest.strategy_priority` too —
+   a registered strategy missing from that list silently loses every tie for a
+   position slot.
 
 That's it — the router, pipeline, risk gate, journal and dashboard pick it up
 automatically. Rules a strategy must follow: it computes no money figures (it
 proposes price *levels*; `assistant/risk/` sizes them), it does no I/O, and an
 idea without a valid stop is dropped, because undefined risk cannot be sized.
+
+`ctx` also carries `cross_section` (universe-wide ranks) and `benchmark_closes`
+(for beta and market-trend overlays). Both can be `None`. Treat that as a reason
+to produce nothing, not as a reason to substitute an absolute threshold —
+`factors.py` holds the shared rebalance-calendar, ATR-level and volatility
+helpers, all of which fail closed on data they could not measure.
 
 ## Short-selling rules
 
