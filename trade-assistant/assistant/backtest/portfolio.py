@@ -24,7 +24,7 @@ What this adds, all of which the live system already assumes:
 The look-ahead guarantee is inherited: candidates are produced by the per-ticker
 replay, which can only ever see bars up to the signal date.
 """
-from ..research import market_regime as mr
+from ..research import indicators, market_regime as mr
 from . import metrics
 
 DEFAULTS = {
@@ -280,6 +280,12 @@ def _too_correlated(candidate, open_positions, cfg, returns_lookup):
     Position COUNT is a poor proxy for risk: four UK banks bought on the same
     day are one bet, and a drawdown model that treats them as four independent
     positions understates the real hole.
+
+    Note what a missing `returns_lookup` means: the check cannot run, so every
+    candidate passes. That is the correct behaviour — inventing a correlation
+    would be worse — but it does mean turning `correlation_threshold` on in
+    config does nothing unless the caller supplies the returns. Callers that
+    care must pass it.
     """
     threshold = cfg.get("correlation_threshold")
     if not threshold or not returns_lookup or not open_positions:
@@ -297,10 +303,15 @@ def _too_correlated(candidate, open_positions, cfg, returns_lookup):
             if theirs is None:
                 continue
             theirs = theirs.loc[:candidate["entry_date"]].tail(window)
-            joined = mine.to_frame("a").join(theirs.to_frame("b"), how="inner").dropna()
-            if len(joined) < 20:
+            # Paired on the trading day, not the raw index. Two instruments on
+            # different exchanges carry different timezone stamps, and joining
+            # those directly matches nothing — so a London name and a New York
+            # name would read as uncorrelated no matter how they actually move,
+            # which is the one case this check most needs to catch.
+            joined = indicators.align(mine, theirs)
+            if joined is None or len(joined) < 20:
                 continue
-            if float(joined["a"].corr(joined["b"])) >= threshold:
+            if float(joined["t"].corr(joined["b"])) >= threshold:
                 return True
     except Exception:
         return False

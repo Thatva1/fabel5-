@@ -233,7 +233,17 @@ portfolio:
   max_new_entries_per_day: null   # null = unlimited
   # Tested at 0.8 and it COST return (7.44% -> 6.63%) while drawdown got
   # slightly worse. Left off until there is evidence for it.
-  correlation_threshold: null
+  # Position COUNT is a poor proxy for risk. Six mega-cap tech names bought on
+  # the same rebalance are one bet with six tickets, and that is exactly what
+  # the 2021-11 to 2023-10 drawdown was: AAPL, AMD, AMZN, META, MSFT and NVDA
+  # open together. Momentum buys what has gone up, which on this watchlist is
+  # always the same cluster, so this cap is doing real work rather than
+  # guarding against a hypothetical.
+  #
+  # Only bites when the caller passes `returns_lookup` into portfolio.simulate.
+  # `run.py backtest` does not run the portfolio layer at all, so this setting
+  # has no effect on that command's output.
+  correlation_threshold: 0.8
   correlation_lookback: 60
 
 # --- Market-wide trend filter ------------------------------------------------
