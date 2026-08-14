@@ -235,6 +235,53 @@ def test_the_over_the_counter_tail_is_dropped_before_any_request():
     assert len(screen.candidate_symbols(keep_all, FakeRouter())) == 4
 
 
+def test_leveraged_and_inverse_funds_are_kept_out_of_the_universe():
+    """A 15% position in a 3x fund is a 45% position in what it tracks, and the
+    risk gate never sees it. TMF, SOXL, TQQQ, UVXY and SVXY were all inside the
+    tradable universe — the volatility ceiling excluded them by luck, not rule.
+    """
+    class FakeRouter:
+        @staticmethod
+        def universe_rows():
+            return [
+                {"symbol": "TMF",  "type": "ETP", "mic": "ARCX",
+                 "name": "Dir Dly 20+Yr Tr Bl3X Etf-Ui"},
+                {"symbol": "SOXL", "type": "ETP", "mic": "ARCX",
+                 "name": "Direx Dail Semi Bu 3X Et-Usd"},
+                {"symbol": "TQQQ", "type": "ETP", "mic": "XNAS",
+                 "name": "Proshares Ultrapro Qqq"},
+                {"symbol": "AMDL", "type": "ETP", "mic": "XNAS",
+                 "name": "Graniteshares 2Xlong Amd Etf"},
+                {"symbol": "UVXY", "type": "ETP", "mic": "BATS",
+                 "name": "Proshares Ultra Vix St Futur"},
+                {"symbol": "SVXY", "type": "ETP", "mic": "BATS",
+                 "name": "Proshares Short Vix St Futur"},
+                # Must survive: ordinary unlevered funds and a real company.
+                {"symbol": "TLT",  "type": "ETP", "mic": "XNAS",
+                 "name": "Ishares 20+ Year Treasury Bd"},
+                {"symbol": "GLD",  "type": "ETP", "mic": "ARCX",
+                 "name": "Spdr Gold Shares"},
+                {"symbol": "SPY",  "type": "ETP", "mic": "ARCX",
+                 "name": "Ss Spdr S&P 500 Etf Trust-Us"},
+                # A COMPANY with a leverage-ish word must not be deleted.
+                {"symbol": "BULL", "type": "Common Stock", "mic": "XNYS",
+                 "name": "Bullish Group Ltd"},
+            ]
+
+    kept = set(screen.candidate_symbols({}, FakeRouter()))
+    for banned in ("TMF", "SOXL", "TQQQ", "AMDL", "UVXY", "SVXY"):
+        assert banned not in kept, f"{banned} is leveraged or inverse"
+    for keep in ("TLT", "GLD", "SPY", "BULL"):
+        assert keep in kept, f"{keep} must survive the filter"
+
+
+def test_the_leverage_filter_never_touches_ordinary_shares():
+    """These markers are matched against a FUND's name. Applied to companies
+    they would quietly delete real businesses."""
+    row = {"symbol": "X", "type": "Common Stock", "name": "Ultra Bull 3X Corp"}
+    assert screen._is_derivative_fund(row, screen.DEFAULTS) is False
+
+
 def test_the_canary_check_does_not_fire_on_a_deliberately_small_universe(monkeypatch):
     """A hand-picked 20-name universe has no reason to contain SPY. Failing it
     there would make the guard useless noise."""

@@ -24,6 +24,7 @@ anything you could have executed.
 """
 import json
 import os
+import re
 import time
 
 from ..core.config import DATA_DIR
@@ -53,6 +54,16 @@ DEFAULTS = {
     # rate limit before reaching the exchanges that matter. Excluding them more
     # than halves the work and removes nothing anyone would have held.
     "exclude_exchanges": ["OOTC"],
+    # Leveraged and inverse funds price as a MULTIPLE of something else, so a
+    # momentum ranking that buys them is taking leverage the risk gate never
+    # sees: a 15% position in a 3x fund is a 45% position in the thing it
+    # tracks. They also decay against a daily reset, which makes a multi-week
+    # hold structurally different from the index it appears to track. TMF, SOXL,
+    # TQQQ, UVXY and SVXY were all inside the tradable universe before this.
+    "exclude_leveraged": True,
+    # Volatility ETPs roll futures and bleed by construction. Momentum will
+    # happily rank one first after a spike, which is exactly the wrong moment.
+    "exclude_volatility": True,
     "min_price": 5.0,
     "min_dollar_volume": 5_000_000.0,   # median daily traded value
     "min_history_bars": 60,             # inside the 3-month liquidity window
@@ -65,6 +76,39 @@ DEFAULTS = {
 # has no business holding. Warrants and rights expire; units are pre-split SPAC
 # packages. All three price in ways that make a momentum rank meaningless.
 EXCLUDED_TYPES = {"WARRANT", "RIGHT", "UNIT", "PREFERRED"}
+
+# Matched against a FUND's name, never a company's. "Direxion Daily Semiconductor
+# Bull 3X" is leveraged; a company with "Bull" in its name is not, and applying
+# these to ordinary shares would quietly delete real businesses.
+_LEVERAGE_MARKERS = (
+    # No trailing word boundary: "Graniteshares 2Xlong Amd Etf" runs the
+    # multiplier straight into the next word, and requiring one let a 2x fund
+    # through. A digit immediately before an X is specific enough on its own.
+    re.compile(r"\d\s*X"),          # 2X, 3X, Bl3X, 2Xlong
+    re.compile(r"\bULTRA"),         # ProShares Ultra / UltraPro
+    re.compile(r"\bBULL\b"),        # Direxion Daily ... Bull
+    re.compile(r"\bBEAR\b"),
+    re.compile(r"\bINVERSE\b"),
+    re.compile(r"\bLEVERAGED\b"),
+)
+_VOLATILITY_MARKERS = (re.compile(r"\bVIX\b"), re.compile(r"\bVOLATILITY\b"))
+
+
+def _is_derivative_fund(row, cfg):
+    """True when a fund tracks a multiple of, or the inverse of, something else.
+
+    Only ever applied to funds. A leveraged fund is not a cheaper way to hold
+    the index — it is a different instrument with a daily reset, and a strategy
+    that ranks it alongside ordinary shares is silently sizing 3x positions.
+    """
+    if str(row.get("type", "")).upper() not in {"ETP", "ETF"}:
+        return False
+    name = str(row.get("name", "")).upper()
+    if cfg.get("exclude_leveraged") and any(p.search(name) for p in _LEVERAGE_MARKERS):
+        return True
+    if cfg.get("exclude_volatility") and any(p.search(name) for p in _VOLATILITY_MARKERS):
+        return True
+    return False
 
 
 def settings(config):
@@ -93,6 +137,8 @@ def candidate_symbols(config, router):
         if str(row.get("type", "")).upper() in EXCLUDED_TYPES:
             continue
         if excluded and str(row.get("mic", "")).upper() in excluded:
+            continue
+        if _is_derivative_fund(row, cfg):
             continue
         symbol = row.get("symbol")
         if symbol:
