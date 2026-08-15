@@ -1,0 +1,18 @@
+# Runtime state, not source. The root .gitignore already draws this line for the
+# journal ("your own trade history, not source"); these are the paper trader's
+# equivalents and belong on the same side of it.
+
+# The live paper portfolio: cash, open positions, equity curve. This is your
+# trading state. Committing it means every session's positions land in the
+# history, and a checkout on another machine would silently restore someone
+# else's book.
+data/paper_book.json
+
+# Caches, rebuilt on demand. The liquidity cache is ~1 MB of scratch that exists
+# only so a rate-limited screen can resume; the universe is re-screened weekly.
+data/paper_universe.json
+data/paper_liquidity_partial.json
+
+# The expensive artefact of a full study — tens of MB of raw candidates, kept so
+# re-analysis does not need another replay. Reproducible from tools/full_study.py.
+reports/FULL-STUDY-candidates.json

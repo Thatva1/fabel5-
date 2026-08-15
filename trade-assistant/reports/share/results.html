@@ -1,0 +1,465 @@
+<title>Twelve Strategies, One Decade</title>
+<style>
+:root{
+  --paper:#FCFBF8; --raised:#FFFFFF; --ink:#14171C; --ink-soft:#4A5058;
+  --ink-faint:#7C838D; --rule:#E2DFD8; --rule-firm:#C9C4B9;
+  --brass:#8A6A2F; --brass-soft:#F0E7D4;
+  --up:#2C6249; --down:#8E3B2C; --hold:#3B4A63; --hold-soft:#E6EAF1;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#13151A; --raised:#1A1D24; --ink:#E9E6E0; --ink-soft:#A7ADB7;
+  --ink-faint:#767D88; --rule:#282C34; --rule-firm:#3A404A;
+  --brass:#C9A25C; --brass-soft:#2A2418;
+  --up:#6FBF97; --down:#E08A76; --hold:#93A8CC; --hold-soft:#1C2230;
+}}
+:root[data-theme="dark"]{
+  --paper:#13151A; --raised:#1A1D24; --ink:#E9E6E0; --ink-soft:#A7ADB7;
+  --ink-faint:#767D88; --rule:#282C34; --rule-firm:#3A404A;
+  --brass:#C9A25C; --brass-soft:#2A2418;
+  --up:#6FBF97; --down:#E08A76; --hold:#93A8CC; --hold-soft:#1C2230;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:clamp(2rem,5vw,4.5rem) clamp(1rem,4vw,2.5rem) 5rem}
+.measure{max-width:64ch}
+h1,h2,h3{font-family:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  font-weight:600; text-wrap:balance; margin:0}
+h1{font-size:clamp(2.1rem,5.2vw,3.4rem); line-height:1.08; letter-spacing:-.015em}
+h2{font-size:clamp(1.35rem,2.6vw,1.8rem); line-height:1.2; margin:0 0 .5rem}
+h3{font-size:1.05rem; margin:0 0 .35rem}
+p{margin:0 0 1rem}
+a{color:var(--brass)}
+.eyebrow{font-family:ui-monospace,"SF Mono","Cascadia Mono",Menlo,monospace;
+  font-size:.7rem; letter-spacing:.16em; text-transform:uppercase; color:var(--brass); margin:0 0 1.1rem}
+.lede{font-size:1.15rem; color:var(--ink-soft); margin-top:1.4rem}
+header{border-bottom:2px solid var(--ink); padding-bottom:2.2rem; margin-bottom:2.4rem}
+.facts{display:flex; flex-wrap:wrap; gap:0; margin-top:2.2rem; border-top:1px solid var(--rule)}
+.fact{flex:1 1 150px; padding:1rem 1.25rem 0 0}
+.fact dt{font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:.68rem;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--ink-faint)}
+.fact dd{margin:.25rem 0 0; font-family:ui-monospace,"SF Mono",Menlo,monospace;
+  font-size:1.5rem; font-variant-numeric:tabular-nums; color:var(--ink)}
+section{margin:3.2rem 0 0}
+.finding{background:var(--raised); border:1px solid var(--rule);
+  border-left:3px solid var(--brass); padding:1.4rem 1.6rem; margin:1.6rem 0}
+.finding h3{font-family:system-ui,sans-serif; font-size:.78rem; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--brass); margin-bottom:.55rem}
+.finding p:last-child{margin-bottom:0}
+.scroller{overflow-x:auto; margin:1.6rem 0 .6rem; border:1px solid var(--rule); background:var(--raised)}
+table{border-collapse:collapse; width:100%; min-width:1000px; font-size:.86rem}
+thead th{position:sticky; top:0; background:var(--raised); text-align:right;
+  font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:.65rem; font-weight:600;
+  letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint);
+  padding:.85rem .6rem; border-bottom:1.5px solid var(--rule-firm); white-space:nowrap}
+thead th:first-child{text-align:left; padding-left:1.1rem}
+tbody th{text-align:left; font-weight:500; padding:.7rem .6rem .7rem 1.1rem;
+  border-bottom:1px solid var(--rule); vertical-align:top}
+.nm{display:block; color:var(--ink)}
+.paper{display:block; font-size:.7rem; color:var(--ink-faint); margin-top:.1rem}
+td{padding:.7rem .6rem; border-bottom:1px solid var(--rule); text-align:right}
+.num{font-family:ui-monospace,"SF Mono",Menlo,monospace; font-variant-numeric:tabular-nums}
+.hero{font-size:1rem; font-weight:600}
+.dim{color:var(--ink-faint)}
+tr.beat{background:var(--brass-soft)}
+tr.bench{background:var(--hold-soft)}
+tr.bench th .nm{color:var(--hold); font-weight:600}
+.pip{color:var(--brass); margin-left:.4rem; font-size:.7rem; vertical-align:.15em}
+.vcell{text-align:right; padding-right:1.1rem}
+.verdict{font-family:ui-monospace,Menlo,monospace; font-size:.64rem; letter-spacing:.06em;
+  padding:.15rem .45rem; border-radius:2px; white-space:nowrap}
+.verdict.ok{color:var(--up); border:1px solid var(--up)}
+.verdict.mute{color:var(--ink-faint); border:1px solid var(--rule-firm)}
+.note{font-size:.82rem; color:var(--ink-faint); margin:.4rem 0 0}
+.caveats{border-top:2px solid var(--ink); margin-top:3.6rem; padding-top:2rem}
+.cv{display:grid; grid-template-columns:auto 1fr; gap:.7rem 1.1rem; align-items:start;
+  padding:1.05rem 0; border-bottom:1px solid var(--rule)}
+.cv-n{font-family:ui-monospace,Menlo,monospace; font-size:.7rem; color:var(--down);
+  border:1px solid var(--down); border-radius:50%; width:1.55rem; height:1.55rem;
+  display:grid; place-items:center; flex:none}
+.cv h3{font-size:.95rem; margin-bottom:.2rem}
+.cv p{margin:0; color:var(--ink-soft); font-size:.92rem}
+.grid2{display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:1.2rem; margin-top:1.4rem}
+.card{border:1px solid var(--rule); background:var(--raised); padding:1.15rem 1.3rem}
+.card h3{font-family:system-ui,sans-serif; font-size:.72rem; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--ink-faint); margin-bottom:.5rem}
+.card p{margin:0; font-size:.92rem; color:var(--ink-soft)}
+.card strong{color:var(--ink)}
+ul.plain{margin:.6rem 0 0; padding-left:1.1rem; color:var(--ink-soft); font-size:.92rem}
+ul.plain li{margin-bottom:.3rem}
+footer{margin-top:3.4rem; padding-top:1.4rem; border-top:1px solid var(--rule);
+  font-size:.8rem; color:var(--ink-faint)}
+:focus-visible{outline:2px solid var(--brass); outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">Backtest study &middot; research only</p>
+  <h1>Twelve Strategies,<br>One Decade</h1>
+  <p class="lede measure">Every strategy in the library, run over the same 528 instruments
+  and the same nine years, measured against simply holding all of them. One strategy beat
+  buy-and-hold on every risk-adjusted measure. Combining all twelve made things worse.</p>
+  <dl class="facts">
+    <div class="fact"><dt>Instruments</dt><dd>528</dd></div>
+    <div class="fact"><dt>Equities</dt><dd>500</dd></div>
+    <div class="fact"><dt>FX pairs</dt><dd>8</dd></div>
+    <div class="fact"><dt>Futures</dt><dd>20</dd></div>
+    <div class="fact"><dt>Years</dt><dd>8.94</dd></div>
+    <div class="fact"><dt>Signals</dt><dd>63,014</dd></div>
+  </dl>
+</header>
+
+<section>
+  <h2>What the numbers say</h2>
+  <div class="finding">
+    <h3>Finding 01 &mdash; one genuine risk-adjusted win</h3>
+    <p><strong>Long-term reversal</strong> returned 22.54% a year against buy-and-hold's 23.13%
+    &mdash; slightly less &mdash; but did it with a <strong>22.9% drawdown instead of 37.8%</strong>.
+    It beats holding on Sharpe (1.45 vs 1.01), Sortino (2.20 vs 1.43), Calmar (0.98 vs 0.61)
+    and Ulcer (7.06 vs 11.81). Nearly the same return for substantially less pain.</p>
+  </div>
+  <div class="finding">
+    <h3>Finding 02 &mdash; diversification went the wrong way</h3>
+    <p>Running all twelve together returned <strong>13.11% with a 42.8% drawdown</strong> &mdash;
+    worse than four of its own components, and the deepest drawdown in the study. Blending the
+    strong strategies with the weak ones diluted rather than diversified.</p>
+  </div>
+  <div class="finding">
+    <h3>Finding 03 &mdash; FX and futures added nothing</h3>
+    <p>Holding all 528 instruments returned 23.13%. Holding the 500 equities alone returned
+    <strong>23.75%</strong>. The 28 currency and futures instruments diluted the book rather
+    than diversifying it.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Full results</h2>
+  <p class="measure">Portfolio-level: compounding equity, gross exposure cap, position limits,
+  per-market and correlation caps, commission and slippage charged on both sides. Ranked by
+  annual return. <span class="pip">&#9650;</span> marks a strategy that beats buy-and-hold on
+  Sharpe, Sortino <em>and</em> Calmar.</p>
+  <div class="scroller">
+  <table>
+    <thead><tr>
+      <th scope="col">Strategy</th><th scope="col">CAGR %</th><th scope="col">Total %</th>
+      <th scope="col">Vol %</th><th scope="col">Max DD %</th><th scope="col">Ulcer</th>
+      <th scope="col">Sharpe</th><th scope="col">Sortino</th><th scope="col">Calmar</th>
+      <th scope="col">Gain/Pain</th><th scope="col">Win %</th><th scope="col">Trades</th>
+      <th scope="col">Out-of-sample</th>
+    </tr></thead>
+    <tbody>
+<tr class="beat">
+<th scope="row"><span class="nm">Long-term reversal<span class="pip" title="Beats buy-and-hold on Sharpe, Sortino and Calmar">▲</span></span><span class="paper">De Bondt &amp; Thaler 1985</span></th>
+<td class="num hero">22.54</td>
+<td class="num">246.4</td>
+<td class="num">14.78</td>
+<td class="num">22.89</td>
+<td class="num">7.06</td>
+<td class="num">1.45</td>
+<td class="num">2.20</td>
+<td class="num">0.98</td>
+<td class="num">1.29</td>
+<td class="num">44.9</td>
+<td class="num dim">388</td>
+<td class="vcell"><span class="verdict ok">SURVIVED</span></td>
+</tr>
+<tr>
+<th scope="row"><span class="nm">Time-series momentum</span><span class="paper">Moskowitz, Ooi &amp; Pedersen 2012</span></th>
+<td class="num hero">16.41</td>
+<td class="num">288.9</td>
+<td class="num">15.67</td>
+<td class="num">29.56</td>
+<td class="num">11.48</td>
+<td class="num">1.05</td>
+<td class="num">1.48</td>
+<td class="num">0.56</td>
+<td class="num">1.20</td>
+<td class="num">50.9</td>
+<td class="num dim">489</td>
+<td class="vcell"><span class="verdict ok">SURVIVED</span></td>
+</tr>
+<tr>
+<th scope="row"><span class="nm">All twelve combined</span><span class="paper">—</span></th>
+<td class="num hero">13.11</td>
+<td class="num">201.5</td>
+<td class="num">22.43</td>
+<td class="num">42.78</td>
+<td class="num">18.02</td>
+<td class="num">0.66</td>
+<td class="num">0.94</td>
+<td class="num">0.31</td>
+<td class="num">1.13</td>
+<td class="num">38.0</td>
+<td class="num dim">1404</td>
+<td class="vcell">—</td>
+</tr>
+<tr>
+<th scope="row"><span class="nm">Dual momentum</span><span class="paper">Antonacci 2014</span></th>
+<td class="num hero">12.21</td>
+<td class="num">177.4</td>
+<td class="num">17.72</td>
+<td class="num">28.00</td>
+<td class="num">13.92</td>
+<td class="num">0.74</td>
+<td class="num">1.04</td>
+<td class="num">0.44</td>
+<td class="num">1.14</td>
+<td class="num">46.0</td>
+<td class="num dim">518</td>
+<td class="vcell"><span class="verdict ok">SURVIVED</span></td>
+</tr>
+<tr>
+<th scope="row"><span class="nm">Turn of month</span><span class="paper">Ariel 1987</span></th>
+<td class="num hero">11.69</td>
+<td class="num">168.8</td>
+<td class="num">18.32</td>
+<td class="num">30.97</td>
+<td class="num">12.59</td>
+<td class="num">0.70</td>
+<td class="num">0.98</td>
+<td class="num">0.38</td>
+<td class="num">1.14</td>
+<td class="num">49.1</td>
+<td class="num dim">794</td>
+<td class="vcell"><span class="verdict ok">SURVIVED</span></td>
+</tr>
+<tr>
+<th scope="row"><span class="nm">52-week high</span><span class="paper">George &amp; Hwang 2004</span></th>
+<td class="num hero">7.79</td>
+<td class="num">95.6</td>
+<td class="num">12.62</td>
+<td class="num">27.24</td>
+<td class="num">9.88</td>
+<td class="num">0.66</td>
+<td class="num">0.93</td>
+<td class="num">0.29</td>
+<td class="num">1.13</td>
+<td class="num">49.8</td>
+<td class="num dim">446</td>
+<td class="vcell"><span class="verdict ok">SURVIVED</span></td>
+</tr>
+<tr>
+<th scope="row"><span class="nm">Short-term reversal</span><span class="paper">Jegadeesh 1990</span></th>
+<td class="num hero">7.11</td>
+<td class="num">84.8</td>
+<td class="num">15.66</td>
+<td class="num">28.84</td>
+<td class="num">11.51</td>
+<td class="num">0.52</td>
+<td class="num">0.73</td>
+<td class="num">0.25</td>
+<td class="num">1.10</td>
+<td class="num">41.8</td>
+<td class="num dim">596</td>
+<td class="vcell"><span class="verdict ok">SURVIVED</span></td>
+</tr>
+<tr>
+<th scope="row"><span class="nm">Cross-sectional momentum</span><span class="paper">Jegadeesh &amp; Titman 1993</span></th>
+<td class="num hero">7.10</td>
+<td class="num">83.6</td>
+<td class="num">15.63</td>
+<td class="num">32.70</td>
+<td class="num">17.54</td>
+<td class="num">0.52</td>
+<td class="num">0.72</td>
+<td class="num">0.22</td>
+<td class="num">1.10</td>
+<td class="num">44.5</td>
+<td class="num dim">422</td>
+<td class="vcell"><span class="verdict mute">inconclusive</span></td>
+</tr>
+<tr>
+<th scope="row"><span class="nm">Band reversion</span><span class="paper">house rules</span></th>
+<td class="num hero">5.89</td>
+<td class="num">67.0</td>
+<td class="num">18.12</td>
+<td class="num">39.04</td>
+<td class="num">16.91</td>
+<td class="num">0.41</td>
+<td class="num">0.58</td>
+<td class="num">0.15</td>
+<td class="num">1.08</td>
+<td class="num">32.2</td>
+<td class="num dim">1323</td>
+<td class="vcell"><span class="verdict ok">SURVIVED</span></td>
+</tr>
+<tr>
+<th scope="row"><span class="nm">Low volatility</span><span class="paper">Baker, Bradley &amp; Wurgler 2011</span></th>
+<td class="num hero">4.19</td>
+<td class="num">44.4</td>
+<td class="num">5.96</td>
+<td class="num">11.28</td>
+<td class="num">4.76</td>
+<td class="num">0.72</td>
+<td class="num">1.00</td>
+<td class="num">0.37</td>
+<td class="num">1.14</td>
+<td class="num">50.0</td>
+<td class="num dim">428</td>
+<td class="vcell"><span class="verdict ok">SURVIVED</span></td>
+</tr>
+<tr>
+<th scope="row"><span class="nm">Low beta</span><span class="paper">Frazzini &amp; Pedersen 2014</span></th>
+<td class="num hero">4.15</td>
+<td class="num">43.8</td>
+<td class="num">7.37</td>
+<td class="num">16.95</td>
+<td class="num">5.49</td>
+<td class="num">0.59</td>
+<td class="num">0.81</td>
+<td class="num">0.24</td>
+<td class="num">1.11</td>
+<td class="num">47.0</td>
+<td class="num dim">445</td>
+<td class="vcell"><span class="verdict ok">SURVIVED</span></td>
+</tr>
+<tr>
+<th scope="row"><span class="nm">Halloween effect</span><span class="paper">Bouman &amp; Jacobsen 2002</span></th>
+<td class="num hero">2.85</td>
+<td class="num">27.2</td>
+<td class="num">13.76</td>
+<td class="num">40.72</td>
+<td class="num">23.01</td>
+<td class="num">0.27</td>
+<td class="num">0.38</td>
+<td class="num">0.07</td>
+<td class="num">1.07</td>
+<td class="num">40.7</td>
+<td class="num dim">280</td>
+<td class="vcell"><span class="verdict mute">inconclusive</span></td>
+</tr>
+<tr>
+<th scope="row"><span class="nm">Sector momentum</span><span class="paper">Moskowitz &amp; Grinblatt 1999</span></th>
+<td class="num hero">2.49</td>
+<td class="num">24.3</td>
+<td class="num">4.82</td>
+<td class="num">7.45</td>
+<td class="num">3.09</td>
+<td class="num">0.53</td>
+<td class="num">0.73</td>
+<td class="num">0.33</td>
+<td class="num">1.11</td>
+<td class="num">47.8</td>
+<td class="num dim">157</td>
+<td class="vcell"><span class="verdict ok">SURVIVED</span></td>
+</tr>
+<tr class="bench">
+<th scope="row"><span class="nm">Buy &amp;amp; hold — all 528</span><span class="paper">equal weight, unlevered</span></th>
+<td class="num hero">23.13</td>
+<td class="num">700.5</td>
+<td class="num">23.24</td>
+<td class="num">37.76</td>
+<td class="num">11.81</td>
+<td class="num">1.01</td>
+<td class="num">1.43</td>
+<td class="num">0.61</td>
+<td class="num">1.20</td>
+<td class="num">—</td>
+<td class="num dim">528</td>
+<td class="vcell">—</td>
+</tr>
+<tr class="bench">
+<th scope="row"><span class="nm">Buy &amp;amp; hold — equities only</span><span class="paper">equal weight, unlevered</span></th>
+<td class="num hero">23.75</td>
+<td class="num">741.6</td>
+<td class="num">23.82</td>
+<td class="num">38.48</td>
+<td class="num">12.05</td>
+<td class="num">1.01</td>
+<td class="num">1.43</td>
+<td class="num">0.62</td>
+<td class="num">1.20</td>
+<td class="num">—</td>
+<td class="num dim">500</td>
+<td class="vcell">—</td>
+</tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">Ulcer index measures depth <em>and</em> duration of drawdown &mdash; lower is
+  better. Gain/pain is the ratio of summed gains to summed losses on the equity curve.</p>
+</section>
+
+<section>
+  <h2>Hold it, or trade it?</h2>
+  <div class="grid2">
+    <div class="card"><h3>If you had just held everything</h3>
+      <p><strong>23.13% a year</strong>, turning into a 700% total return &mdash; but with a
+      <strong>37.8% peak-to-trough fall</strong> along the way, and 23.2% annual volatility.
+      Simple, cheap, and hard to sit through.</p></div>
+    <div class="card"><h3>If you had traded the best rule</h3>
+      <p><strong>22.54% a year</strong> from long-term reversal, with a <strong>22.9%</strong>
+      worst fall and 14.8% volatility. You give up almost nothing in return and roughly
+      <strong>40% of the drawdown</strong>.</p></div>
+    <div class="card"><h3>The calmest books</h3>
+      <p>Low volatility and low beta drew down just <strong>11.3%</strong> and
+      <strong>17.0%</strong> &mdash; less than half of holding &mdash; but returned only
+      ~4% a year. They work exactly as designed; the design just isn't competitive here.</p></div>
+    <div class="card"><h3>The most active</h3>
+      <p>Band reversion traded <strong>1,323</strong> times for 5.89% a year and a 39% drawdown.
+      Turn-of-month traded 794 times for 11.69%. Turnover did not buy quality.</p></div>
+  </div>
+</section>
+
+<section class="caveats">
+  <h2>Read this before quoting any number</h2>
+  <p class="measure">These caveats are not boilerplate. Each one would change how a figure above
+  should be read, and the first two would change it a lot.</p>
+
+  <div class="cv"><span class="cv-n">1</span><div>
+    <h3>Everything here is in-sample</h3>
+    <p>These rules were chosen knowing how this decade went. An out-of-sample split was run
+    &mdash; the last column &mdash; but a reporting bug meant the underlying figures for each
+    half failed to record. The verdicts are real; the detail behind them is missing and is
+    being re-run.</p></div></div>
+
+  <div class="cv"><span class="cv-n">2</span><div>
+    <h3>Survivorship bias</h3>
+    <p>Only instruments that still exist today can be tested. Companies that delisted or went
+    bust are invisible. This flatters every row in the table, including buy-and-hold.</p></div></div>
+
+  <div class="cv"><span class="cv-n">3</span><div>
+    <h3>The futures are mis-sized</h3>
+    <p>All 20 futures are sized as though their full notional were paid in cash &mdash; no
+    margin, no contract multiplier. Both return and risk are understated against a real futures
+    account. Treat them as price-series research, not as a futures book.</p></div></div>
+
+  <div class="cv"><span class="cv-n">4</span><div>
+    <h3>One market, one decade</h3>
+    <p>US-listed instruments over roughly 2016&ndash;2026, a period dominated by one of the
+    strongest equity bull runs on record. Long-term reversal buys multi-year laggards, which is
+    exactly the trade that decade rewarded.</p></div></div>
+
+  <div class="cv"><span class="cv-n">5</span><div>
+    <h3>Modelled fills, no intrabar data</h3>
+    <p>When a single bar's range covers both the stop and the target, the stop is always
+    assumed &mdash; deliberately pessimistic. Slippage and commission are estimates.</p></div></div>
+</section>
+
+<section>
+  <h2>What isn't here, and why</h2>
+  <p class="measure">Nine strategies from the original library were not built. In every case the
+  data required would have produced numbers that look real and aren't.</p>
+  <ul class="plain">
+    <li><strong>Value, quality, profitability, QMJ, low-investment</strong> &mdash; the available
+    fundamentals are point-in-time only, so backtesting them would inject look-ahead bias.</li>
+    <li><strong>Post-earnings drift, earnings premium</strong> &mdash; the data feed returns four
+    quarters of earnings surprise, not the decade a test would need.</li>
+    <li><strong>Pairs / statistical arbitrage</strong> &mdash; needs a two-instrument execution
+    model the engine does not have.</li>
+    <li><strong>Carry</strong> &mdash; needs futures term structure; only front-month series are
+    available.</li>
+    <li><strong>Options strategies</strong> &mdash; no usable historical options data.</li>
+  </ul>
+</section>
+
+<footer>
+  <p>Research and decision-support only. Nothing here was executed, and nothing here is
+  financial advice. Past behaviour is not predictive; a strategy that worked historically can
+  stop working the moment conditions change. Data may be delayed or inaccurate.</p>
+</footer>
+</div>

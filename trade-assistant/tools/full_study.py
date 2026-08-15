@@ -30,10 +30,26 @@ PERIOD = "10y"
 EQUITY_SLOTS = int(os.environ.get("STUDY_EQUITIES", "200"))
 OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "..", "reports", "FULL-STUDY.json")
+CANDIDATES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "..", "reports", "FULL-STUDY-candidates.json")
 
 
 def log(message):
     print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+def _thin(section):
+    """The handful of numbers worth comparing across an in/out sample split."""
+    if not isinstance(section, dict):
+        return section
+    metrics = section.get("metrics", section)
+    keep = ("cagr_pct", "max_drawdown_pct", "sharpe", "sortino", "calmar",
+            "total_return_pct", "ulcer_index", "gain_to_pain")
+    out = {k: metrics.get(k) for k in keep if k in metrics}
+    if "trades" in section:
+        out["trades"] = (len(section["trades"]) if isinstance(section["trades"], list)
+                         else section["trades"])
+    return out
 
 
 def build_universe(config, router):
@@ -101,6 +117,19 @@ def main():
     log(f"replay done in {(time.time() - started) / 60:.1f} min — "
         f"{len(out['trades'])} candidates")
 
+    # The candidates are the expensive artefact — 100 minutes of replay — and
+    # every question asked afterwards is seconds of work on top of them. The
+    # first version of this script threw them away and kept only the summary,
+    # so a single wrong dictionary key in the reporting cost the entire replay
+    # to discover and the entire replay again to fix. Saved first, analysed
+    # second.
+    os.makedirs(os.path.dirname(CANDIDATES_PATH), exist_ok=True)
+    with open(CANDIDATES_PATH, "w") as handle:
+        json.dump(out["trades"], handle, default=str)
+    log(f"candidates saved to {os.path.basename(CANDIDATES_PATH)} "
+        f"({os.path.getsize(CANDIDATES_PATH) / 1e6:.0f} MB) — "
+        "re-analysis no longer needs a replay")
+
     results = {}
 
     def simulate(label, candidates):
@@ -123,10 +152,39 @@ def main():
             f"DD {results[label].get('max_drawdown_pct')}%  "
             f"Sharpe {results[label].get('sharpe')}  trades {len(sim['trades'])}")
 
+    # The split date, for the check that has never once been run in this
+    # project. Everything measured so far is in-sample: the rules were chosen
+    # knowing how the decade went. A strategy that holds up on the half of
+    # history it was not selected against is worth something; one that only
+    # works on the whole sample is a description of the past.
+    dates = sorted({t["entry_date"] for t in out["trades"] if t.get("entry_date")})
+    split_date = dates[len(dates) // 2] if dates else None
+    log(f"out-of-sample split at {split_date}")
+
     log("simulating each strategy on its own…")
     for strategy in registry.all_strategies():
         subset = [t for t in out["trades"] if t.get("strategy") == strategy.name]
         simulate(strategy.name, subset)
+        if split_date and subset:
+            try:
+                split = runner.validate_out_of_sample(
+                    subset, config, split_date, calendar=calendar,
+                    price_lookup=price_lookup)
+                # develop / validate, not in_sample / out_sample. Reading the
+                # wrong keys silently produced a table of None next to a column
+                # of confident verdicts — the analysis had run correctly and
+                # only the reporting was broken, which is the harder version to
+                # notice.
+                results[strategy.name]["out_of_sample"] = {
+                    "split_date": split.get("split_date"),
+                    "develop": _thin(split.get("develop")),
+                    "validate": _thin(split.get("validate")),
+                    "verdict": split.get("verdict"),
+                    "note": split.get("note"),
+                }
+            except Exception as exc:
+                results[strategy.name]["out_of_sample"] = {
+                    "error": f"{type(exc).__name__}: {exc}"}
 
     log("simulating the whole library together…")
     simulate("ALL_COMBINED", out["trades"])
