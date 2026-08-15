@@ -10,7 +10,9 @@ The same scanner, regime classifier, router and sizing code the live scan uses
 runs here. Nothing is reimplemented, so the backtest cannot drift from live
 behaviour.
 """
-from ..research import market_regime, scanner
+import pandas as pd
+
+from ..research import indicators, market_regime, scanner
 from ..risk import sizing
 from ..strategies import router as strategy_router
 from ..strategies.cross_section import CrossSection
@@ -46,7 +48,14 @@ DEFAULTS = {
     # it silently used before. Ordered by the depth of the evidence behind each
     # rule, pending a measured expectancy for this library; re-order it from
     # your own out-of-sample results rather than leaving this as received wisdom.
-    "strategy_priority": ["xs_momentum", "ts_momentum", "low_beta"],
+    # A strategy missing from this list falls to the bottom of every tie
+    # silently, so a test asserts it covers the registry exactly.
+    "strategy_priority": [
+        "xs_momentum", "ts_momentum", "low_beta", "low_volatility",
+        "sector_momentum", "dual_momentum", "high_52w",
+        "short_reversal", "long_reversal", "turn_of_month",
+        "band_reversion", "halloween",
+    ],
     # A market-order fill that drifts toward the stop shrinks the risk it was
     # sized against. Below this fraction of the planned risk the setup is no
     # longer the one that was approved, so it is skipped rather than entered
@@ -118,6 +127,31 @@ def settings(config):
     return {**DEFAULTS, **((config or {}).get("backtest") or {})}
 
 
+def _benchmark_upto(benchmark_closes, as_of):
+    """The benchmark truncated at this bar, across mismatched timezones.
+
+    A US share arrives stamped midnight America/New_York; an FX pair and a
+    futures series arrive tz-naive. Slicing one by the other's timestamp raises
+    outright — "Cannot compare tz-naive and tz-aware" — so a universe that mixes
+    asset classes could not be replayed at all. Both sides are reduced to a
+    calendar date first, which is the unit that actually means something: the
+    timezone is an artefact of where an instrument happens to be listed.
+
+    The look-ahead guarantee is unchanged. This still returns nothing dated
+    after `as_of`; it only makes the comparison possible.
+    """
+    if benchmark_closes is None or len(benchmark_closes) == 0:
+        return None
+    series = indicators.calendar_date_index(benchmark_closes)
+    try:
+        cutoff = pd.Timestamp(as_of)
+        if cutoff.tzinfo is not None:
+            cutoff = cutoff.tz_localize(None)
+        return series.loc[:cutoff.normalize()]
+    except (TypeError, ValueError, KeyError):
+        return series
+
+
 def backtest_ticker(ticker, df, config, benchmark_closes=None, progress_cb=None,
                     unsized=False, cross_section=None):
     """Replay one instrument. Returns {ticker, trades, bars_tested, skipped}.
@@ -170,9 +204,7 @@ def backtest_ticker(ticker, df, config, benchmark_closes=None, progress_cb=None,
         # THE guarantee: this slice ends at i. Nothing downstream can see later.
         start = max(0, i + 1 - window_bars)
         window = df.iloc[start:i + 1]
-        bench = None
-        if benchmark_closes is not None:
-            bench = benchmark_closes.loc[:window.index[-1]]
+        bench = _benchmark_upto(benchmark_closes, window.index[-1])
 
         snapshot = scanner.scan_ticker(ticker, window, scan_cfg, benchmark_closes=bench)
         if snapshot.get("error"):

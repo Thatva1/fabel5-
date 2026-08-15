@@ -125,7 +125,7 @@ def slope_pct(series, periods=21):
     return round((float(clean.iloc[-1]) / past - 1) * 100, 2)
 
 
-def _calendar_date_index(series):
+def calendar_date_index(series):
     """A copy indexed by calendar DATE, timezone stripped.
 
     yfinance stamps each bar with the exchange's own timezone: a New York close
@@ -157,8 +157,8 @@ def align(series, other):
     """
     if series is None or other is None:
         return None
-    return (_calendar_date_index(series).to_frame("t")
-            .join(_calendar_date_index(other).to_frame("b"), how="inner")
+    return (calendar_date_index(series).to_frame("t")
+            .join(calendar_date_index(other).to_frame("b"), how="inner")
             .dropna())
 
 

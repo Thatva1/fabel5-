@@ -11,16 +11,37 @@ Enabling, disabling and re-tuning happen in config.yaml, never in code:
         top_n: 15                 # override any key from the strategy's defaults
         regimes: [TRENDING_UP]    # override which regimes it may run in
 """
+from .defensive_seasonal import (HalloweenStrategy, LowVolatilityStrategy,
+                                 TurnOfMonthStrategy)
 from .low_beta import LowBetaStrategy
+from .momentum_variants import (DualMomentumStrategy, FiftyTwoWeekHighStrategy,
+                                SectorMomentumStrategy)
+from .reversal import (BandReversionStrategy, LongTermReversalStrategy,
+                       ShortTermReversalStrategy)
 from .ts_momentum import TimeSeriesMomentumStrategy
 from .xs_momentum import CrossSectionalMomentumStrategy
 
-# Ordered by the strength of the evidence behind them, which is also the order
-# the backtest engine breaks ties in when two of them want the same slot.
+# Ordered by the tier the library assigns each one — T1 (replicates globally)
+# before T2 (real but decaying) before T3 (data-mining risk) — which is also the
+# order the engine breaks ties in when two want the same slot. That ordering is
+# received wisdom, not measurement; re-order it from your own out-of-sample
+# results the moment you have them.
 BUILTIN = (
+    # T1 — the robust core
     CrossSectionalMomentumStrategy,
     TimeSeriesMomentumStrategy,
     LowBetaStrategy,
+    LowVolatilityStrategy,
+    # T2 — real, but decaying or expensive
+    SectorMomentumStrategy,
+    DualMomentumStrategy,
+    FiftyTwoWeekHighStrategy,
+    ShortTermReversalStrategy,
+    LongTermReversalStrategy,
+    TurnOfMonthStrategy,
+    # T3 — speculative, kept to be measured rather than argued about
+    BandReversionStrategy,
+    HalloweenStrategy,
 )
 
 

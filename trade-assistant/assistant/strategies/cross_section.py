@@ -29,6 +29,8 @@ import math
 
 import pandas as pd
 
+from ..research import indicators
+
 
 class CrossSection:
     """Ranks one universe of instruments against itself, as of any date."""
@@ -42,7 +44,14 @@ class CrossSection:
             clean = pd.Series(closes).dropna()
             if clean.empty:
                 continue
-            series[str(ticker)] = clean
+            # Reduced to a calendar DATE index before anything is aligned. A US
+            # share arrives stamped midnight America/New_York, an FX pair and a
+            # futures series arrive tz-naive, and pandas refuses outright to
+            # join tz-aware to tz-naive — so a universe that mixes asset classes
+            # cannot even be constructed without this. The trading day is the
+            # unit that means something; the timezone is an artefact of where
+            # the instrument happens to be listed.
+            series[str(ticker)] = indicators.calendar_date_index(clean)
 
         if series:
             frame = pd.concat(series, axis=1).sort_index()

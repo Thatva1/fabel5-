@@ -209,4 +209,83 @@ def summarise_curve(equity, dates=None, periods_per_year=TRADING_DAYS,
         "sharpe": sharpe(equity, periods_per_year, risk_free_rate),
         "sortino": sortino(equity, periods_per_year, risk_free_rate),
         "calmar": calmar(equity, years),
+        "volatility_pct": annual_volatility(equity, periods_per_year),
+        "downside_deviation_pct": downside_deviation(equity, periods_per_year),
+        "best_period_pct": _extreme(equity, best=True),
+        "worst_period_pct": _extreme(equity, best=False),
+        "positive_periods_pct": positive_periods(equity),
+        "ulcer_index": ulcer_index(equity),
+        "gain_to_pain": gain_to_pain(equity),
     }
+
+
+def annual_volatility(equity, periods_per_year=TRADING_DAYS):
+    """Annualised standard deviation of returns, in percent."""
+    returns = returns_from_equity(equity)
+    if len(returns) < 2:
+        return None
+    mean = sum(returns) / len(returns)
+    variance = sum((r - mean) ** 2 for r in returns) / len(returns)
+    return round(math.sqrt(variance) * math.sqrt(periods_per_year) * 100, 2)
+
+
+def downside_deviation(equity, periods_per_year=TRADING_DAYS):
+    """Volatility of the LOSING periods only.
+
+    The denominator in Sortino. Reported on its own because it answers the
+    question Sharpe cannot: how violent is this when it is going wrong, as
+    opposed to how much does it move in total.
+    """
+    returns = returns_from_equity(equity)
+    losses = [r for r in returns if r < 0]
+    if len(losses) < 2:
+        return None
+    variance = sum(r ** 2 for r in losses) / len(returns)
+    return round(math.sqrt(variance) * math.sqrt(periods_per_year) * 100, 2)
+
+
+def positive_periods(equity):
+    """Share of periods that were up, in percent."""
+    returns = returns_from_equity(equity)
+    if not returns:
+        return None
+    return round(sum(1 for r in returns if r > 0) / len(returns) * 100, 2)
+
+
+def ulcer_index(equity):
+    """Root-mean-square drawdown — depth AND duration in one number.
+
+    Max drawdown records the single worst moment; two curves with the same max
+    drawdown are very different to live with if one recovered in a month and the
+    other stayed down for three years. This penalises the second.
+    """
+    if not equity:
+        return None
+    peak, squares = equity[0], []
+    for value in equity:
+        peak = max(peak, value)
+        squares.append(((value - peak) / peak * 100) ** 2 if peak else 0.0)
+    if not squares:
+        return None
+    return round(math.sqrt(sum(squares) / len(squares)), 2)
+
+
+def gain_to_pain(equity):
+    """Sum of gains divided by the absolute sum of losses.
+
+    Profit factor computed on the equity curve rather than on closed trades, so
+    it counts open drawdown too. Below 1.0 the losses outweigh the gains.
+    """
+    returns = returns_from_equity(equity)
+    gains = sum(r for r in returns if r > 0)
+    losses = -sum(r for r in returns if r < 0)
+    if losses <= 0:
+        return None
+    return round(gains / losses, 2)
+
+
+def _extreme(equity, best=True):
+    returns = returns_from_equity(equity)
+    if not returns:
+        return None
+    return round((max(returns) if best else min(returns)) * 100, 2)
