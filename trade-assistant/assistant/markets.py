@@ -87,6 +87,46 @@ SECTOR_ETFS = {
 }
 
 
+# Unlevered ETFs that give cash-market exposure to the same things the futures
+# above trade. Included in a macro book so it is not made only of derivatives:
+# an ETF has no margin, no roll and no multiplier, so where the two agree the
+# result is not an artefact of how futures are modelled.
+MACRO_ETFS = {
+    "TLT": {"name": "20+ Year Treasuries", "asset_class": "rates"},
+    "IEF": {"name": "7-10 Year Treasuries", "asset_class": "rates"},
+    "SHY": {"name": "1-3 Year Treasuries", "asset_class": "rates"},
+    "BIL": {"name": "1-3 Month T-Bills", "asset_class": "rates"},
+    "LQD": {"name": "Investment Grade Credit", "asset_class": "credit"},
+    "HYG": {"name": "High Yield Credit", "asset_class": "credit"},
+    "JNK": {"name": "High Yield Credit (alt)", "asset_class": "credit"},
+    "AGG": {"name": "US Aggregate Bond", "asset_class": "credit"},
+    "BND": {"name": "Total Bond Market", "asset_class": "credit"},
+    "EMB": {"name": "EM Sovereign Debt", "asset_class": "credit"},
+    "GLD": {"name": "Gold", "asset_class": "commodity"},
+    "SLV": {"name": "Silver", "asset_class": "commodity"},
+    "USO": {"name": "Crude Oil", "asset_class": "commodity"},
+    "SPY": {"name": "S&P 500", "asset_class": "equity_index"},
+    "QQQ": {"name": "Nasdaq 100", "asset_class": "equity_index"},
+    "IWM": {"name": "Russell 2000", "asset_class": "equity_index"},
+    "EFA": {"name": "Developed ex-US", "asset_class": "equity_index"},
+    "EEM": {"name": "Emerging Markets", "asset_class": "equity_index"},
+}
+
+
+def macro_universe():
+    """FX, futures and the cash ETFs that track the same exposures.
+
+    The book a macro strategy should be tested on. Pooling these with hundreds
+    of single stocks does not test them — it silently excludes them: a currency
+    pair moving 8% in a year cannot place in a ranking whose twelfth-best name
+    is up 183%, so every cross-sectional strategy in the library is
+    structurally incapable of ever selecting one. Only an absolute signal like
+    time-series momentum can reach them in a mixed universe. Here they compete
+    against their own kind.
+    """
+    return list(FX_PAIRS) + list(FUTURES) + list(MACRO_ETFS)
+
+
 def is_fx(ticker):
     return str(ticker).upper().endswith("=X")
 
@@ -102,7 +142,8 @@ def is_derivative(ticker):
 
 def asset_class_of(ticker):
     """Broad class for diversification accounting, or 'equity' by default."""
-    entry = CATALOGUE.get(str(ticker).upper())
+    symbol = str(ticker).upper()
+    entry = CATALOGUE.get(symbol) or MACRO_ETFS.get(symbol)
     if entry:
         return entry["asset_class"]
     return "equity"

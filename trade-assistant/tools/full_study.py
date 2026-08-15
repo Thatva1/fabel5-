@@ -28,10 +28,14 @@ from assistant.strategies import registry                        # noqa: E402
 
 PERIOD = "10y"
 EQUITY_SLOTS = int(os.environ.get("STUDY_EQUITIES", "200"))
+# "mixed"  — equities with FX and futures added alongside
+# "macro"  — FX, futures and cash macro ETFs ONLY, competing against each other
+MODE = os.environ.get("STUDY_MODE", "mixed")
+_SUFFIX = "" if MODE == "mixed" else f"-{MODE.upper()}"
 OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "..", "reports", "FULL-STUDY.json")
+                        "..", "reports", f"FULL-STUDY{_SUFFIX}.json")
 CANDIDATES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                               "..", "reports", "FULL-STUDY-candidates.json")
+                               "..", "reports", f"FULL-STUDY{_SUFFIX}-candidates.json")
 
 
 def log(message):
@@ -53,7 +57,15 @@ def _thin(section):
 
 
 def build_universe(config, router):
-    """Liquid equities + every sector ETF + all FX + all futures."""
+    """(bulk-fetched symbols, individually-fetched symbols) for this mode.
+
+    In macro mode there are no single stocks at all. That is the point: pooling
+    fifty macro instruments with five hundred equities does not test them, it
+    excludes them — a ranking whose twelfth-best name is up 183% can never
+    select a currency pair that moved 8%.
+    """
+    if MODE == "macro":
+        return [], markets.macro_universe()
     equities, _, _ = screen.tradable_universe(config, router)
     chosen = list(equities[:EQUITY_SLOTS])
     for sector in markets.SECTOR_ETFS:
@@ -74,11 +86,13 @@ def main():
     equities, derivatives = build_universe(config, router)
     log(f"universe: {len(equities)} equities + {len(derivatives)} FX/futures")
 
-    log("fetching equity history…")
-    frames = bulk.ohlcv_history(equities, period=PERIOD)
-    log(f"  {len(frames)} equity series")
+    frames = {}
+    if equities:
+        log("fetching equity history…")
+        frames = bulk.ohlcv_history(equities, period=PERIOD)
+        log(f"  {len(frames)} equity series")
 
-    log("fetching FX and futures history…")
+    log(f"fetching {len(derivatives)} FX / futures / macro-ETF series…")
     for symbol in derivatives:
         try:
             df = router.get_prices(symbol, period=PERIOD)
@@ -105,7 +119,6 @@ def main():
                  "backtest": {**config["backtest"], "position_slots": "per_strategy"}}
     log("replaying — this is the expensive step…")
     started = time.time()
-    done = {"n": 0}
 
     def progress(ticker, bars, total):
         if bars % 2000 == 0:

@@ -15,4 +15,5 @@ data/paper_liquidity_partial.json
 
 # The expensive artefact of a full study — tens of MB of raw candidates, kept so
 # re-analysis does not need another replay. Reproducible from tools/full_study.py.
-reports/FULL-STUDY-candidates.json
+# Globbed, because each study mode writes its own file (FULL-STUDY-MACRO-...).
+reports/FULL-STUDY*-candidates.json
