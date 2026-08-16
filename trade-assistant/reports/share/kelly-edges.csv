@@ -1,0 +1,13 @@
+strategy,oos_observations,oos_mean_return,in_blend
+band_reversion,1021,0.000293,no
+dual_momentum,1021,0.001176,yes
+halloween,1021,0.000417,no
+high_52w,1021,0.000332,no
+long_reversal,1021,0.000943,yes
+low_beta,1021,0.000309,yes
+low_volatility,1021,0.000129,no
+sector_momentum,1021,8.1e-05,no
+short_reversal,1021,0.00064,yes
+ts_momentum,1021,0.001108,no
+turn_of_month,1021,0.000557,no
+xs_momentum,1021,0.000636,no
