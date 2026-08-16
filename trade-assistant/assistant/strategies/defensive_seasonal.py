@@ -31,7 +31,7 @@ class LowVolatilityStrategy(Strategy):
     defaults = {
         "vol_lookback_bars": 120,     # longer than the risk filters: this IS the signal
         "top_pct": 10.0,              # the calmest decile
-        "min_universe": 20,
+        "min_universe": 5,
         "require_above_trend": True,  # calm is not the same as rising
         "trend_ma_bars": 200,
         "rebalance": "monthly",
@@ -50,8 +50,12 @@ class LowVolatilityStrategy(Strategy):
         universe = ctx.cross_section
         if universe is None or len(universe) < int(p["min_universe"]):
             return []
+        # Calm relative to its OWN segment. A currency pair is calm compared
+        # with any equity, so pooled ranking would fill this book with FX and
+        # call it a low-volatility equity strategy.
         stats = universe.volatility(ctx.ticker, factors.as_of_of(ctx.df),
-                                    lookback_bars=p["vol_lookback_bars"])
+                                    lookback_bars=p["vol_lookback_bars"],
+                                    eligible=factors.peer_group(ctx))
         if stats is None or stats["percentile"] > float(p["top_pct"]):
             return []
 
@@ -117,7 +121,8 @@ class TurnOfMonthStrategy(Strategy):
         universe = ctx.cross_section
         if universe is not None and len(universe) >= int(p["min_universe"]):
             stats = universe.momentum(ctx.ticker, factors.as_of_of(ctx.df),
-                                      lookback_bars=p["lookback_bars"], skip_bars=21)
+                                      lookback_bars=p["lookback_bars"], skip_bars=21,
+                                      eligible=factors.peer_group(ctx))
             if stats is None or stats["percentile"] > float(p["top_pct"]):
                 return []
 
@@ -191,7 +196,8 @@ class HalloweenStrategy(Strategy):
         universe = ctx.cross_section
         if universe is not None and len(universe) >= int(p["min_universe"]):
             stats = universe.momentum(ctx.ticker, last,
-                                      lookback_bars=p["lookback_bars"], skip_bars=21)
+                                      lookback_bars=p["lookback_bars"], skip_bars=21,
+                                      eligible=factors.peer_group(ctx))
             if stats is None or stats["percentile"] > float(p["top_pct"]):
                 return []
 

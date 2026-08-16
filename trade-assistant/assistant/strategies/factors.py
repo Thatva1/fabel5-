@@ -129,6 +129,49 @@ def as_of_of(df):
         return None
 
 
+def peer_group(ctx):
+    """The tickers this instrument should actually be ranked against.
+
+    A cross-sectional rank is a comparison, and a comparison between different
+    kinds of thing tells you nothing. Pooled with five hundred US shares, the
+    strongest futures contract in a decade ranked twenty-third out of forty
+    stocks — placing in a top-twelve there needed a 183% year, which no currency
+    pair or futures contract has ever produced. The macro instruments were not
+    outperformed, they were unreachable: present in the universe, structurally
+    incapable of being selected, and easily mistaken for "tested and found
+    wanting".
+
+    So a currency pair ranks against currency pairs and a bond future against
+    bond futures. Every segment gets to produce trades on its own terms, in one
+    book, at the same time. Returns None when the universe carries no class
+    information at all, which leaves the caller ranking against everything —
+    the old behaviour, and correct for a single-segment universe.
+    """
+    universe = ctx.cross_section
+    if universe is None:
+        return None
+    from ..markets import asset_class_of
+
+    mine = asset_class_of(ctx.ticker)
+    peers = {t for t in universe.tickers if asset_class_of(t) == mine}
+    return peers or None
+
+
+def slots(group_size, top_pct, min_n=2, max_n=15):
+    """How many of a peer group to hold.
+
+    A fixed count cannot serve both ends of a mixed book: "top 12" is the top
+    2% of five hundred equities and the whole of a twelve-instrument currency
+    book. Expressed as a fraction with a floor and a ceiling, a small segment
+    still concentrates into its best few and a large one does not sprawl into
+    fifty positions.
+    """
+    if not group_size:
+        return 0
+    target = round(float(top_pct) / 100 * int(group_size))
+    return int(max(int(min_n), min(int(max_n), max(1, target))))
+
+
 def pct(value):
     """A fraction as a readable percentage string, for the reasons list."""
     return "unknown" if value is None or math.isnan(value) else f"{value * 100:+.1f}%"

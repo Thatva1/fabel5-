@@ -267,17 +267,20 @@ def test_xs_momentum_ranks_inside_the_names_it_is_willing_to_own():
     for i in range(12):
         closes[f"ROCKET{i}"] = pd.Series(
             _walk(400, 10.0, 0.02, noise=0.09, seed=50 + i), index=index)
+    # Genuinely flat, so TEST is unambiguously the leader among them. The
+    # earlier fixture gave these a small positive drift and TEST came 5th of
+    # 13 — which the assertion "rank <= 12" was too loose to notice.
     for i in range(12):
         closes[f"CALM{i}"] = pd.Series(
-            _walk(400, 50.0, 0.0002, noise=0.004, seed=80 + i), index=index)
+            _walk(400, 50.0, 0.0, noise=0.004, seed=80 + i), index=index)
     universe = CrossSection(closes)
 
-    # Ranked against everything, TEST is nowhere near the top twelve.
+    # Ranked against everything, TEST is nowhere near the top.
     assert universe.momentum("TEST", index[-1])["rank"] > 12
-    # Ranked among the calm names, it is a leader — and now tradable.
+    # Ranked among the calm names, it is THE leader — and now tradable.
     eligible = universe.calm_enough(index[-1], 60.0)
     assert "ROCKET0" not in eligible, "the rockets must fail the ceiling"
-    assert universe.momentum("TEST", index[-1], eligible=eligible)["rank"] <= 12
+    assert universe.momentum("TEST", index[-1], eligible=eligible)["rank"] == 1
 
     ctx = _ctx(strategy, calm, cross_section=universe,
                benchmark_closes=_rising_benchmark())
@@ -285,6 +288,69 @@ def test_xs_momentum_ranks_inside_the_names_it_is_willing_to_own():
     assert len(ideas) == 1, "a calm leader must be reachable at any universe width"
     assert ideas[0].meta["universe_size"] < len(closes), \
         "the reported universe is the eligible set, not the whole market"
+
+
+def test_a_currency_pair_is_ranked_against_currency_pairs():
+    """The defect this pins, measured on live data: the strongest futures
+    contract of the decade returned +47.7% over twelve months and would have
+    ranked 23rd among a sample of forty US stocks, while placing in a top-twelve
+    against five hundred of them needed +183.5%. Pooled, no currency pair or
+    futures contract can EVER be selected by a ranking strategy — they are not
+    outperformed, they are unreachable, and the result looks identical to
+    "tested and found wanting".
+
+    Each segment must be ranked against its own kind so every one of them can
+    produce trades, in one book, at the same time.
+    """
+    index = _dates(400)
+    closes = {}
+    # Equities that run away with any pooled ranking.
+    for i in range(20):
+        closes[f"EQ{i}"] = pd.Series(
+            _walk(400, 100.0, 0.004 + i * 0.0004, noise=0.02, seed=200 + i), index=index)
+    # A currency book: small moves, as currencies actually move.
+    for i, pair in enumerate(["EURUSD=X", "GBPUSD=X", "USDJPY=X", "AUDUSD=X",
+                              "USDCHF=X", "USDCAD=X"]):
+        closes[pair] = pd.Series(
+            _walk(400, 1.2, 0.00005 * (6 - i), noise=0.004, seed=300 + i), index=index)
+    universe = CrossSection(closes)
+    as_of = index[-1]
+
+    best_fx = "EURUSD=X"
+    pooled = universe.momentum(best_fx, as_of)
+    assert pooled["rank"] > 12, "pooled, the best currency pair cannot place"
+
+    fx_only = {t for t in universe.tickers if t.endswith("=X")}
+    scoped = universe.momentum(best_fx, as_of, eligible=fx_only)
+    assert scoped["rank"] == 1, "against its own kind it is the leader"
+    assert scoped["count"] == len(fx_only)
+
+
+def test_peer_group_scopes_by_asset_class():
+    from assistant.strategies.base import StrategyContext
+
+    class FakeUniverse:
+        tickers = ["AAPL", "MSFT", "EURUSD=X", "GBPUSD=X", "ZN=F", "TLT"]
+
+    ctx = StrategyContext(ticker="EURUSD=X", df=None, snapshot={}, regime={},
+                          cross_section=FakeUniverse())
+    assert factors.peer_group(ctx) == {"EURUSD=X", "GBPUSD=X"}
+
+    ctx.ticker = "AAPL"
+    assert factors.peer_group(ctx) == {"AAPL", "MSFT"}
+
+    ctx.ticker = "ZN=F"
+    assert factors.peer_group(ctx) == {"ZN=F"}, "rate futures rank among rate futures"
+
+
+def test_slots_scale_with_the_segment_they_rank_in():
+    """A fixed count cannot serve both ends of a mixed book: "top 12" is the
+    top 2% of five hundred equities and the whole of a twelve-instrument
+    currency book."""
+    assert factors.slots(500, 3.0, 2, 15) == 15      # capped, not 50
+    assert factors.slots(8, 3.0, 2, 15) == 2         # floored, not 0
+    assert factors.slots(100, 3.0, 2, 15) == 3
+    assert factors.slots(0, 3.0) == 0
 
 
 def test_xs_momentum_skips_a_leader_whose_own_volatility_has_exploded():

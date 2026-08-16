@@ -113,7 +113,7 @@ class DualMomentumStrategy(Strategy):
         "skip_bars": 21,
         "top_pct": 10.0,             # relative leg: top decile of the universe
         "min_absolute_return_pct": 0.0,   # absolute leg: up over its own year
-        "min_universe": 20,
+        "min_universe": 5,
         "rebalance": "monthly",
         "vol_lookback_bars": 60,
         "max_vol_pct": 60.0,
@@ -136,6 +136,10 @@ class DualMomentumStrategy(Strategy):
 
         eligible = universe.calm_enough(as_of, p["max_vol_pct"],
                                         lookback_bars=p["vol_lookback_bars"])
+        # Its own segment, not the pooled universe — see factors.peer_group.
+        peers = factors.peer_group(ctx)
+        if peers is not None:
+            eligible = peers if eligible is None else (eligible & peers)
         if eligible is not None and len(eligible) < int(p["min_universe"]):
             return []
         stats = universe.momentum(ctx.ticker, as_of, lookback_bars=p["lookback_bars"],
@@ -181,7 +185,7 @@ class FiftyTwoWeekHighStrategy(Strategy):
     defaults = {
         "lookback_bars": 252,
         "min_nearness_pct": 95.0,    # within 5% of the yearly high
-        "min_universe": 20,
+        "min_universe": 5,
         "top_n": 15,
         "rebalance": "monthly",
         "vol_lookback_bars": 60,

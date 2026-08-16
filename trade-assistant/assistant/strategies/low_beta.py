@@ -98,7 +98,8 @@ class LowBetaStrategy(Strategy):
         rank = None
         if ctx.cross_section is not None and len(ctx.cross_section) >= 2:
             rank = ctx.cross_section.volatility(ctx.ticker, as_of,
-                                                lookback_bars=p["vol_lookback_bars"])
+                                                lookback_bars=p["vol_lookback_bars"],
+                                                eligible=factors.peer_group(ctx))
         if rank is not None:
             if rank["percentile"] > float(p["max_vol_rank_pct"]):
                 return []

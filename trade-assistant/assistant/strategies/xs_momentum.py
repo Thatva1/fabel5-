@@ -50,8 +50,15 @@ class CrossSectionalMomentumStrategy(Strategy):
         # The 12-1 signal. 252 bars is a trading year, 21 bars a trading month.
         "lookback_bars": 252,
         "skip_bars": 21,
-        "top_n": 12,                  # hold the top 10-15; 12 is the middle
-        "min_universe": 10,           # a "top 12 of 14" is not a cross-section
+        # Held as a FRACTION of the peer group, floored and capped. A fixed
+        # count cannot serve both a five-hundred-name equity segment and a
+        # twelve-instrument currency book at once.
+        "top_pct": 3.0,
+        "min_top_n": 2,
+        "max_top_n": 15,
+        # Low enough that a currency or rates segment qualifies. Ranking within
+        # a segment means the group is small by design, not by accident.
+        "min_universe": 5,
         "rebalance": "monthly",
         # The anti-crash overlay. Switching this off gets you the raw 1993 rule
         # and its 2009-style drawdowns; it is on by default for that reason.
@@ -90,13 +97,22 @@ class CrossSectionalMomentumStrategy(Strategy):
         # nothing at all. Rank inside the set you are willing to own.
         eligible = universe.calm_enough(as_of, p["max_vol_pct"],
                                         lookback_bars=p["vol_lookback_bars"])
+        # Ranked against its OWN segment. Pooled with equities, no currency pair
+        # or futures contract can ever place — see factors.peer_group.
+        peers = factors.peer_group(ctx)
+        if peers is not None:
+            eligible = peers if eligible is None else (eligible & peers)
         if eligible is not None and len(eligible) < int(p["min_universe"]):
             return []
         stats = universe.momentum(ctx.ticker, as_of,
                                   lookback_bars=p["lookback_bars"],
                                   skip_bars=p["skip_bars"],
                                   eligible=eligible)
-        if stats is None or stats["rank"] > int(p["top_n"]):
+        if stats is None:
+            return []
+        top_n = factors.slots(stats["count"], p["top_pct"],
+                              p["min_top_n"], p["max_top_n"])
+        if stats["rank"] > top_n:
             return []
 
         reasons = list(ctx.regime.get("reasons", []))
@@ -104,12 +120,12 @@ class CrossSectionalMomentumStrategy(Strategy):
         reasons.append(
             f"Ranked {stats['rank']} of {stats['count']} on {months:.0f}-month "
             f"momentum skipping the last month ({factors.pct(stats['value'])}) "
-            f"— inside the top {int(p['top_n'])}")
+            f"— inside the top {top_n}")
         reasons.append(
-            f"That ranking is against the {stats['count']} names calm enough to "
-            f"own (under {p['max_vol_pct']:.0f}% annualised), not the whole "
-            "market: the outright strongest names over a year are up several "
-            "hundred percent and far too wild to carry")
+            f"Ranked against the {stats['count']} instruments in its own segment "
+            "that are calm enough to own — a currency pair is compared with "
+            "currency pairs, not with five hundred shares, because pooled with "
+            "those it could never place however well it had actually done")
         reasons.append(
             f"The most recent {int(p['skip_bars'])} sessions are excluded from the "
             "signal on purpose: short-horizon moves tend to reverse, and including "
@@ -138,10 +154,11 @@ class CrossSectionalMomentumStrategy(Strategy):
         idea = self.build(
             ctx, LONG, entry=price, stop=stop, target=target, reasons=reasons,
             headline=(f"Momentum leader — rank {stats['rank']} of {stats['count']} "
-                      f"on the {months:.0f}-1 signal, held to next month's rebalance"),
+                      f"in its segment on the {months:.0f}-1 signal"),
             meta={
                 "momentum_rank": stats["rank"],
                 "universe_size": stats["count"],
+                "slots": top_n,
                 "momentum_percentile": stats["percentile"],
                 "momentum_return_pct": round(stats["value"] * 100, 2),
                 "realized_vol_pct": vol,

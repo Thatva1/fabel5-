@@ -54,6 +54,12 @@ DEFAULTS = {
     # rate limit before reaching the exchanges that matter. Excluding them more
     # than halves the work and removes nothing anyone would have held.
     "exclude_exchanges": ["OOTC"],
+    # FX and futures trade alongside the shares in the same book. They bypass
+    # the liquidity screen because its tests are written for equities and would
+    # reject every one of them for failing a question that does not apply.
+    "include_macro": True,
+    "include_fx": True,
+    "include_futures": True,
     # Leveraged and inverse funds price as a MULTIPLE of something else, so a
     # momentum ranking that buys them is taking leverage the risk gate never
     # sees: a 15% position in a 3x fund is a 45% position in the thing it
@@ -113,6 +119,25 @@ def _is_derivative_fund(row, cfg):
 
 def settings(config):
     return {**DEFAULTS, **((config or {}).get("paper", {}) or {}).get("screen", {})}
+
+
+def macro_symbols(config):
+    """FX pairs and futures to trade alongside the shares.
+
+    These are appended AFTER the liquidity screen rather than run through it. A
+    currency pair has no share price and no daily dollar volume in any
+    comparable sense, and a futures symbol is a rolled front-month series rather
+    than a security, so the screen's tests are meaningless for both — and
+    applying them anyway would silently drop every macro instrument on the
+    grounds that it failed a test written for equities.
+    """
+    from ..markets import symbols as macro_catalogue
+
+    cfg = settings(config)
+    if not cfg.get("include_macro", True):
+        return []
+    return [s for s in macro_catalogue(include_fx=cfg.get("include_fx", True),
+                                       include_futures=cfg.get("include_futures", True))]
 
 
 def candidate_symbols(config, router):
@@ -329,7 +354,12 @@ def tradable_universe(config, router, force_refresh=False, progress_cb=None):
     if not force_refresh:
         cached = load_cached()
         if cached:
-            return cached["symbols"], cached["report"], True
+            # Macro instruments are cheap to re-derive and must survive a cache
+            # written before they existed, so they are topped up on read.
+            cached_symbols = list(cached["symbols"])
+            known = set(cached_symbols)
+            cached_symbols += [s for s in macro_symbols(config) if s not in known]
+            return cached_symbols, cached["report"], True
 
     symbols, report = apply(candidate_symbols(config, router), config,
                             progress_cb=progress_cb)
@@ -341,6 +371,10 @@ def tradable_universe(config, router, force_refresh=False, progress_cb=None):
             "the previous universe (if any) is still in place. Re-run when the "
             "rate limit has reset.")
 
+    macro = [s for s in macro_symbols(config) if s not in set(symbols)]
+    if macro:
+        symbols = list(symbols) + macro
+        report["macro_added"] = len(macro)
     save_cached(symbols, report)
     return symbols, report, False
 

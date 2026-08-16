@@ -127,6 +127,49 @@ def macro_universe():
     return list(FX_PAIRS) + list(FUTURES) + list(MACRO_ETFS)
 
 
+# Instruments that are the SAME BET wearing different tickers. Spot sterling and
+# the sterling future track one exchange rate; SPY and the E-mini track one
+# index. Holding both is one position with two tickets and twice the size.
+#
+# This exists because measured correlation cannot be relied on to notice. SPY
+# against ES=F measures 0.98 and is caught; GBPUSD=X against 6B=F measures 0.12
+# and is not — yfinance's FX bars close on a different boundary from CME
+# settlement, so the two return series are computed over offset windows and
+# decorrelate even though the underlying is identical. A correlation cap fed
+# that number concludes the two are unrelated and lets both through.
+#
+# Identity is not a statistic. Where two instruments are the same exposure by
+# construction, say so and stop measuring.
+EXPOSURE_GROUPS = {
+    "EURUSD=X": "EUR", "6E=F": "EUR",
+    "GBPUSD=X": "GBP", "6B=F": "GBP",
+    "USDJPY=X": "JPY", "6J=F": "JPY",
+    "AUDUSD=X": "AUD", "6A=F": "AUD",
+    "SPY": "SP500", "ES=F": "SP500", "VOO": "SP500", "IVV": "SP500",
+    "QQQ": "NDX", "NQ=F": "NDX",
+    "IWM": "RUSSELL", "RTY=F": "RUSSELL",
+    "DIA": "DOW", "YM=F": "DOW",
+    "GLD": "GOLD", "IAU": "GOLD", "GC=F": "GOLD",
+    "SLV": "SILVER", "SI=F": "SILVER",
+    "USO": "CRUDE", "CL=F": "CRUDE",
+    "UNG": "NATGAS", "NG=F": "NATGAS",
+    "TLT": "USRATES_LONG", "ZB=F": "USRATES_LONG", "VGLT": "USRATES_LONG",
+    "IEF": "USRATES_MID", "ZN=F": "USRATES_MID", "VGIT": "USRATES_MID",
+    "SHY": "USRATES_SHORT", "ZT=F": "USRATES_SHORT", "ZF=F": "USRATES_SHORT",
+    "AGG": "USAGG", "BND": "USAGG",
+    "HYG": "USHY", "JNK": "USHY",
+}
+
+
+def exposure_group(ticker):
+    """What this instrument is a bet ON, or None when it is only itself.
+
+    Two instruments sharing a group are one position however differently they
+    are priced, quoted or settled.
+    """
+    return EXPOSURE_GROUPS.get(str(ticker).upper())
+
+
 def is_fx(ticker):
     return str(ticker).upper().endswith("=X")
 

@@ -95,8 +95,24 @@ def _per_share_economics(ticker, idea, trade, entry_price, costs, config):
 
 
 def _market_of(ticker):
+    """The bucket `max_positions_per_market` counts against.
+
+    This used to be geography, derived from the ticker suffix. In a US-only
+    book that answer is "US" for everything — a euro pair, a ten-year note
+    future and Apple all landed in one bucket, so the per-market cap limited
+    the WHOLE book instead of spreading it, and the big study recorded 8,371
+    candidates rejected by a rule that was supposed to be diversifying it.
+
+    Asset class is the axis that actually carries diversification here: rates
+    and shares do not fall together the way two US shares do. Geography still
+    comes through the suffix for non-US listings, which keeps the original
+    meaning wherever it was ever doing work.
+    """
     name = str(ticker or "").upper()
-    return "US" if "." not in name else "." + name.rsplit(".", 1)[-1]
+    if "." in name and not name.endswith("=X") and not name.endswith("=F"):
+        return "." + name.rsplit(".", 1)[-1]
+    from ..markets import asset_class_of
+    return asset_class_of(name)
 
 
 def resolve_entry(direction, planned_entry, bar, timing):

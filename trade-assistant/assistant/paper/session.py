@@ -250,13 +250,61 @@ def _rank_candidates(ideas, config):
 
     winners = [idea for _, idea in best_per_ticker.values()]
     winners.sort(key=lambda i: -(i.reward_risk or 0))
-    return winners
+    return _interleave_segments(winners)
+
+
+def _already_exposed(book, ticker):
+    """True when the book already holds the same underlying under another name.
+
+    Identity, not statistics. Where two instruments are the same exposure by
+    construction — spot sterling and the sterling future, SPY and the E-mini —
+    no amount of measuring should be needed to notice, and in the FX case
+    measuring actively misleads.
+    """
+    from ..markets import exposure_group
+
+    group = exposure_group(ticker)
+    if group is None:
+        return False
+    return any(exposure_group(p["ticker"]) == group for p in book.positions)
+
+
+def _interleave_segments(ideas):
+    """Offer the slots to each asset class in turn, best of each first.
+
+    Reward:risk is 3.0, 3.0 and 2.5 by construction here — every strategy
+    targets a fixed multiple of its own stop — so sorting on it decides almost
+    nothing and the real tie-break is the order instruments arrive. That order
+    is the universe list, which puts 1,482 shares ahead of 46 macro
+    instruments, and with twelve slots the currencies and futures were never
+    reached: a session produced 1,711 candidates across every segment and
+    opened nine US equities.
+
+    Round-robin fixes the arrival bias without inventing a quality score the
+    signals cannot support. Each segment presents its best candidate, then its
+    second, and so on. A segment with nothing to offer simply drops out, so
+    this never forces a trade to fill a quota — it only stops one segment
+    taking every slot because it happened to be listed first.
+    """
+    from ..markets import asset_class_of
+
+    buckets = {}
+    for idea in ideas:
+        buckets.setdefault(asset_class_of(idea.ticker), []).append(idea)
+    order = sorted(buckets, key=lambda k: -(buckets[k][0].reward_risk or 0))
+
+    out = []
+    while any(buckets[k] for k in order):
+        for key in order:
+            if buckets[key]:
+                out.append(buckets[key].pop(0))
+    return out
 
 
 def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
     """Take the best candidates that fit inside the portfolio limits."""
     skipped = {"exposure": 0, "max_positions": 0, "correlation": 0,
-               "size_too_small": 0, "cash": 0}
+               "duplicate_exposure": 0, "size_too_small": 0, "cash": 0}
     returns = {t: df["Close"].pct_change().dropna() for t, df in frames.items()}
     for series in returns.values():
         series.index = [str(d)[:10] for d in series.index]
@@ -270,6 +318,15 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
         exposure_cap = equity * float(limits["max_gross_exposure_pct"]) / 100
         if book.market_value() >= exposure_cap:
             skipped["exposure"] += 1
+            continue
+
+        # Duplicate exposure, checked BEFORE correlation. Some instruments are
+        # the same bet by construction and cannot be relied on to look like it:
+        # spot sterling against the sterling future measures 0.12 correlation
+        # because the two series close on different boundaries, so the cap below
+        # waves both through and the book doubles its position without knowing.
+        if _already_exposed(book, idea.ticker):
+            skipped["duplicate_exposure"] += 1
             continue
 
         # The same correlation cap the portfolio simulator applies. Six mega-cap

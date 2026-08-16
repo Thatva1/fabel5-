@@ -112,9 +112,16 @@ class CrossSection:
         row = row.dropna()
         return {str(t) for t, value in row.items() if float(value) <= float(max_vol_pct)}
 
-    def volatility(self, ticker, as_of, lookback_bars=60):
-        """Rank by annualised realised volatility. Rank 1 is the CALMEST name."""
-        return self._lookup(("volatility", int(lookback_bars)), ticker, as_of)
+    def volatility(self, ticker, as_of, lookback_bars=60, eligible=None):
+        """Rank by annualised realised volatility. Rank 1 is the CALMEST name.
+
+        `eligible` scopes the ranking the same way it does for momentum, and it
+        matters more here: a currency pair is calmer than almost any share, so
+        a pooled volatility ranking hands every low-volatility slot to FX and
+        rates regardless of how those instruments are actually behaving.
+        """
+        return self._lookup(("volatility", int(lookback_bars)), ticker, as_of,
+                            eligible=eligible)
 
     # -- machinery ---------------------------------------------------------
 

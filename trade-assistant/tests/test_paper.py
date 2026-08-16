@@ -467,6 +467,86 @@ def test_candidate_ranking_mirrors_the_backtest_in_both_stages():
     assert ranked[0].ticker == "BBB", "reward:risk decides ACROSS tickers"
 
 
+def test_the_same_underlying_is_not_bought_twice_under_two_tickers(book_path):
+    """Measured on live data: SPY against ES=F correlates 0.98 and the
+    correlation cap catches it, but GBPUSD=X against 6B=F measures 0.12 — the
+    FX bars close on a different boundary from CME settlement, so the returns
+    are computed over offset windows and decorrelate despite tracking one
+    exchange rate. A live session opened both and doubled its sterling bet.
+
+    Identity is not a statistic. Where two instruments are the same exposure by
+    construction, that is asserted rather than measured.
+    """
+    book = _started(book_path)
+    book.open_position(ticker="GBPUSD=X", direction="long", shares=15031,
+                       price=1.35, stop=1.32, target=1.44, strategy="ts_momentum",
+                       regime="TRENDING_UP", date="2026-01-05")
+
+    assert session._already_exposed(book, "6B=F"), "the sterling future is the same bet"
+    assert not session._already_exposed(book, "EURUSD=X"), "the euro is a different bet"
+    assert not session._already_exposed(book, "AAPL")
+
+
+def test_exposure_groups_pair_each_spot_with_its_future():
+    from assistant.markets import exposure_group
+
+    for spot, future in (("GBPUSD=X", "6B=F"), ("EURUSD=X", "6E=F"),
+                         ("SPY", "ES=F"), ("GLD", "GC=F"), ("TLT", "ZB=F")):
+        assert exposure_group(spot) is not None, f"{spot} must be grouped"
+        assert exposure_group(spot) == exposure_group(future), \
+            f"{spot} and {future} are one exposure"
+    assert exposure_group("AAPL") is None, "an ordinary share is only itself"
+
+
+def test_every_segment_is_offered_slots_not_just_the_first_listed():
+    """The defect this pins, from a live session: 1,711 candidates across
+    equities, FX and futures produced a book of nine US equities. Reward:risk
+    is a constant here, so the real tie-break is arrival order, and the
+    universe lists 1,482 shares ahead of 46 macro instruments — the currencies
+    and futures were never reached before the twelve slots were gone.
+    """
+    class Idea:
+        def __init__(self, ticker, reward_risk=3.0):
+            self.ticker, self.reward_risk = ticker, reward_risk
+            self.strategy = "ts_momentum"
+
+    # Shares first, exactly as the universe presents them.
+    ideas = [Idea(f"EQ{i}") for i in range(20)]
+    ideas += [Idea("EURUSD=X"), Idea("GBPUSD=X"), Idea("ZN=F"), Idea("GC=F")]
+
+    ordered = session._interleave_segments(ideas)
+    from assistant.markets import asset_class_of
+    first_twelve = {asset_class_of(i.ticker) for i in ordered[:12]}
+    assert len(first_twelve) > 1, "one segment must not take every slot"
+    assert "fx" in first_twelve, "a currency pair must be reachable within the slots"
+
+
+def test_interleaving_never_invents_a_trade_to_fill_a_quota():
+    """A segment with nothing to offer drops out rather than being topped up."""
+    class Idea:
+        def __init__(self, ticker):
+            self.ticker, self.reward_risk, self.strategy = ticker, 3.0, "x"
+
+    only_equities = [Idea(f"EQ{i}") for i in range(5)]
+    ordered = session._interleave_segments(only_equities)
+    assert len(ordered) == 5
+    assert {i.ticker for i in ordered} == {f"EQ{i}" for i in range(5)}
+    assert session._interleave_segments([]) == []
+
+
+def test_the_per_market_cap_counts_asset_classes_not_one_big_bucket():
+    """Everything used to map to "US", so a cap meant to spread the book across
+    markets was instead capping the whole book — 8,371 candidates rejected by a
+    rule that was supposed to be diversifying them."""
+    from assistant.backtest.engine import _market_of
+
+    buckets = {_market_of(t) for t in ("AAPL", "EURUSD=X", "ZN=F", "GC=F", "TLT")}
+    assert len(buckets) > 1, "a share, a currency and a bond future are not one market"
+    assert _market_of("EURUSD=X") == "fx"
+    assert _market_of("ZN=F") == "rate_future"
+    assert _market_of("TSCO.L") == ".L", "geography still works for non-US listings"
+
+
 def test_the_session_breaks_ties_the_same_way_the_backtest_does():
     """The bug this pins, from the first real session. Every strategy targets a
     fixed multiple of its stop, so xs_momentum and ts_momentum both score

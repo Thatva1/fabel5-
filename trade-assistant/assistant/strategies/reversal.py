@@ -42,7 +42,7 @@ class ShortTermReversalStrategy(Strategy):
     defaults = {
         "lookback_bars": 21,          # one month
         "bottom_pct": 10.0,           # the worst decile
-        "min_universe": 20,
+        "min_universe": 5,
         "rebalance": "monthly",
         "vol_lookback_bars": 60,
         "max_vol_pct": 90.0,          # reversal LIVES in volatile names
@@ -65,6 +65,9 @@ class ShortTermReversalStrategy(Strategy):
         as_of = factors.as_of_of(ctx.df)
         eligible = universe.calm_enough(as_of, p["max_vol_pct"],
                                         lookback_bars=p["vol_lookback_bars"])
+        peers = factors.peer_group(ctx)
+        if peers is not None:
+            eligible = peers if eligible is None else (eligible & peers)
         stats = universe.momentum(ctx.ticker, as_of, lookback_bars=p["lookback_bars"],
                                   skip_bars=0, eligible=eligible)
         if stats is None:
@@ -112,7 +115,7 @@ class LongTermReversalStrategy(Strategy):
         "lookback_bars": 756,
         "skip_bars": 252,
         "bottom_pct": 10.0,
-        "min_universe": 20,
+        "min_universe": 5,
         "rebalance": "monthly",
         "vol_lookback_bars": 60,
         "max_vol_pct": 80.0,
@@ -134,6 +137,9 @@ class LongTermReversalStrategy(Strategy):
         as_of = factors.as_of_of(ctx.df)
         eligible = universe.calm_enough(as_of, p["max_vol_pct"],
                                         lookback_bars=p["vol_lookback_bars"])
+        peers = factors.peer_group(ctx)
+        if peers is not None:
+            eligible = peers if eligible is None else (eligible & peers)
         stats = universe.momentum(ctx.ticker, as_of, lookback_bars=p["lookback_bars"],
                                   skip_bars=p["skip_bars"], eligible=eligible)
         if stats is None:
