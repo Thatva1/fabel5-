@@ -635,3 +635,46 @@ def test_the_paper_package_cannot_reach_a_broker():
                 assert node.attr != "place_order", f"{path.name} calls place_order"
             elif isinstance(node, ast.Name):
                 assert node.id != "place_order", f"{path.name} calls place_order"
+
+
+def test_kelly_falls_back_rather_than_refusing_to_trade(monkeypatch):
+    """"Kelly has nothing to say about this strategy yet" and "Kelly says do
+    not bet" are different answers. Collapsing them would silently stop trading
+    every strategy the study has not yet measured out of sample."""
+    class Idea:
+        ticker, strategy, entry, stop = "AAPL", "unmeasured", 100.0, 90.0
+
+    units = session._kelly_units(Idea(), equity=1_000_000, fill=100.0,
+                                 multiplier=1.0, config={}, edges={},
+                                 max_position=150_000, room=150_000,
+                                 group_room=None)
+    assert units is None, "no edge estimate means fall back, not stand down"
+
+
+def test_kelly_sizes_from_an_out_of_sample_edge_when_one_exists():
+    class Idea:
+        ticker, strategy, entry, stop = "AAPL", "ts_momentum", 100.0, 90.0
+
+    edges = {"ts_momentum": [0.032, -0.028] * 500}
+    units = session._kelly_units(Idea(), equity=1_000_000, fill=100.0,
+                                 multiplier=1.0,
+                                 config={"kelly": {"max_position_fraction": 1.0}},
+                                 edges=edges, max_position=1_000_000,
+                                 room=1_000_000, group_room=None)
+    assert units is not None and units > 0
+
+
+def test_the_group_room_shrinks_as_an_exposure_fills_up(book_path):
+    """Spot sterling and the sterling future are one bet. Without this each
+    would be sized as if it were the only claim on that risk."""
+    book = _started(book_path, equity=1_000_000)
+    limits = {"max_position_pct": 15.0}
+    empty = session._group_room(book, "GBPUSD=X", 1_000_000, limits)
+    assert empty == pytest.approx(150_000)
+
+    book.open_position(ticker="GBPUSD=X", direction="long", shares=100_000,
+                       price=1.35, stop=1.32, target=1.44, strategy="x",
+                       regime="TRENDING_UP", date="2026-01-05")
+    after = session._group_room(book, "6B=F", 1_000_000, limits)
+    assert after < empty, "the sterling future must see less room once spot is held"
+    assert session._group_room(book, "AAPL", 1_000_000, limits) is None

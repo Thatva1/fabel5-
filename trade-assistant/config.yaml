@@ -32,7 +32,11 @@ preferred_exchanges:
    NMS, NYQ, TOR,
    JPX, HKG, SES, ASX, NSI, BSE, KSC, TAI]
 account:
-  portfolio_value: 100000
+  # Raised from 100,000. Position caps are percentages, so every limit
+  # scales with it — but a futures contract does NOT: one ES is one ES, so a
+  # ten-fold book buys ten times the contracts and the granularity problem
+  # that made small futures positions unbuyable disappears.
+  portfolio_value: 1000000
   risk_per_trade_pct: 1.0
   max_position_pct: 15.0
   max_total_exposure_pct: 60.0
@@ -219,7 +223,10 @@ paper:
 # only optimal if you know the edge exactly, which you never do — so every entry
 # here exists to close the gap between the formula and what can be estimated.
 kelly:
-  enabled: false            # off until an out-of-sample edge exists to size from
+  # ON. Sizing still comes from OUT-OF-SAMPLE returns only — the module
+  # refuses an in-sample edge outright — so a strategy with no out-of-sample
+  # estimate yet falls back to the fixed-risk sizer rather than going unsized.
+  enabled: true
   # NEVER full Kelly. Quarter gives up about a quarter of the theoretical growth
   # rate for roughly a sixteenth of the variance in outcomes; that is a good
   # trade with an estimated edge. max_fraction is a hard ceiling on this value.

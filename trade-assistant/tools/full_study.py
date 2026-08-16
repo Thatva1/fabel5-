@@ -20,7 +20,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from assistant import markets, pipeline                          # noqa: E402
-from assistant.backtest import engine, portfolio, runner         # noqa: E402
+from assistant.backtest import blend, engine, portfolio, runner  # noqa: E402
 from assistant.core.config import load_config                    # noqa: E402
 from assistant.paper import screen                               # noqa: E402
 from assistant.providers import bulk                             # noqa: E402
@@ -36,6 +36,10 @@ OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "..", "reports", f"FULL-STUDY{_SUFFIX}.json")
 CANDIDATES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "..", "reports", f"FULL-STUDY{_SUFFIX}-candidates.json")
+
+
+def _report(name):
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "reports", name)
 
 
 def log(message):
@@ -144,6 +148,7 @@ def main():
         "re-analysis no longer needs a replay")
 
     results = {}
+    streams = {}          # {strategy: (dates, periodic returns)} for correlation
 
     def simulate(label, candidates):
         if not candidates:
@@ -161,6 +166,8 @@ def main():
             "marked_to_market": sim["marked_to_market"],
             "skipped": sim["skipped"],
         }
+        if sim.get("dates") and len(sim["equity_curve"]) > 3:
+            streams[label] = (sim["dates"][1:], blend.periodic_returns(sim["equity_curve"]))
         log(f"  {label:<18} CAGR {results[label].get('cagr_pct')}%  "
             f"DD {results[label].get('max_drawdown_pct')}%  "
             f"Sharpe {results[label].get('sharpe')}  trades {len(sim['trades'])}")
@@ -213,7 +220,51 @@ def main():
         **runner.buy_and_hold(eq_only, config, calendar=calendar),
         "trades": len(eq_only)}
 
+    # --- Correlation, blend, and the out-of-sample edges Kelly sizes from ----
+    per_strategy = {k: v for k, v in streams.items()
+                    if not k.startswith("ALL_") and not k.startswith("BUY_")}
+    dates, aligned = blend.align_streams(per_strategy)
+    log(f"correlating {len(aligned)} strategies over {len(dates)} shared periods")
+
+    correlation, chosen, rejected = {}, [], {}
+    if aligned:
+        correlation = blend.correlation_matrix(aligned)
+        blend.write_matrix_csv(correlation, _report("STRATEGY-CORRELATION.csv"))
+        blend.write_heatmap_svg(correlation, _report("STRATEGY-CORRELATION.svg"))
+
+        # Edges measured on the OUT-OF-SAMPLE half only. Kelly refuses an
+        # in-sample estimate, and this is where that refusal is honoured: the
+        # blend and the sizing both see only the half the rules were not
+        # selected against.
+        oos = {}
+        for name, series in aligned.items():
+            oos_returns = [r for d, r in zip(dates, series)
+                           if split_date and d > split_date]
+            if len(oos_returns) >= 3:
+                oos[name] = oos_returns
+        oos_means = {n: sum(v) / len(v) for n, v in oos.items()}
+        chosen, rejected = blend.choose_blend(
+            oos_means, oos,
+            max_correlation=float((config.get("blend") or {}).get("max_correlation", 0.6)),
+            max_strategies=int((config.get("blend") or {}).get("max_strategies", 4)))
+        log(f"blend chosen: {chosen}")
+        for name, why in rejected.items():
+            log(f"  rejected {name}: {why}")
+
+        with open(_report("KELLY-EDGES.json"), "w") as handle:
+            json.dump({"split_date": split_date,
+                       "out_of_sample_returns": oos,
+                       "means": oos_means,
+                       "blend": chosen}, handle, indent=2)
+
+        # The blend itself, simulated as a book.
+        if chosen:
+            simulate("BLEND", [t for t in out["trades"]
+                               if t.get("strategy") in set(chosen)])
+
     payload = {
+        "correlation": correlation,
+        "blend": {"chosen": chosen, "rejected": rejected},
         "period": PERIOD,
         "instruments": len(frames),
         "equities": len([t for t in frames if not markets.is_fx(t) and not markets.is_future(t)]),

@@ -20,6 +20,7 @@ What it deliberately does NOT do: place orders. There is no broker in this
 module. Fills are modelled at the next available close with slippage, which is
 optimistic against a real market open and is stated as such in the output.
 """
+import os
 from datetime import datetime, timezone
 
 from ..backtest import engine as backtest_engine, portfolio as portfolio_limits, simulator
@@ -27,7 +28,7 @@ from .. import markets
 from ..core import fx
 from ..core.config import load_config
 from ..research import scanner
-from ..risk import sizing
+from ..risk import kelly, sizing
 from ..strategies import router as strategy_router
 from ..strategies.cross_section import CrossSection
 from . import screen
@@ -302,10 +303,77 @@ def _interleave_segments(ideas):
     return out
 
 
+def _load_kelly_edges():
+    """Out-of-sample return streams per strategy, written by the study.
+
+    Kelly needs an edge estimate and refuses an in-sample one. This file is the
+    only place a legitimate estimate comes from: the study measures each
+    strategy on the half of history it was NOT selected against and writes the
+    returns here. No file means no out-of-sample evidence yet, and sizing falls
+    back to the fixed-risk rule rather than inventing an edge.
+    """
+    import json
+    from ..core.config import PROJECT_ROOT
+
+    path = os.path.join(PROJECT_ROOT, "reports", "KELLY-EDGES.json")
+    try:
+        with open(path) as handle:
+            payload = json.load(handle)
+        return payload.get("out_of_sample_returns") or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _kelly_units(idea, *, equity, fill, multiplier, config, edges,
+                 max_position, room, group_room):
+    """Units from fractional Kelly, or None to fall back to fixed risk.
+
+    None rather than zero, deliberately: "Kelly has nothing to say about this
+    strategy yet" and "Kelly says do not bet" are different answers, and
+    collapsing them would silently stop trading every strategy the study has
+    not yet measured out of sample.
+    """
+    returns = edges.get(idea.strategy)
+    if not returns:
+        return None
+    try:
+        fraction = kelly.fraction_for(returns, config=config)
+    except kelly.EdgeNotEstimable:
+        return None
+    if fraction <= 0:
+        return 0
+    return kelly.apply_caps(fraction, equity=equity, price=fill,
+                            multiplier=multiplier,
+                            max_position_value=max_position,
+                            exposure_room=room, group_room=group_room)
+
+
+def _group_room(book, ticker, equity, limits):
+    """Headroom left in this instrument's exposure group.
+
+    Spot sterling and the sterling future are one bet; without this they would
+    each be sized as though they were the only claim on that risk.
+    """
+    from ..markets import exposure_group
+
+    group = exposure_group(ticker)
+    if group is None:
+        return None
+    cap = equity * float(limits.get("max_position_pct", 15.0)) / 100
+    used = sum(abs(p["last_price"] * float(p.get("multiplier", 1.0) or 1.0) * p["shares"])
+               for p in book.positions if exposure_group(p["ticker"]) == group)
+    return max(0.0, cap - used)
+
+
 def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
     """Take the best candidates that fit inside the portfolio limits."""
     skipped = {"exposure": 0, "max_positions": 0, "correlation": 0,
                "duplicate_exposure": 0, "size_too_small": 0, "cash": 0}
+    kelly_edges = _load_kelly_edges() if kelly.settings(config).get("enabled") else {}
+    if kelly_edges:
+        out.setdefault("notes", []).append(
+            f"Kelly sizing active for {len(kelly_edges)} strategies with an "
+            "out-of-sample edge; the rest fall back to fixed-risk sizing.")
     returns = {t: df["Close"].pct_change().dropna() for t, df in frames.items()}
     for series in returns.values():
         series.index = [str(d)[:10] for d in series.index]
@@ -357,9 +425,24 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
         room = exposure_cap - book.gross_exposure()
         # The cash cap converts to units through the notional value of one unit.
         unit_notional = fill * multiplier
-        shares = sizing.position_size_by_value(risk_budget, risk_per_share,
-                                               min(max_position, room),
-                                               unit_notional)
+        group_room = _group_room(book, idea.ticker, equity, limits)
+
+        shares = None
+        if kelly.settings(config).get("enabled"):
+            shares = _kelly_units(idea, equity=equity, fill=fill,
+                                  multiplier=multiplier, config=config,
+                                  edges=kelly_edges, max_position=max_position,
+                                  room=min(max_position, room),
+                                  group_room=group_room)
+            if shares is not None:
+                sized_by = "kelly"
+        if shares is None:
+            sized_by = "fixed_risk"
+            capped = min(max_position, room)
+            if group_room is not None:
+                capped = min(capped, group_room)
+            shares = sizing.position_size_by_value(risk_budget, risk_per_share,
+                                                   capped, unit_notional)
         # A token position is not a position. Once the exposure cap is nearly
         # full the remaining room converts to a handful of shares, and the first
         # real session opened NOK at ONE share — nine dollars inside a
@@ -387,6 +470,7 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
         out["opened"].append({"ticker": idea.ticker, "strategy": idea.strategy,
                               "shares": shares, "price": round(fill, 2),
                               "stop": idea.stop, "headline": idea.headline,
+                              "sized_by": sized_by,
                               "notional": round(value, 2),
                               "capital": round(needed - commission, 2),
                               "leverage": markets.leverage_of(idea.ticker, fill, shares)})
