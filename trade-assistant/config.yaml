@@ -218,6 +218,25 @@ paper:
     max_symbols: 1500
     liquidity_period: 3mo
 
+# --- Interactive Brokers as a DATA source ------------------------------------
+# Separate from IBKR as a broker (execution:, below). This is prices, contract
+# specifications and option chains, and it fixes three things yfinance cannot:
+#
+#   * LICENCE — yfinance forbids commercial use; an IBKR subscription is
+#     licensed to the account holder.
+#   * DELISTED NAMES — yfinance has forgotten every instrument that stopped
+#     trading. long_reversal buys multi-year losers, so it is measured against a
+#     universe with its worst outcomes deleted. IBKR keeps those contracts.
+#   * OPTIONS — the only route to a defined-risk hedge. Nothing in the current
+#     book is negatively correlated with anything else.
+#
+# Needs IB Gateway or TWS running and logged in (a paper account is enough for
+# data), with API access enabled in its settings. Ports: 7497 paper TWS,
+# 7496 live TWS, 4002 paper Gateway, 4001 live Gateway.
+#
+# WITHOUT a market-data subscription IBKR returns delayed or empty data rather
+# than an error you would notice. Run `python run.py ibkr-data-check` before
+# trusting any study run against it.
 # --- Kelly position sizing ---------------------------------------------------
 # How much of the book one position gets. Kelly maximises long-run growth and is
 # only optimal if you know the edge exactly, which you never do — so every entry
@@ -372,6 +391,23 @@ ai:
   enabled: true
   model: claude-sonnet-5
 providers:
+  # Interactive Brokers as a DATA source — separate from IBKR as a broker.
+  # Fixes three things yfinance cannot: its data is licensed for commercial
+  # use, it keeps contracts for DELISTED instruments (long_reversal buys
+  # multi-year losers, so yfinance measures it against a universe with its
+  # worst outcomes deleted), and it serves option chains — the only route to a
+  # defined-risk hedge in a book where nothing is negatively correlated.
+  #
+  # Needs IB Gateway or TWS running and logged in; a paper account is enough
+  # for data. Ports: 7497 paper TWS · 7496 live TWS · 4002 paper Gateway ·
+  # 4001 live Gateway. Without a market-data subscription IBKR returns delayed
+  # or empty data rather than an error you would notice, so run
+  # `python run.py ibkr-data-check` before trusting a study run against it.
+  ibkr:
+    enabled: false
+    host: 127.0.0.1
+    port: 7497
+    data_client_id: 991     # distinct from the broker's, so both can connect
   cache_ttl_seconds:
     prices: 600
     fundamentals: 3600

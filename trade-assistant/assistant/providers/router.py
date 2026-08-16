@@ -10,6 +10,7 @@ from .base import ProviderUnavailable, redact
 from .cache import TTLCache
 from .finnhub_provider import FinnhubProvider
 from .fred_provider import FredProvider
+from .ibkr_provider import IBKRDataProvider
 from .yfinance_provider import YFinanceProvider
 
 SECTOR_ETF = {
@@ -27,6 +28,11 @@ class DataRouter:
         self.cache = TTLCache()
         self.health = {}
         self.yf = YFinanceProvider()
+        # IBKR first for prices WHEN ENABLED. It is the licensed feed, it keeps
+        # contracts for delisted instruments, and it carries real contract
+        # specs — but it needs a running Gateway, so yfinance stays behind it as
+        # the fallback rather than being replaced.
+        self.ibkr = IBKRDataProvider(config)
         self.fred = FredProvider()
         self.finnhub = FinnhubProvider(provider_cfg.get("finnhub_max_calls_per_min", 55))
         from .global_macro import GlobalMacroProvider
@@ -82,17 +88,32 @@ class DataRouter:
 
     # ---- prices / FX / search (yfinance only in v1) ----
 
+    def price_providers(self):
+        """Price sources in preference order.
+
+        IBKR only appears when it is switched on. The ordering matters for one
+        reason above all: yfinance has forgotten every instrument that
+        delisted, so a strategy that buys multi-year losers is measured against
+        a universe with its worst outcomes deleted. IBKR keeps those contracts.
+        """
+        return ([self.ibkr, self.yf] if self.ibkr.is_available() else [self.yf])
+
     def get_prices(self, ticker, period="1y"):
         def fetch():
-            try:
-                df = self.yf.get_prices(ticker, period)
-            except ProviderUnavailable as exc:
-                self._record("yfinance", exc)
-                raise
-            self._record("yfinance")
+            df, _source = self._first(self.price_providers(), "get_prices",
+                                      ticker, period)
             return df
         return self.cache.get_or_fetch(
             self._key("prices", ticker, period), self._ttl("prices", 600), fetch)
+
+    def price_source(self):
+        """Which feed prices are actually coming from, for the report header.
+
+        A study run on yfinance and one run on IBKR are not comparable — the
+        second includes instruments the first has forgotten — so every result
+        has to carry the name of the feed that produced it.
+        """
+        return "ibkr" if self.ibkr.is_available() else "yfinance"
 
     def get_instrument_currency(self, ticker):
         return self.cache.get_or_fetch(

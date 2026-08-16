@@ -127,9 +127,47 @@ def _raw_config():
     return cfg
 
 
+def duplicate_top_level_keys(path=None):
+    """Top-level keys that appear more than once in config.yaml.
+
+    YAML resolves a duplicate silently by keeping the LAST one, so a second
+    `providers:` block does not merge with the first — it deletes it. That
+    happened here: an ibkr block added above an existing providers section
+    vanished without a word, and the only symptom was a setting reading as
+    None. Nothing in the loader could have caught it, because by the time YAML
+    hands over a dict the duplicate is already gone.
+
+    Scanned as text for exactly that reason.
+    """
+    path = path or CONFIG_PATH
+    seen, duplicates = set(), []
+    try:
+        with open(path) as handle:
+            for line in handle:
+                if not line or line[0] in " \t#\n-":
+                    continue
+                if ":" not in line:
+                    continue
+                key = line.split(":", 1)[0].strip()
+                if not key:
+                    continue
+                if key in seen:
+                    duplicates.append(key)
+                seen.add(key)
+    except OSError:
+        return []
+    return duplicates
+
+
 def load_config():
     """config.yaml overlaid with state.yaml. state.yaml wins for the keys it owns."""
     cfg = _raw_config()
+    repeated = duplicate_top_level_keys()
+    if repeated:
+        raise ValueError(
+            f"config.yaml has duplicate top-level keys: {', '.join(sorted(set(repeated)))}. "
+            "YAML keeps only the last one, so everything in the earlier block is "
+            "silently discarded. Merge them into a single section.")
     account = cfg.get("account") or {}
     missing = [k for k in REQUIRED_ACCOUNT_KEYS if k not in account]
     if missing:

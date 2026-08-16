@@ -14,6 +14,9 @@
   python run.py journal          journal stats in the terminal
   python run.py selftest         run the deterministic-math unit tests
   python run.py ibkr-check       test the IB Gateway/TWS connection (places nothing)
+  python run.py ibkr-data-check  check IBKR as a DATA source: prices, contract
+                                 specs and option chains, and say exactly which
+                                 subscription is missing if one is
 
 Research / decision-support only — nothing is ever traded automatically,
 and no output is financial advice.
@@ -269,6 +272,60 @@ def _paper(argv):
     print(f"\n{DISCLAIMER}")
 
 
+def _ibkr_data_check():
+    """Prove IBKR data works BEFORE a study is run against it.
+
+    Without a market-data subscription IBKR returns delayed or empty results
+    rather than an error, which is the failure mode that once cached 537
+    instruments as though they were the whole market. Each probe below reports
+    what it actually got.
+    """
+    from assistant.core.config import load_config
+    from assistant.providers.base import ProviderUnavailable
+    from assistant.providers.ibkr_provider import IBKRDataProvider
+
+    config = load_config()
+    cfg = (config.get("providers") or {}).get("ibkr") or {}
+    provider = IBKRDataProvider(config)
+
+    print("IBKR data source check — nothing is traded, nothing is ordered.\n")
+    print(f"  enabled : {cfg.get('enabled', False)}")
+    print(f"  endpoint: {cfg.get('host','127.0.0.1')}:{cfg.get('port', 7497)}")
+    if not cfg.get("enabled"):
+        print("\n  Switched off. Set providers.ibkr.enabled: true in config.yaml,")
+        print("  then start IB Gateway or TWS and log in (a paper account is fine).")
+        return
+
+    probes = [
+        ("daily bars, liquid equity", lambda: provider.get_prices("AAPL", "1mo")),
+        ("daily bars, futures", lambda: provider.get_prices("ES=F", "1mo")),
+        ("daily bars, FX", lambda: provider.get_prices("EURUSD=X", "1mo")),
+        ("contract spec, futures", lambda: provider.contract_spec("ES=F")),
+        ("option chain", lambda: provider.option_chain("SPY")),
+    ]
+    ok = 0
+    print()
+    for label, probe in probes:
+        try:
+            result = probe()
+            size = len(result) if hasattr(result, "__len__") else "?"
+            print(f"  OK    {label:<26} ({size} rows/keys)")
+            ok += 1
+        except ProviderUnavailable as exc:
+            print(f"  FAIL  {label:<26} {exc}")
+        except Exception as exc:
+            print(f"  FAIL  {label:<26} {type(exc).__name__}: {exc}")
+
+    print(f"\n  {ok}/{len(probes)} probes passed.")
+    if ok < len(probes):
+        print("  A failure here is usually a missing market-data subscription for")
+        print("  that instrument class, not a broken connection. Check IBKR")
+        print("  Account Management -> Market Data Subscriptions.")
+    else:
+        print("  Ready. Re-run the study with IBKR as the price source.")
+    print(f"\n{DISCLAIMER}")
+
+
 def _backtest(argv):
     """Replay the strategies over history. Places nothing, touches no journal."""
     from assistant.backtest import HONEST_LIMITATIONS, engine, report
@@ -453,6 +510,9 @@ def main():
         for idea in journal.list_ideas(20):
             print(f"#{idea['id']} {idea['ticker']} {idea['verdict']} -> "
                   f"decision={idea['decision']} outcome={idea['outcome']}")
+
+    elif cmd == "ibkr-data-check":
+        _ibkr_data_check()
 
     elif cmd == "ibkr-check":
         _ibkr_check()
