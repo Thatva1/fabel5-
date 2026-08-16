@@ -104,25 +104,44 @@ class Book:
 
     def open_position(self, *, ticker, direction, shares, price, stop, target,
                       strategy, regime, date, headline="", meta=None):
-        cost = shares * price
-        self.cash -= cost
+        """Open a position, charging the CAPITAL it consumes, not its notional.
+
+        A share is paid for in full; a futures contract is carried on margin.
+        Charging notional for a future overstates the cash it uses by ten to
+        fifty times and silently caps the book at one or two contracts, which is
+        why every futures figure this project produced before now was
+        unreadable. Multiplier and margin are recorded on the position so profit
+        and loss can run on the notional while capital runs on the margin.
+        """
+        from ..markets import capital_required, contract_multiplier, initial_margin
+
+        multiplier = contract_multiplier(ticker)
+        margin = initial_margin(ticker)
+        committed = capital_required(ticker, price, shares)
+        self.cash -= committed
         self.positions.append({
             "ticker": ticker, "direction": direction, "shares": float(shares),
             "entry_price": float(price), "entry_date": date,
             "stop": float(stop), "target": float(target),
             "strategy": strategy, "regime": regime, "headline": headline,
             "bars_held": 0, "last_price": float(price),
+            "multiplier": multiplier,
+            "margin_per_unit": margin,
+            "committed": round(committed, 2),
             "meta": dict(meta or {}),
         })
-        return cost
+        return committed
 
     def close_position(self, position, price, date, reason):
         self.positions = [p for p in self.positions if p is not position]
         shares, entry = position["shares"], position["entry_price"]
-        proceeds = shares * price
-        self.cash += proceeds
-        risk = abs(entry - position["stop"]) * shares
-        pnl = (price - entry) * shares
+        multiplier = float(position.get("multiplier", 1.0) or 1.0)
+        direction = 1.0 if position.get("direction", "long") == "long" else -1.0
+        # Profit runs on the notional; the capital committed comes back.
+        pnl = (price - entry) * multiplier * shares * direction
+        self.cash += float(position.get("committed", shares * entry)) + pnl
+        risk = abs(entry - position["stop"]) * multiplier * shares
+        proceeds = pnl
         position.update({
             "exit_price": float(price), "exit_date": date, "exit_reason": reason,
             "pnl": round(pnl, 2),
@@ -133,8 +152,30 @@ class Book:
 
     # -- valuation ---------------------------------------------------------
 
+    def position_value(self, position):
+        """What this position is worth to equity: capital in, plus profit so far."""
+        multiplier = float(position.get("multiplier", 1.0) or 1.0)
+        direction = 1.0 if position.get("direction", "long") == "long" else -1.0
+        committed = float(position.get("committed",
+                                       position["shares"] * position["entry_price"]))
+        unrealised = ((position["last_price"] - position["entry_price"])
+                      * multiplier * position["shares"] * direction)
+        return committed + unrealised
+
     def market_value(self):
-        return sum(p["shares"] * p["last_price"] for p in self.positions)
+        """Capital tied up in open positions, marked to market."""
+        return sum(self.position_value(p) for p in self.positions)
+
+    def gross_exposure(self):
+        """NOTIONAL at risk, which for a futures book is the number that matters.
+
+        A margin figure says what the positions cost to hold; this says what
+        they are exposed to. The two are the same for shares and differ by the
+        contract's leverage for futures, so an exposure cap read off the wrong
+        one is not a cap at all.
+        """
+        return sum(abs(p["last_price"] * float(p.get("multiplier", 1.0) or 1.0)
+                       * p["shares"]) for p in self.positions)
 
     def equity(self):
         return (self.cash or 0.0) + self.market_value()

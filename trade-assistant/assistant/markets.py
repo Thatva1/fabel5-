@@ -161,6 +161,85 @@ EXPOSURE_GROUPS = {
 }
 
 
+# What one futures contract is actually worth, and what it costs to carry.
+#
+# `multiplier` converts a quoted price into dollars of notional. It is not
+# cosmetic: ES quoted at 5,000 is $250,000 of index, not $5,000, so a book that
+# treats the quote as the price of one unit understates that position fiftyfold.
+# The grain contracts are quoted in CENTS per bushel on a 5,000-bushel contract,
+# which is why their multiplier is 50 rather than 5,000.
+#
+# `margin` is roughly what an exchange asks to carry one contract overnight.
+# Real margins move with volatility and differ by broker, so these are
+# order-of-magnitude figures for modelling capital use — not quotes. They are
+# in config so they can be replaced with a broker's actual numbers.
+#
+# The pair together is what makes a futures position honest here: capital
+# committed is the MARGIN, profit and loss runs on the NOTIONAL, and the ratio
+# between them is the leverage that a cash-sized model was silently discarding.
+CONTRACT_SPECS = {
+    "ES=F": {"multiplier": 50.0, "margin": 12_000.0, "unit": "S&P 500 index point"},
+    "NQ=F": {"multiplier": 20.0, "margin": 18_000.0, "unit": "Nasdaq 100 index point"},
+    "YM=F": {"multiplier": 5.0, "margin": 8_000.0, "unit": "Dow index point"},
+    "RTY=F": {"multiplier": 50.0, "margin": 8_000.0, "unit": "Russell index point"},
+    "ZN=F": {"multiplier": 1_000.0, "margin": 2_000.0, "unit": "price point"},
+    "ZB=F": {"multiplier": 1_000.0, "margin": 4_000.0, "unit": "price point"},
+    "ZF=F": {"multiplier": 1_000.0, "margin": 1_200.0, "unit": "price point"},
+    "ZT=F": {"multiplier": 2_000.0, "margin": 800.0, "unit": "price point"},
+    "CL=F": {"multiplier": 1_000.0, "margin": 6_000.0, "unit": "barrel"},
+    "GC=F": {"multiplier": 100.0, "margin": 11_000.0, "unit": "troy ounce"},
+    "SI=F": {"multiplier": 5_000.0, "margin": 16_000.0, "unit": "troy ounce"},
+    "NG=F": {"multiplier": 10_000.0, "margin": 3_500.0, "unit": "MMBtu"},
+    "HG=F": {"multiplier": 25_000.0, "margin": 5_500.0, "unit": "pound"},
+    # Grains quote in cents per bushel: 5,000 bushels / 100 cents = 50.
+    "ZC=F": {"multiplier": 50.0, "margin": 2_000.0, "unit": "cent per bushel"},
+    "ZS=F": {"multiplier": 50.0, "margin": 3_500.0, "unit": "cent per bushel"},
+    "ZW=F": {"multiplier": 50.0, "margin": 2_500.0, "unit": "cent per bushel"},
+    "6E=F": {"multiplier": 125_000.0, "margin": 3_000.0, "unit": "EUR"},
+    "6J=F": {"multiplier": 12_500_000.0, "margin": 3_500.0, "unit": "JPY"},
+    "6B=F": {"multiplier": 62_500.0, "margin": 2_000.0, "unit": "GBP"},
+    "6A=F": {"multiplier": 100_000.0, "margin": 1_700.0, "unit": "AUD"},
+}
+
+
+def contract_multiplier(ticker):
+    """Dollars of notional per point of quoted price. 1.0 for anything cash."""
+    spec = CONTRACT_SPECS.get(str(ticker).upper())
+    return float(spec["multiplier"]) if spec else 1.0
+
+
+def initial_margin(ticker):
+    """Capital to carry one contract, or None for a cash instrument.
+
+    None means "pay for it in full", which is the correct answer for a share
+    and the wrong one for a future — that conflation is exactly what made every
+    previous futures number unreadable.
+    """
+    spec = CONTRACT_SPECS.get(str(ticker).upper())
+    return float(spec["margin"]) if spec else None
+
+
+def notional(ticker, price, quantity=1):
+    """What a position is really exposed to, in dollars."""
+    return float(price) * contract_multiplier(ticker) * float(quantity)
+
+
+def capital_required(ticker, price, quantity=1):
+    """Cash consumed to open. Margin for a future, full price for a share."""
+    margin = initial_margin(ticker)
+    if margin is None:
+        return float(price) * float(quantity)
+    return margin * float(quantity)
+
+
+def leverage_of(ticker, price, quantity=1):
+    """Notional divided by capital committed. 1.0 for a fully-paid share."""
+    capital = capital_required(ticker, price, quantity)
+    if capital <= 0:
+        return None
+    return round(notional(ticker, price, quantity) / capital, 2)
+
+
 def exposure_group(ticker):
     """What this instrument is a bet ON, or None when it is only itself.
 

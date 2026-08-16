@@ -23,6 +23,7 @@ optimistic against a real market open and is stated as such in the output.
 from datetime import datetime, timezone
 
 from ..backtest import engine as backtest_engine, portfolio as portfolio_limits, simulator
+from .. import markets
 from ..core import fx
 from ..core.config import load_config
 from ..research import scanner
@@ -315,8 +316,12 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
             skipped["max_positions"] += 1
             continue
 
+        # Capped on NOTIONAL, not on capital committed. For shares the two are
+        # identical; for a futures contract they differ by its leverage, and a
+        # cap read off the margin would let a book carry ten times the exposure
+        # it thinks it has.
         exposure_cap = equity * float(limits["max_gross_exposure_pct"]) / 100
-        if book.market_value() >= exposure_cap:
+        if book.gross_exposure() >= exposure_cap:
             skipped["exposure"] += 1
             continue
 
@@ -339,28 +344,37 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
 
         risk_budget = equity * float(limits["risk_per_trade_pct"]) / 100
         max_position = equity * float(limits["max_position_pct"]) / 100
-        risk_per_share = abs(idea.entry - idea.stop)
+        # Risk per UNIT is a price move times the contract multiplier. Without
+        # the multiplier a ten-year note future looks like it risks a fraction
+        # of a dollar per contract and the sizer buys thousands of them.
+        multiplier = markets.contract_multiplier(idea.ticker)
+        risk_per_share = abs(idea.entry - idea.stop) * multiplier
         if risk_per_share <= 0:
             skipped["size_too_small"] += 1
             continue
 
         fill = _slipped(idea.entry, idea.direction, cfg["slippage_bps"], opening=True)
-        room = exposure_cap - book.market_value()
+        room = exposure_cap - book.gross_exposure()
+        # The cash cap converts to units through the notional value of one unit.
+        unit_notional = fill * multiplier
         shares = sizing.position_size_by_value(risk_budget, risk_per_share,
-                                               min(max_position, room), fill)
+                                               min(max_position, room),
+                                               unit_notional)
         # A token position is not a position. Once the exposure cap is nearly
         # full the remaining room converts to a handful of shares, and the first
         # real session opened NOK at ONE share — nine dollars inside a
         # hundred-and-thirty-five-thousand-dollar book. It cannot move the
         # result, its commission is a pure loss, and it occupies a slot a real
         # position could have used.
-        value = shares * fill
+        value = shares * unit_notional
         if shares < 1 or value < equity * float(cfg["min_position_pct"]) / 100:
             skipped["size_too_small"] += 1
             continue
         cost = simulator.cost_config_for(idea.ticker, config)
         commission = cost.get("commission_per_trade", 0.0)
-        if shares * fill + commission > (book.cash or 0):
+        # Cash needed is the CAPITAL, which is margin for a future.
+        needed = markets.capital_required(idea.ticker, fill, shares) + commission
+        if needed > (book.cash or 0):
             skipped["cash"] += 1
             continue
 
@@ -372,7 +386,10 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
         book.cash -= commission
         out["opened"].append({"ticker": idea.ticker, "strategy": idea.strategy,
                               "shares": shares, "price": round(fill, 2),
-                              "stop": idea.stop, "headline": idea.headline})
+                              "stop": idea.stop, "headline": idea.headline,
+                              "notional": round(value, 2),
+                              "capital": round(needed - commission, 2),
+                              "leverage": markets.leverage_of(idea.ticker, fill, shares)})
     out["skipped"] = skipped
 
 

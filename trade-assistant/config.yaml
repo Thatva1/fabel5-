@@ -214,6 +214,38 @@ paper:
     max_symbols: 1500
     liquidity_period: 3mo
 
+# --- Kelly position sizing ---------------------------------------------------
+# How much of the book one position gets. Kelly maximises long-run growth and is
+# only optimal if you know the edge exactly, which you never do — so every entry
+# here exists to close the gap between the formula and what can be estimated.
+kelly:
+  enabled: false            # off until an out-of-sample edge exists to size from
+  # NEVER full Kelly. Quarter gives up about a quarter of the theoretical growth
+  # rate for roughly a sixteenth of the variance in outcomes; that is a good
+  # trade with an estimated edge. max_fraction is a hard ceiling on this value.
+  fraction: 0.25
+  max_fraction: 0.5
+  # "lcb" sizes from a lower-confidence bound on the mean rather than the mean:
+  # bet the edge you can nearly prove, not the one you measured. Kelly is linear
+  # in the edge and the damage from overestimating it is quadratic.
+  shrinkage: lcb
+  confidence_z: 1.0
+  # Below this many out-of-sample observations, an edge estimate is noise with a
+  # number attached and sizing is refused rather than rounded to zero.
+  min_observations: 30
+  # Absolute ceiling on any one position, whatever Kelly says. The caps sit
+  # ABOVE Kelly, not beside it.
+  max_position_fraction: 0.15
+
+# --- Blending ----------------------------------------------------------------
+# Equal-weighting everything is an average, not diversification: running all
+# twelve strategies together returned less than four of them individually and
+# produced the deepest drawdown in the study. A blend selects on two axes —
+# positive out-of-sample edge AND low correlation to what is already held.
+blend:
+  max_correlation: 0.6      # a second copy of the best strategy adds risk, not return
+  max_strategies: 4
+
 # --- Backtesting -------------------------------------------------------------
 # Replays the strategies over history so you can see whether a rule set has an
 # edge without waiting months. Assumptions are deliberately pessimistic: a
