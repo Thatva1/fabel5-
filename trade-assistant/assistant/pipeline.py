@@ -304,5 +304,82 @@ def run_scan(config=None, analyze_flagged=True, progress_cb=None, should_cancel=
                               "strategy_idea": idea_dict})
         report(index + 1, ticker, "done")
 
-    return {"watchlist": watchlist_results, "ideas": ideas,
-            "cancelled": cancelled, "scanned": len(watchlist_results), "total": total}
+    result = {"watchlist": watchlist_results, "ideas": ideas,
+              "cancelled": cancelled, "scanned": len(watchlist_results),
+              "total": total,
+              "finished_at": __import__("datetime").datetime.now(
+                  __import__("datetime").timezone.utc).isoformat(timespec="seconds")}
+    if not cancelled:
+        save_scan_snapshot(result)
+    return result
+
+
+SCAN_SNAPSHOT_PATH = None      # resolved lazily so tests can redirect DATA_DIR
+
+
+def _snapshot_path():
+    import os
+
+    from .core.config import DATA_DIR
+    return SCAN_SNAPSHOT_PATH or os.path.join(DATA_DIR, "last_scan.json")
+
+
+def save_scan_snapshot(result, path=None):
+    """Persist the scan so any process can show it.
+
+    A scan run from the dashboard button lived in the web server's memory,
+    which is a different process from the one cron runs. So a scheduled scan
+    filled the journal with ideas and left the watchlist page showing "not
+    scanned yet" for every row — the work had been done and the page that
+    exists to display it could not see it.
+
+    Ideas are dropped before writing: they are already in the journal, they are
+    the bulk of the payload, and keeping a second copy invites the two to
+    disagree about the same idea.
+    """
+    import json
+    import os
+
+    path = path or _snapshot_path()
+    payload = {k: v for k, v in result.items() if k != "ideas"}
+    payload["idea_count"] = len(result.get("ideas") or [])
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as handle:
+            json.dump(payload, handle, default=str)
+        os.replace(tmp, path)
+    except OSError:
+        pass        # a snapshot that cannot be written must not fail the scan
+    return path
+
+
+def load_scan_snapshot(path=None, max_age_hours=36):
+    """The most recent scan, or None when there isn't a usable one.
+
+    Age-limited: a watchlist page showing last week's prices as though they
+    were this morning's is the exact failure this project keeps having, and a
+    snapshot on disk outlives the process that made it.
+    """
+    import json
+    import os
+    from datetime import datetime, timezone
+
+    path = path or _snapshot_path()
+    try:
+        with open(path) as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError):
+        return None
+
+    finished = payload.get("finished_at")
+    if finished and max_age_hours:
+        try:
+            age_h = (datetime.now(timezone.utc)
+                     - datetime.fromisoformat(finished)).total_seconds() / 3600
+            if age_h > max_age_hours:
+                return None
+            payload["age_hours"] = round(age_h, 1)
+        except ValueError:
+            pass
+    return payload

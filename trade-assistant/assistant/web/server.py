@@ -677,6 +677,13 @@ def api_state():
         scan, scanning, error = _state["scan"], _state["scanning"], _state["error"]
         progress = dict(_state["progress"]) if _state["progress"] else None
 
+    # Fall back to the snapshot on disk. A scan started from the button lives in
+    # THIS process's memory; one started by cron runs in another process
+    # entirely, so without this a scheduled scan filled the journal and left the
+    # watchlist page reporting "not scanned yet" on every row.
+    if scan is None:
+        scan = pipeline.load_scan_snapshot()
+
     # Served so the page can stop polling when nothing can change. Prices only
     # move while a market trades; refreshing a closed book on a timer re-fetches
     # figures that are identical by definition, and does it forever.
