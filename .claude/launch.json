@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "dashboard",
-      "runtimeExecutable": "./venv/bin/python",
-      "runtimeArgs": ["trade-assistant/run.py", "serve", "5002"],
+      "runtimeExecutable": "/Users/thatvagowda/Desktop/fabel 5/venv/bin/python",
+      "runtimeArgs": ["/Users/thatvagowda/Desktop/fabel 5/trade-assistant/run.py", "serve", "5002"],
       "port": 5002
     }
   ]

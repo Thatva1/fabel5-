@@ -53,7 +53,87 @@ class IBKRDataProvider(DataProvider):
         self.enabled = bool(cfg.get("enabled", False))
 
     def is_available(self):
-        return self.enabled
+        """Is IBKR actually reachable — not merely switched on in config.
+
+        This used to return `self.enabled`, and that single line is the origin
+        of the project's worst failure mode. The flag says what the user WANTS;
+        it says nothing about whether Gateway is running. With the flag on and
+        Gateway down, `price_source()` reported "ibkr", the dashboard displayed
+        the licensed-feed badge, and every price silently came from the yfinance
+        fallback instead. The badge asserting the data is licensed is exactly
+        the badge that must never be printed on a guess.
+
+        The probe is cached because it opens a real socket, and `is_available()`
+        sits on the hot path — the router calls it once per instrument. A failed
+        probe is retried sooner than a successful one is re-verified: an outage
+        that has ended should be picked up quickly, while a working connection
+        does not need re-proving every few seconds.
+        """
+        if not self.enabled:
+            return False
+        return self.probe()["reachable"]
+
+    # Cached across instances: the router builds a new provider per request, and
+    # a per-instance cache would probe on every one of them.
+    _probe_cache = {}
+    PROBE_TTL_OK = 60.0
+    PROBE_TTL_FAIL = 15.0
+
+    def probe(self, force=False):
+        """Open a real connection and report what came back.
+
+        Returns a dict rather than a bool so the dashboard can show WHY the feed
+        is down. "Gateway is not running" and "logged in but no market-data
+        subscription" need completely different actions from the user, and
+        collapsing both into a red dot is how a fixable problem goes unfixed.
+        """
+        import time as _time
+
+        key = (self.host, self.port, self.client_id)
+        cached = self._probe_cache.get(key)
+        if cached and not force:
+            ttl = self.PROBE_TTL_OK if cached["reachable"] else self.PROBE_TTL_FAIL
+            if _time.monotonic() - cached["checked_monotonic"] < ttl:
+                return cached
+
+        from datetime import datetime, timezone
+        result = {"reachable": False, "error": None, "accounts": [],
+                  "server_time": None,
+                  "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                  "checked_monotonic": _time.monotonic(),
+                  "host": self.host, "port": self.port}
+        if not self.enabled:
+            result["error"] = "switched off in config (providers.ibkr.enabled)"
+            self._probe_cache[key] = result
+            return result
+
+        ib = None
+        try:
+            ib = self._connect()
+            result["reachable"] = True
+            try:
+                result["accounts"] = list(ib.managedAccounts() or [])
+                server_time = ib.reqCurrentTime()
+                result["server_time"] = (server_time.isoformat()
+                                         if hasattr(server_time, "isoformat")
+                                         else str(server_time))
+            except Exception:
+                # Connected but the detail calls failed. Still reachable — the
+                # socket is what determines whether prices can flow.
+                pass
+        except ProviderUnavailable as exc:
+            result["error"] = str(exc)
+        except Exception as exc:
+            result["error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            if ib is not None:
+                try:
+                    ib.disconnect()
+                except Exception:
+                    pass
+
+        self._probe_cache[key] = result
+        return result
 
     # -- connection --------------------------------------------------------
 
@@ -114,6 +194,18 @@ class IBKRDataProvider(DataProvider):
                 contract, endDateTime="", durationStr=self._duration(period),
                 barSizeSetting="1 day", whatToShow="TRADES", useRTH=True,
                 formatDate=1)
+            if not bars:
+                # An LSE line may exist under IB's dotted spelling. Only tried
+                # after the plain form fails, so the common path costs nothing.
+                for variant in self._symbol_variants(ticker):
+                    probe = self._contract_for(ticker)
+                    probe.symbol = variant
+                    bars = ib.reqHistoricalData(
+                        probe, endDateTime="", durationStr=self._duration(period),
+                        barSizeSetting="1 day", whatToShow="TRADES", useRTH=True,
+                        formatDate=1)
+                    if bars:
+                        break
             if not bars:
                 raise ProviderUnavailable(f"{SOURCE}: no bars for {ticker}")
             frame = pd.DataFrame([{
@@ -239,6 +331,20 @@ class IBKRDataProvider(DataProvider):
         "ESTX50": "EUREX", "DAX": "EUREX",
     }
 
+    # Yahoo names a CME currency future by its floor code ("6E"); IB names the
+    # same contract by the currency ("EUR") and only puts the floor code in the
+    # LOCAL symbol, so IB's own reply reads "6EU6". Nothing in the failure hints
+    # at this — IB returns zero contracts for "6E" exactly as it would for a
+    # symbol that does not exist, so the four most liquid FX futures in the
+    # world looked to this project like instruments the account cannot trade.
+    #
+    # This is worth separating from the FX story it was tangled up in. The
+    # account has no spot-FX (IDEALPRO) permission and genuinely cannot price
+    # EURUSD=X. It CAN trade these, and they are the same currency exposure in
+    # a different wrapper — so the gap that looked like "buy a subscription"
+    # was, for four of the twelve instruments, a typo-sized mapping bug.
+    FUTURES_SYMBOL = {"6E": "EUR", "6J": "JPY", "6B": "GBP", "6A": "AUD"}
+
     # Non-US equities need their real exchange and currency; SMART/USD silently
     # resolves a European line to a US cross-listing or to nothing at all.
     EXCHANGE_SUFFIX = {
@@ -265,13 +371,41 @@ class IBKRDataProvider(DataProvider):
             return Forex(symbol[:-2])
         if symbol.endswith("=F"):
             root = symbol[:-2]
-            return Future(symbol=root, exchange=cls.FUTURES_EXCHANGE.get(root, "CME"),
+            return Future(symbol=cls.FUTURES_SYMBOL.get(root, root),
+                          exchange=cls.FUTURES_EXCHANGE.get(root, "CME"),
                           currency="USD" if root not in ("ESTX50", "DAX") else "EUR",
                           includeExpired=False)
         for suffix, (exchange, currency) in cls.EXCHANGE_SUFFIX.items():
             if symbol.endswith(suffix):
                 return Stock(symbol[:-len(suffix)], exchange, currency)
         return Stock(symbol.replace("-", " "), "SMART", "USD")
+
+    @classmethod
+    def _symbol_variants(cls, ticker):
+        """Alternative IB symbols to try when the obvious one matches nothing.
+
+        London is the case that matters. IB writes some LSE lines with a
+        TRAILING DOT — BP plc is `BP.`, not `BP` — and a share-class letter
+        moves inside the dot, so Yahoo's `BT-A.L` is IB's `BT.A`. Stripping
+        Yahoo's `.L` therefore yields a symbol that resolves to zero contracts
+        for a large, obviously tradable company.
+
+        This was worth a general rule rather than a lookup entry. BP was found
+        by hand, but the same convention hides an unknown number of other LSE
+        names, and each one silently drops out of the tradable universe — the
+        universe quietly shrinks and nothing reports that it did.
+        """
+        symbol = str(ticker).upper()
+        if not symbol.endswith(".L"):
+            return []
+        root = symbol[:-2]
+        variants = []
+        if "-" in root:
+            # BT-A -> BT.A (class letter after the dot).
+            head, _, tail = root.partition("-")
+            variants.append(f"{head}.{tail}")
+        variants.append(f"{root}.")
+        return variants
 
     @staticmethod
     def _resolve_future(ib, contract):

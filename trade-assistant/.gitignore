@@ -13,6 +13,12 @@ data/paper_book.json
 data/paper_universe.json
 data/paper_liquidity_partial.json
 
+# What THIS account's IBKR subscriptions can price. Measured against the logged-in
+# account, so it is state rather than source: a different account has different
+# entitlements, and committing one would tell the next checkout that instruments
+# it cannot price are tradable.
+data/ibkr_coverage.json
+
 # The expensive artefact of a full study — tens of MB of raw candidates, kept so
 # re-analysis does not need another replay. Reproducible from tools/full_study.py.
 # Globbed, because each study mode writes its own file (FULL-STUDY-MACRO-...).

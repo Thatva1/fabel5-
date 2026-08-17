@@ -345,8 +345,20 @@ class DataRouter:
                     "active": state in ("active", "ready"), "note": note,
                     "last_error_at": health.get("last_error_at")}
 
+        # IBKR is reported FIRST and separately, because it is the only entry
+        # here whose state changes what the other numbers mean. The rest are
+        # either configured or not; this one can be configured, switched on, and
+        # still not carrying a single price — and when that happens every price
+        # on the dashboard came from the unlicensed fallback instead. Leaving it
+        # off this list entirely (which is what the code did) meant the feed the
+        # user pays for was the one thing the dashboard never mentioned.
+        ibkr = self._ibkr_status()
         return [
-            entry("yfinance", "prices / fundamentals / FX / search", True, ""),
+            ibkr,
+            entry("yfinance",
+                  "fallback prices / FX / search"
+                  if ibkr["active"] else "prices / fundamentals / FX / search",
+                  True, ""),
             entry("FRED", "US macro: rates, inflation, unemployment",
                   self.fred.is_available(), "add FRED_API_KEY to .env (free)"),
             entry("Finnhub", "news + earnings calendar",
@@ -354,3 +366,28 @@ class DataRouter:
             entry("global-macro", "UK (BoE) · euro area (ECB) · world (World Bank)",
                   True, ""),
         ]
+
+    def _ibkr_status(self):
+        """IBKR's real state, from an actual connection rather than the config flag."""
+        role = "LICENSED prices · contract specs · options · news"
+        if not self.ibkr.enabled:
+            return {"name": "IBKR", "role": role, "state": "off", "active": False,
+                    "note": "switched off — set providers.ibkr.enabled: true in "
+                            "config.yaml to use the licensed feed",
+                    "last_error_at": None, "primary": False}
+
+        probe = self.ibkr.probe()
+        if not probe["reachable"]:
+            return {
+                "name": "IBKR", "role": role, "state": "degraded", "active": False,
+                "note": f"enabled but NOT reachable at {probe['host']}:{probe['port']} — "
+                        f"prices are coming from yfinance, which is NOT licensed. "
+                        f"({probe['error']})",
+                "last_error_at": probe["checked_at"], "primary": False}
+
+        accounts = ", ".join(probe["accounts"]) or "no account reported"
+        return {"name": "IBKR", "role": role, "state": "active", "active": True,
+                "note": f"connected to {probe['host']}:{probe['port']} · {accounts} · "
+                        f"prices are licensed",
+                "last_error_at": None, "primary": True,
+                "accounts": probe["accounts"], "server_time": probe["server_time"]}
