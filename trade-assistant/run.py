@@ -15,6 +15,8 @@
   python run.py coverage         measure what the LICENSED feed can actually
                                  price, and name the subscription that would
                                  unlock the rest (--universe for the full screen)
+  python run.py intraday         does an edge exist on 5/15/30/60-minute bars?
+                                 (--bars 15m, --cost-bps 10, then tickers)
   python run.py journal          journal stats in the terminal
   python run.py selftest         run the deterministic-math unit tests
   python run.py ibkr-check       test the IB Gateway/TWS connection (places nothing)
@@ -277,6 +279,82 @@ def _coverage(argv):
         print(f"  [{group['bundle']}] — {group['count']} instrument(s)")
         print(f"    {', '.join(group['symbols'])}")
         print(f"    -> {group['action']}\n")
+
+
+def _intraday(argv):
+    """Test whether an edge exists at intraday horizons. Trades nothing."""
+    from assistant.core.config import load_config
+    from assistant.research import intraday
+
+    config = load_config()
+
+    # Consume flags and their VALUES together. Scanning for flags separately
+    # and then filtering leaves each flag's argument behind, so `--bars 15m`
+    # quietly added a ticker called "15m" to the universe.
+    BAR_ALIASES = {"1m": "1 min", "5m": "5 mins", "15m": "15 mins",
+                   "30m": "30 mins", "1h": "1 hour", "60m": "1 hour",
+                   "2h": "2 hours"}
+    bar_size, cost_bps, symbols = "5 mins", 10.0, []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--bars" and i + 1 < len(argv):
+            raw = argv[i + 1].lower()
+            bar_size = BAR_ALIASES.get(raw, raw)
+            i += 2
+        elif arg == "--cost-bps" and i + 1 < len(argv):
+            try:
+                cost_bps = float(argv[i + 1])
+            except ValueError:
+                print(f"--cost-bps needs a number, got {argv[i + 1]!r}")
+                return
+            i += 2
+        elif arg.startswith("--"):
+            i += 1
+        else:
+            symbols.append(arg.upper())
+            i += 1
+
+    if not symbols:
+        symbols = ["SPY", "QQQ", "AAPL", "NVDA", "MSFT", "AMZN", "META", "TSLA"]
+
+    print(f"Fetching {bar_size} bars for {len(symbols)} instruments.")
+    print("Historical bars only — nothing here is tradable on this account, "
+          "which has no live quote feed.\n")
+    try:
+        frames = intraday.fetch(
+            symbols, config, bar_size=bar_size,
+            progress_cb=lambda d, t, s: print(f"  {d}/{t} {s}", end="\r", flush=True))
+    except Exception as exc:
+        print(f"\nCould not fetch intraday data: {exc}")
+        return
+
+    got = {k: v for k, v in frames.items() if v is not None and len(v)}
+    print(f"\n\n{len(got)} of {len(symbols)} returned bars.")
+    if not got:
+        print("Nothing to evaluate.")
+        return
+    for ticker, frame in list(got.items())[:3]:
+        print(f"  {ticker}: {len(frame)} bars, {frame.index[0]} -> {frame.index[-1]}")
+
+    out = intraday.evaluate(got, cost_bps=cost_bps)
+    print(f"\n{out['sessions']} sessions across {out['instruments']} instruments, "
+          f"assuming {cost_bps} bps round-trip cost.\n")
+    print(f"{'strategy':<26}{'trades':>7}{'net/trade':>11}{'win%':>7}"
+          f"{'t':>7}{'breakeven':>11}  verdict")
+    for name, r in out["results"].items():
+        net, be = r["net"], r["breakeven_cost_bps"]
+        if not net.get("trades"):
+            print(f"{name:<26}{'—':>7}")
+            continue
+        print(f"{name:<26}{net['trades']:>7}{net['mean_pct']:>10.4f}%"
+              f"{net['win_rate_pct']:>7}{(net['t_stat'] or 0):>7.2f}"
+              f"{(be if be is not None else 0):>10.2f}b"
+              f"  {'CLEARS COSTS' if r['tradable_at_cost'] else 'below costs'}")
+
+    v = out["verdict"]
+    print(f"\n{'EDGE FOUND' if v['edge_found'] else 'NO EDGE'} — {v['message']}")
+    print(f"\n{DISCLAIMER}")
 
 
 def _paper(argv):
@@ -586,6 +664,9 @@ def main():
 
     elif cmd == "coverage":
         _coverage(args[1:])
+
+    elif cmd == "intraday":
+        _intraday(args[1:])
 
     elif cmd == "journal":
         from assistant import journal

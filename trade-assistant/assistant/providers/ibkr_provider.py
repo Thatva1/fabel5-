@@ -248,6 +248,53 @@ class IBKRDataProvider(DataProvider):
             ib.disconnect()
         return out
 
+    # IB caps how far back small bars go. Asking for more than these returns an
+    # error rather than a truncated series, so the caller has to know the limit
+    # before it asks — and the limit is what bounds any intraday study.
+    INTRADAY_MAX_DURATION = {
+        "1 min": "5 D", "5 mins": "1 M", "15 mins": "2 M",
+        "30 mins": "3 M", "1 hour": "6 M", "2 hours": "1 Y",
+    }
+
+    def intraday_history(self, ticker, bar_size="5 mins", duration=None):
+        """Intraday OHLCV for research — NOT for live trading on this account.
+
+        The distinction matters and is easy to lose. Historical intraday bars
+        are available here; a live intraday QUOTE is not, because the account
+        carries no streaming subscription and reqMktData returns NaN. So these
+        bars can answer "did an edge exist at this horizon", which is a
+        question about the past, and cannot support "trade this now", which
+        needs a price that is current to the second rather than 15 minutes old.
+
+        Research first, subscription second, is the only sane order: a feed
+        bought before the edge is demonstrated is a bet on a hypothesis nobody
+        has tested.
+        """
+        import pandas as pd
+
+        bar_size = bar_size if bar_size in self.INTRADAY_MAX_DURATION else "5 mins"
+        duration = duration or self.INTRADAY_MAX_DURATION[bar_size]
+
+        ib = self._connect()
+        try:
+            contract = self._contract_for(ticker)
+            if str(ticker).upper().endswith("=F"):
+                contract = self._resolve_future(ib, contract) or contract
+            bars = ib.reqHistoricalData(
+                contract, endDateTime="", durationStr=duration,
+                barSizeSetting=bar_size, whatToShow="TRADES", useRTH=True,
+                formatDate=1)
+            if not bars:
+                raise ProviderUnavailable(
+                    f"{SOURCE}: no {bar_size} bars for {ticker} over {duration}")
+            frame = pd.DataFrame([{
+                "Open": b.open, "High": b.high, "Low": b.low,
+                "Close": b.close, "Volume": b.volume} for b in bars],
+                index=pd.to_datetime([b.date for b in bars]))
+            return frame.dropna(subset=["Close"])
+        finally:
+            ib.disconnect()
+
     # -- prices ------------------------------------------------------------
 
     def get_prices(self, ticker, period="1y"):
