@@ -1159,6 +1159,130 @@ fetchState();
    journal, which records ideas a human decided on. Kept apart deliberately:
    mixed together you could no longer tell a good month from good judgement. */
 
+/* ---------- archived books ----------
+   A reset archives rather than deletes, so a track record cannot be quietly
+   restarted after a bad run. That guarantee only means something if the old
+   books can actually be opened — an archive nobody can read is
+   indistinguishable from a deletion. */
+
+async function toggleArchives() {
+  const host = document.getElementById("archiveRoot");
+  if (!host) return;
+  if (host.dataset.open === "1") {
+    host.dataset.open = "0";
+    host.innerHTML = "";
+    return;
+  }
+  host.dataset.open = "1";
+  host.innerHTML = '<div class="card"><div class="label">Loading archived books…</div></div>';
+  try {
+    const d = await (await fetch("/api/paper/archives")).json();
+    host.innerHTML = archivePanel(d);
+  } catch (e) {
+    host.innerHTML = '<div class="card"><b class="bad">Could not load archives.</b></div>';
+  }
+}
+
+function archivePanel(d) {
+  const money = v => (v == null ? "—" : Number(v).toLocaleString(undefined,
+    { maximumFractionDigits: 0 }));
+  const pct = v => (v == null ? "—" : (v > 0 ? "+" : "") + Number(v).toFixed(2) + "%");
+  const cls = v => (v > 0 ? "up" : v < 0 ? "down" : "");
+
+  if (!d.count) {
+    return `<div class="card">
+      <div class="label">Archived books</div>
+      <p class="meta">None yet. <code>python run.py paper --reset</code> archives the
+        current book before starting a new one — it never deletes.</p>
+    </div>`;
+  }
+
+  const rows = d.archives.map(a => a.error
+    ? `<tr><td colspan="8" class="bad">${esc(a.file)} — ${esc(a.error)}</td></tr>`
+    : `<tr style="border-bottom:1px solid rgba(128,128,128,.18)">
+        <td><b>${esc((a.archived_at || "").replace("T", " ").replace("Z", ""))}</b>
+            <div class="meta" style="font-size:11px">${esc(a.file)}</div></td>
+        <td class="meta">${esc((a.started_at || "").slice(0, 10))}</td>
+        <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${a.days ?? "—"}</td>
+        <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(a.starting_equity)}</td>
+        <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(a.equity)}</td>
+        <td class="num ${cls(a.return_pct)}" style="text-align:right;font-variant-numeric:tabular-nums">${pct(a.return_pct)}</td>
+        <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${a.open_positions ?? "—"} / ${a.closed_trades ?? "—"}</td>
+        <td><button class="btn btn-sm" onclick="openArchive('${esc(a.file)}')">Open</button></td>
+      </tr>`).join("");
+
+  return `<div class="card">
+    <div class="label">Archived books — ${d.count}</div>
+    <p class="meta" style="margin:6px 0 12px">Every reset is kept. Nothing here can be
+      overwritten by a later run, which is what makes the live book's history worth
+      anything.</p>
+    <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left;opacity:.6">
+        <th>Archived</th><th>Started</th>
+        <th class="num" style="text-align:right">Sessions</th>
+        <th class="num" style="text-align:right">Start</th>
+        <th class="num" style="text-align:right">End</th>
+        <th class="num" style="text-align:right">Return</th>
+        <th class="num" style="text-align:right">Open/Closed</th><th></th>
+      </tr></thead><tbody>${rows}</tbody></table>
+    <div id="archiveDetail"></div>
+  </div>`;
+}
+
+async function openArchive(file) {
+  const host = document.getElementById("archiveDetail");
+  if (!host) return;
+  host.innerHTML = '<div class="meta" style="margin-top:14px">Loading…</div>';
+  try {
+    const d = await (await fetch("/api/paper/archives/" + encodeURIComponent(file))).json();
+    if (d.error) { host.innerHTML = `<div class="bad">${esc(d.error)}</div>`; return; }
+    const s = d.summary || {};
+    const pos = (d.positions || []).map(p => `<tr>
+        <td><b>${esc(p.ticker)}</b></td><td>${esc(p.strategy || "")}</td>
+        <td class="num" style="text-align:right">${Number(p.shares).toLocaleString()}</td>
+        <td class="num" style="text-align:right">${Number(p.entry_price).toFixed(2)}</td>
+        <td class="num" style="text-align:right">${Number(p.last_price).toFixed(2)}</td>
+        <td class="meta">${esc(p.entry_date || "")}</td>
+        <td class="meta">${esc(p.price_source || "—")}</td>
+      </tr>`).join("") || '<tr><td colspan="7" class="meta">No open positions.</td></tr>';
+    const closed = (d.closed || []).map(c => `<tr>
+        <td><b>${esc(c.ticker)}</b></td><td>${esc(c.exit_reason || "")}</td>
+        <td class="num" style="text-align:right">${Number(c.pnl || 0).toFixed(2)}</td>
+        <td class="num" style="text-align:right">${c.r_multiple == null ? "—" : c.r_multiple + "R"}</td>
+        <td class="meta">${esc(c.entry_date || "")} → ${esc(c.exit_date || "")}</td>
+      </tr>`).join("") || '<tr><td colspan="5" class="meta">Nothing closed.</td></tr>';
+
+    host.innerHTML = `<div style="margin-top:18px;border-top:1px solid var(--line);padding-top:14px">
+      <div class="label">${esc(file)}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px;margin:12px 0">
+        <div><div class="label">Equity</div><b>${Number(s.equity || 0).toLocaleString()} ${esc(s.base_currency || "")}</b></div>
+        <div><div class="label">Return</div><b>${s.return_pct == null ? "—" : s.return_pct + "%"}</b></div>
+        <div><div class="label">Sessions</div><b>${s.days ?? "—"}</b></div>
+        <div><div class="label">Max DD</div><b>${s.max_drawdown_pct ?? "—"}%</b></div>
+        <div><div class="label">Priced by</div><b>${esc((d.price_sources || []).join(", ") || "—")}</b></div>
+      </div>
+      <div class="label" style="margin-top:10px">Open positions at archive</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;font-size:12px"><thead>
+        <tr style="text-align:left;opacity:.6"><th>Instrument</th><th>Strategy</th>
+        <th class="num" style="text-align:right">Units</th>
+        <th class="num" style="text-align:right">Entry</th>
+        <th class="num" style="text-align:right">Last</th><th>Opened</th><th>Source</th></tr>
+      </thead><tbody>${pos}</tbody></table>
+      <div class="label" style="margin-top:14px">Closed trades</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;font-size:12px"><thead>
+        <tr style="text-align:left;opacity:.6"><th>Instrument</th><th>Exit</th>
+        <th class="num" style="text-align:right">P&amp;L</th>
+        <th class="num" style="text-align:right">R</th><th>Held</th></tr>
+      </thead><tbody>${closed}</tbody></table>
+      <div class="label" style="margin-top:14px">Session log</div>
+      ${(d.sessions || []).map(x => `<div class="meta">${esc(x.date)} — ${esc(x.note || "")}</div>`).join("")
+        || '<div class="meta">No sessions.</div>'}
+    </div>`;
+  } catch (e) {
+    host.innerHTML = '<div class="bad">Could not open that archive.</div>';
+  }
+}
+
 /* ---------- live P&L ----------
    The book's own marks are daily closes and must not move when a page
    refreshes — they are the record of what the rules achieved. This panel
@@ -1348,7 +1472,9 @@ async function loadPaper() {
       <b>No paper book yet.</b>
       <p class="meta">${d.message || ''}</p>
       <button class="btn btn-primary" onclick="runPaper(true)">Start trading</button>
+      <button class="btn" onclick="toggleArchives()">Archived books</button>
     </div>
+    <div id="archiveRoot" data-open="0"></div>
     <div id="coverageRoot">${coverageCard(COV)}</div>`;
     return;
   }
@@ -1412,6 +1538,7 @@ async function loadPaper() {
         <div style="display:flex;gap:8px">
           <button class="btn" onclick="runPaper(false)">Run session</button>
           <button class="btn btn-primary" onclick="runPaper(true)">Force rebalance</button>
+          <button class="btn" onclick="toggleArchives()">Archived books</button>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:18px 26px;margin-top:18px">
@@ -1464,6 +1591,7 @@ async function loadPaper() {
       }).join('') || '<div class="meta">No sessions recorded.</div>'}
     </div>
 
+    <div id="archiveRoot" data-open="0"></div>
     <div id="coverageRoot">${coverageCard(COV)}</div>`;
 
   const badge = document.getElementById('nb-paper');

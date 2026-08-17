@@ -242,6 +242,87 @@ def api_paper_live():
     return jsonify(out)
 
 
+@app.get("/api/paper/archives")
+def api_paper_archives():
+    """Books retired by `run.py paper --reset`, newest first.
+
+    A reset archives rather than deletes precisely so a track record cannot be
+    quietly restarted after a bad run. That guarantee is only worth anything if
+    the old books are visible — an archive nobody can open is indistinguishable
+    from a deletion.
+    """
+    import glob
+    import json as jsonlib
+
+    from ..paper.book import BOOK_PATH, Book
+
+    pattern = f"{BOOK_PATH.rsplit('.json', 1)[0]}-archived-*.json"
+    out = []
+    for path in sorted(glob.glob(pattern), reverse=True):
+        try:
+            with open(path) as handle:
+                book = Book(jsonlib.load(handle))
+            summary = book.summary()
+            out.append({
+                "file": os.path.basename(path),
+                "archived_at": os.path.basename(path).split("-archived-")[-1][:-5],
+                "started_at": summary.get("started_at"),
+                "days": summary.get("days"),
+                "starting_equity": summary.get("starting_equity"),
+                "equity": summary.get("equity"),
+                "return_pct": summary.get("return_pct"),
+                "open_positions": summary.get("open_positions"),
+                "closed_trades": summary.get("closed_trades"),
+                "win_rate_pct": summary.get("win_rate_pct"),
+                "max_drawdown_pct": summary.get("max_drawdown_pct"),
+                "base_currency": summary.get("base_currency"),
+                "price_sources": book.price_sources(),
+            })
+        except Exception as exc:
+            # A corrupt archive is itself worth showing, rather than vanishing
+            # from a list whose whole purpose is that nothing vanishes.
+            out.append({"file": os.path.basename(path),
+                        "error": f"{type(exc).__name__}: {exc}"})
+    return jsonify({"archives": out, "count": len(out)})
+
+
+@app.get("/api/paper/archives/<path:filename>")
+def api_paper_archive_detail(filename):
+    """One archived book in full — positions, closed trades, session log."""
+    import json as jsonlib
+
+    from ..paper.book import BOOK_PATH, Book
+
+    # Only ever open a file matching the archive pattern inside the data
+    # directory. `filename` arrives from the URL, so joining it straight onto a
+    # path would let "../../.env" out of this endpoint.
+    if not (filename.startswith("paper_book-archived-") and filename.endswith(".json")):
+        return jsonify({"error": "not an archived book"}), 404
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return jsonify({"error": "not an archived book"}), 404
+
+    path = os.path.join(os.path.dirname(BOOK_PATH), filename)
+    if not os.path.isfile(path):
+        return jsonify({"error": f"{filename} does not exist"}), 404
+
+    try:
+        with open(path) as handle:
+            book = Book(jsonlib.load(handle))
+    except Exception as exc:
+        return jsonify({"error": f"could not read {filename}: {exc}"}), 500
+
+    return jsonify({
+        "file": filename,
+        "summary": book.summary(),
+        "price_sources": book.price_sources(),
+        "positions": book.positions,
+        "closed": book.closed[::-1],
+        "curve": book.curve,
+        "sessions": book.sessions[::-1],
+        "last_rebalance": book.last_rebalance,
+    })
+
+
 @app.get("/api/coverage")
 def api_coverage():
     """What the licensed feed can price, and what a subscription would unlock."""
