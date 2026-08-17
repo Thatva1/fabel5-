@@ -41,7 +41,7 @@ account:
   max_position_pct: 15.0
   max_total_exposure_pct: 60.0
   max_sector_exposure_pct: 25.0
-  max_open_positions: 8
+  max_open_positions: 60
   correlation_flag_threshold: 0.75
 positions:
 - ticker: MSFT
@@ -50,33 +50,105 @@ positions:
   sector: Technology
   currency: USD
 watchlist:
-- AAPL
-- MSFT
+- MU
 - NVDA
-- AMD
+- SNDK
 - TSLA
+- AAPL
+- AMD
+- MSFT
+- INTC
 - AMZN
 - GOOGL
 - META
-- JPM
-- BAC
-- V
-- XOM
-- CVX
-- UNH
+- AVGO
+- GOOG
+- SMH
+- MRVL
+- SOXX
+- PLTR
+- ORCL
+- TSM
+- AMAT
+- VOO
+- WDC
+- LITE
+- STX
+- NBIS
+- EWY
+- IVV
+- LRCX
+- DRAM
 - LLY
-- JNJ
-- WMT
-- COST
-- HD
-- MCD
-- CAT
-- BA
-- UPS
-- KO
-- PG
-- DIS
+- BE
+- QCOM
 - NFLX
+- DELL
+- GEV
+- CSCO
+- V
+- JPM
+- CAT
+- WMT
+- SPY
+- QQQ
+- IWM
+- EEM
+- EFA
+- TLT
+- BIL
+- IEF
+- SHY
+- LQD
+- HYG
+- AGG
+- EMB
+- BND
+- JNK
+- GLD
+- SLV
+- USO
+- EURUSD=X
+- GBPUSD=X
+- USDJPY=X
+- AUDUSD=X
+- USDCHF=X
+- USDCAD=X
+- NZDUSD=X
+- USDSEK=X
+- ES=F
+- NQ=F
+- YM=F
+- RTY=F
+- ZN=F
+- ZB=F
+- ZF=F
+- ZT=F
+- CL=F
+- GC=F
+- SI=F
+- NG=F
+- HG=F
+- ZC=F
+- ZS=F
+- ZW=F
+- 6E=F
+- 6J=F
+- 6B=F
+- 6A=F
+- AZN.L
+- SHEL.L
+- HSBA.L
+- ULVR.L
+- BP.L
+- RIO.L
+- GSK.L
+- DGE.L
+- BATS.L
+- GLEN.L
+- REL.L
+- LSEG.L
+
 scanner:
   volume_spike_ratio: 1.6
   rsi_overbought: 70
@@ -325,12 +397,12 @@ portfolio:
   #   60%: 4.55% / 17.5%           90%:  7.44% / 22.7%  <- best Calmar 0.33
   #   70%: 5.04% / 18.3%          100%:  7.55% / 25.8%     Calmar 0.29
   max_gross_exposure_pct: 90.0
-  max_open_positions: 30
+  max_open_positions: 60
   # 8, measured. A cap of 4 cost 0.66 points of CAGR by blocking good trades;
   # 2 was far worse (2.87%). Above 8 adds nothing. Correlation is the better
   # tool for this job anyway — it measures whether positions actually move
   # together instead of guessing from the exchange they list on.
-  max_positions_per_market: 12
+  max_positions_per_market: 25
   max_new_entries_per_day: null   # null = unlimited
   # Tested at 0.8 and it COST return (7.44% -> 6.63%) while drawdown got
   # slightly worse. Left off until there is evidence for it.

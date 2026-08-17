@@ -178,6 +178,51 @@ class IBKRDataProvider(DataProvider):
         finally:
             ib.disconnect()
 
+    # -- news --------------------------------------------------------------
+
+    def get_news(self, ticker, limit=8):
+        """Recent headlines for one instrument, from the account's providers.
+
+        Returned as CONTEXT, not as a score. A headline becomes a trading
+        signal only once something has measured that its arrival predicts a
+        return, and nothing here has done that — so this reports what was
+        published and leaves the interpreting to a human, which is the only
+        honest thing it can do today.
+
+        Worth knowing about the feeds themselves: the providers bundled with an
+        account are thin. A large-cap query returns a handful of items going
+        back months, not a stream. Anything resembling news-driven trading needs
+        a paid feed, and a strategy built on this one would be reacting to a
+        fraction of what actually moved the price.
+        """
+        ib = self._connect()
+        try:
+            providers = ib.reqNewsProviders()
+            if not providers:
+                raise ProviderUnavailable(
+                    f"{SOURCE}: no news providers on this account")
+            contract = self._contract_for(ticker)
+            qualified = ib.qualifyContracts(contract)
+            if not qualified:
+                raise ProviderUnavailable(f"{SOURCE}: no contract for {ticker}")
+            codes = "+".join(p.code for p in providers)
+            items = ib.reqHistoricalNews(qualified[0].conId, codes, "", "", limit)
+            return {
+                "ticker": ticker,
+                "providers": [p.code for p in providers],
+                "headlines": [{
+                    "time": str(getattr(item, "time", "")),
+                    # IB prefixes headlines with a routing token like
+                    # "{A:800015:L:en}" that is metadata, not text.
+                    "headline": str(getattr(item, "headline", "")).split("}")[-1].strip(),
+                    "provider": getattr(item, "providerCode", ""),
+                    "article_id": getattr(item, "articleId", ""),
+                } for item in items],
+                "source": SOURCE,
+            }
+        finally:
+            ib.disconnect()
+
     # -- helpers -----------------------------------------------------------
 
     # Which exchange each futures root trades on. IB rejects a Future with no

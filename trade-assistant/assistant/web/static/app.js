@@ -1145,6 +1145,7 @@ async function loadPaper() {
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(p.notional)}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${Number(p.stop).toFixed(2)}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${p.bars_held}</td>
+      <td><button class="btn btn-sm" onclick="showNews('${p.ticker}')">News</button></td>
     </tr>`).join('');
 
   const closed = (d.closed || []).map(c => `
@@ -1189,8 +1190,9 @@ async function loadPaper() {
         <th>Instrument</th><th>Strategy</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Units</th>
         <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Entry</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Now</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Move</th>
         <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Unrealised</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Notional</th>
-        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Stop</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Days</th>
-      </tr></thead><tbody>${rows || '<tr><td colspan="10" class="meta">No open positions.</td></tr>'}</tbody></table>
+        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Stop</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Days</th><th></th>
+      </tr></thead><tbody>${rows || '<tr><td colspan="11" class="meta">No open positions.</td></tr>'}</tbody></table>
+      <div id="newsPanel"></div>
     </div>
 
     <div class="card">
@@ -1228,4 +1230,33 @@ async function runPaper(rebalance) {
     alert('Session failed: ' + e);
   }
   await loadPaper();
+}
+
+
+/* News, shown beside the position that holds it. Context for a human reading
+   the book — no strategy consumes it and no position is sized by it. */
+async function showNews(ticker) {
+  const panel = document.getElementById('newsPanel');
+  if (!panel) return;
+  panel.innerHTML = `<div class="meta" style="margin-top:12px">Loading headlines for ${ticker}…</div>`;
+  let d;
+  try {
+    d = await (await fetch('/api/news/' + encodeURIComponent(ticker))).json();
+  } catch (e) {
+    panel.innerHTML = '<div class="meta">Could not load news.</div>';
+    return;
+  }
+  const items = (d.headlines || []).map(h =>
+    `<div style="padding:7px 0;border-bottom:1px solid rgba(128,128,128,.15)">
+       <div style="font-size:13px">${h.headline || ''}</div>
+       <div class="meta">${(h.time || '').slice(0, 16)} · ${h.provider || ''}</div>
+     </div>`).join('');
+  panel.innerHTML = `
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(128,128,128,.25)">
+      <div class="label">${ticker} — headlines${d.providers ? ' · ' + d.providers.join(', ') : ''}</div>
+      ${items || `<div class="meta">${d.error || 'No headlines returned.'}</div>`}
+      <div class="meta" style="margin-top:10px">
+        Context only. Nothing here feeds a signal or sizes a position.
+      </div>
+    </div>`;
 }

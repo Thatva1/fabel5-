@@ -177,6 +177,25 @@ def api_paper_run():
                      "notes", "universe", "price_source", "summary")})
 
 
+@app.get("/api/news/<path:ticker>")
+def api_news(ticker):
+    """Headlines for one instrument, shown beside the position that holds it.
+
+    Context for a human reading the book, not an input to any decision. No
+    strategy consumes this and no position is sized by it.
+    """
+    from ..providers.base import ProviderUnavailable
+    from ..providers.ibkr_provider import IBKRDataProvider
+
+    try:
+        return jsonify(IBKRDataProvider(load_config()).get_news(ticker, limit=8))
+    except ProviderUnavailable as exc:
+        return jsonify({"ticker": ticker, "headlines": [], "error": str(exc)})
+    except Exception as exc:
+        return jsonify({"ticker": ticker, "headlines": [],
+                        "error": f"{type(exc).__name__}: {exc}"})
+
+
 @app.get("/api/state")
 def api_state():
     try:
