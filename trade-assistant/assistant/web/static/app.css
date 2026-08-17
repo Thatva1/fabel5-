@@ -52,6 +52,16 @@ a:hover { text-decoration:underline; }
 .muted { color:var(--muted); }
 .ok { color:var(--ok); } .warn { color:var(--warn); }
 .bad { color:var(--bad); } .live { color:var(--live); }
+/* Gain/loss. The book view has emitted class="up"/"down" on every P&L figure
+   since it was written and neither rule existed, so profits and losses have
+   always rendered in the same colour. */
+.up { color:var(--ok); } .down { color:var(--bad); }
+
+/* One-line verdict on the state of the book, above the numbers it describes. */
+.banner { border-left:3px solid var(--line); }
+.banner.is-ok   { border-left-color:var(--ok); }
+.banner.is-warn { border-left-color:var(--warn); }
+.banner.is-error{ border-left-color:var(--bad); }
 .prov { font-size:11.5px; color:var(--muted); font-family:var(--b); }
 
 /* ---------- shell ---------- */

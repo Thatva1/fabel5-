@@ -38,6 +38,9 @@ from .base import DataProvider, ProviderUnavailable
 SOURCE = "ibkr"
 DEFAULT_PORT = 7497          # paper. Live is 7496 and must be set deliberately.
 CONNECT_TIMEOUT = 8
+# How many consecutive client ids to try before giving up. Covers the dashboard,
+# a CLI session and a few background jobs holding the feed at once.
+CLIENT_ID_ATTEMPTS = 8
 
 
 class IBKRDataProvider(DataProvider):
@@ -160,15 +163,37 @@ class IBKRDataProvider(DataProvider):
             except ImportError as exc:
                 raise ProviderUnavailable(f"{SOURCE}: no ib_async/ib_insync ({exc})")
 
-        ib = IB()
-        try:
-            ib.connect(self.host, self.port, clientId=self.client_id,
-                       timeout=CONNECT_TIMEOUT, readonly=True)
-        except Exception as exc:
-            raise ProviderUnavailable(
-                f"{SOURCE}: cannot reach IB Gateway at {self.host}:{self.port} "
-                f"({type(exc).__name__}: {exc}). Is it running and logged in?")
-        return ib
+        # IB allows many simultaneous API clients but insists each hold a
+        # DISTINCT client id, and it refuses a duplicate by going silent rather
+        # than by answering — so a collision surfaces as a connect timeout that
+        # is indistinguishable from Gateway being down. With a single fixed id
+        # in config, the dashboard and a CLI session could never both use the
+        # licensed feed: whichever started second reported "IBKR unreachable"
+        # and quietly served yfinance. Found exactly that way, by a running
+        # rebalance locking the dashboard out of its own data source.
+        #
+        # The configured id is still tried first, so a single-process setup
+        # behaves as it always did and the number in config.yaml keeps meaning
+        # what it says.
+        last_error = None
+        for offset in range(CLIENT_ID_ATTEMPTS):
+            ib = IB()
+            try:
+                ib.connect(self.host, self.port, clientId=self.client_id + offset,
+                           timeout=CONNECT_TIMEOUT, readonly=True)
+                return ib
+            except Exception as exc:
+                last_error = exc
+                try:
+                    ib.disconnect()
+                except Exception:
+                    pass
+
+        raise ProviderUnavailable(
+            f"{SOURCE}: cannot reach IB Gateway at {self.host}:{self.port} "
+            f"({type(last_error).__name__}: {last_error}). Tried client ids "
+            f"{self.client_id}-{self.client_id + CLIENT_ID_ATTEMPTS - 1}. Is it "
+            f"running, logged in, and is the API enabled in its settings?")
 
     # -- prices ------------------------------------------------------------
 

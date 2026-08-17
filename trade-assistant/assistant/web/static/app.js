@@ -1107,23 +1107,112 @@ fetchState();
    journal, which records ideas a human decided on. Kept apart deliberately:
    mixed together you could no longer tell a good month from good judgement. */
 
+/* Verdict as a coloured word. SELL is red because it is the one that needs
+   acting on today; HOLD is deliberately quiet so a book of holds reads as calm
+   rather than as a wall of alerts. */
+const VERDICT_CLS = { BUY: 'up', SELL: 'down', HOLD: '', WAIT: 'warn', AVOID: 'muted' };
+
+function verdictPill(v) {
+  const why = [v.headline, ...(v.because || [])].filter(Boolean).join(' — ');
+  return `<b class="${VERDICT_CLS[v.action] || ''}" title="${esc(why)}">${v.action}</b>`;
+}
+
+/* One line at the top of the book saying whether the numbers below can be
+   trusted right now. Only ever ONE line: a row of warnings gets read as
+   decoration, and the point is that this one is not. */
+function bookBanner(d) {
+  const b = d.banner || {};
+  const tone = b.level === 'error' ? 'down' : b.level === 'warn' ? 'warn' : 'up';
+  const mkt = Object.entries(d.markets || {})
+    .map(([k, m]) => `${k} ${m.open ? 'OPEN' : 'closed'}${m.open ? '' : ' · last ' + m.last_session}`)
+    .join('  ·  ');
+  const src = (d.price_sources || []).join(', ') || 'unknown';
+  return `<div class="card banner is-${esc(b.level || 'ok')}">
+    <div><b class="${tone}">${esc(b.message || '')}</b></div>
+    <div class="meta" style="margin-top:6px">
+      Priced by <b>${esc(src)}</b>${d.licensed ? ' (licensed)' : ''}
+      · book last marked ${d.as_of ? esc(String(d.as_of).replace('T', ' ').replace('+00:00', ' UTC')) : '—'}
+    </div>
+    <div class="meta">${esc(mkt)}</div>
+  </div>`;
+}
+
+/* What the licensed feed can price, and what a subscription would unlock.
+   Rendered from the last measured report rather than probed on page load —
+   the probe takes about a second per instrument. */
+function coverageCard(c) {
+  if (!c || !c.available) {
+    return `<div class="card">
+      <div class="label">Tradable coverage</div>
+      <p class="meta">Not measured yet. Until it is, instruments IBKR cannot price
+        may be quietly priced by the yfinance fallback instead.</p>
+      <button class="btn btn-sm" onclick="refreshCoverage()">Measure coverage</button>
+    </div>`;
+  }
+  const n = c.counts || {};
+  const groups = (c.groups || []).map(g => `
+    <div style="margin-top:10px">
+      <div><b class="warn">${esc(g.bundle)}</b> <span class="meta">— ${g.count} instrument(s)</span></div>
+      <div class="meta" style="margin:2px 0">${g.symbols.map(esc).join(', ')}</div>
+      <div class="prov">${esc(g.action)}</div>
+    </div>`).join('');
+
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div class="label">Tradable coverage</div>
+      <button class="btn btn-sm" onclick="refreshCoverage()">Re-measure</button>
+    </div>
+    <div style="margin-top:8px">
+      <b class="ok" style="font-size:1.3rem">${n.tradable ?? '—'}</b>
+      <span class="meta">of ${n.total ?? '—'} priced by the licensed IBKR feed</span>
+    </div>
+    ${groups || '<div class="meta" style="margin-top:8px">Everything on the watchlist is priced by the licensed feed.</div>'}
+    <div class="prov" style="margin-top:12px">Measured ${esc(c.checked_at || '—')} · ${c.age_hours ?? '—'}h ago</div>
+  </div>`;
+}
+
+async function refreshCoverage() {
+  const root = document.getElementById('coverageRoot');
+  if (root) root.innerHTML = '<div class="card"><div class="label">Measuring coverage…</div>'
+    + '<p class="meta">About a second per instrument. This runs against the account '
+    + 'logged into IB Gateway right now.</p></div>';
+  try {
+    const r = await fetch('/api/coverage/refresh', { method: 'POST' });
+    const c = await r.json();
+    if (root) root.innerHTML = c.error
+      ? `<div class="card"><b class="bad">Could not measure coverage.</b><p class="meta">${esc(c.error)}</p></div>`
+      : coverageCard(c);
+  } catch (e) {
+    if (root) root.innerHTML = '<div class="card"><b class="bad">Could not measure coverage.</b></div>';
+  }
+}
+
 async function loadPaper() {
   const root = document.getElementById('viewRoot');
   root.innerHTML = '<div class="card"><div class="label">Loading the book…</div></div>';
-  let d;
+  let d, V = {}, COV = null;
   try {
     d = await (await fetch('/api/paper')).json();
   } catch (e) {
     root.innerHTML = '<div class="card"><b>Could not load the book.</b></div>';
     return;
   }
+  try { COV = await (await fetch('/api/coverage')).json(); } catch (e) { /* optional */ }
+  // Hold-or-close for each open position. Read separately and tolerated when
+  // it fails: a verdict is an opinion about the book, and losing the opinion
+  // must never take the book itself off the screen.
+  try {
+    const vd = await (await fetch('/api/paper/verdicts')).json();
+    (vd.verdicts || []).forEach(v => { V[v.ticker] = v; });
+  } catch (e) { /* positions still render without it */ }
 
   if (!d.started) {
     root.innerHTML = `<div class="card">
       <b>No paper book yet.</b>
       <p class="meta">${d.message || ''}</p>
       <button class="btn btn-primary" onclick="runPaper(true)">Start trading</button>
-    </div>`;
+    </div>
+    <div id="coverageRoot">${coverageCard(COV)}</div>`;
     return;
   }
 
@@ -1133,20 +1222,32 @@ async function loadPaper() {
   const pct = (v) => (v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%');
   const cls = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : '');
 
-  const rows = d.positions.map(p => `
+  const rows = d.positions.map(p => {
+    const v = V[p.ticker];
+    // A price that is not current, or not from the licensed feed, is marked at
+    // the number itself rather than in a footnote. The whole failure this view
+    // had was a figure that looked authoritative with its provenance elsewhere.
+    const srcWarn = p.price_source && p.price_source !== 'ibkr';
+    const priceTitle = `${p.freshness || ''}${p.price_source ? ' · via ' + p.price_source : ''}`;
+    return `
     <tr style="border-bottom:1px solid rgba(128,128,128,.18)">
       <td><b>${p.ticker}</b><div class="meta">${p.segment}</div></td>
       <td>${p.strategy}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(p.shares)}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${Number(p.entry_price).toFixed(2)}</td>
-      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${Number(p.last_price).toFixed(2)}</td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums" title="${priceTitle}">
+        ${Number(p.last_price).toFixed(2)}${p.mark_failed || !p.current ? ' <span class="warn">⚠</span>' : ''}
+        <div class="meta" style="font-size:11px">${p.bar_date || '—'}${srcWarn ? ' · ' + p.price_source : ''}</div>
+      </td>
       <td class="num ${cls(p.move_pct)}" style="text-align:right;font-variant-numeric:tabular-nums">${pct(p.move_pct)}</td>
       <td class="num ${cls(p.unrealised)}" style="text-align:right;font-variant-numeric:tabular-nums">${money(p.unrealised)}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(p.notional)}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${Number(p.stop).toFixed(2)}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${p.bars_held}</td>
+      <td>${v ? verdictPill(v) : '—'}</td>
       <td><button class="btn btn-sm" onclick="showNews('${p.ticker}')">News</button></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   const closed = (d.closed || []).map(c => `
     <tr style="border-bottom:1px solid rgba(128,128,128,.18)">
@@ -1158,6 +1259,7 @@ async function loadPaper() {
     </tr>`).join('') || '<tr><td colspan="6" class="meta">Nothing closed yet.</td></tr>';
 
   root.innerHTML = `
+    ${bookBanner(d)}
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
         <div>
@@ -1190,8 +1292,8 @@ async function loadPaper() {
         <th>Instrument</th><th>Strategy</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Units</th>
         <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Entry</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Now</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Move</th>
         <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Unrealised</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Notional</th>
-        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Stop</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Days</th><th></th>
-      </tr></thead><tbody>${rows || '<tr><td colspan="11" class="meta">No open positions.</td></tr>'}</tbody></table>
+        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Stop</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Days</th><th>Verdict</th><th></th>
+      </tr></thead><tbody>${rows || '<tr><td colspan="12" class="meta">No open positions.</td></tr>'}</tbody></table>
       <div id="newsPanel"></div>
     </div>
 
@@ -1205,9 +1307,24 @@ async function loadPaper() {
 
     <div class="card">
       <div class="label">Session log</div>
-      ${(d.sessions || []).map(x => `<div class="meta">${x.date} — ${x.note || ''}</div>`).join('')
-        || '<div class="meta">No sessions recorded.</div>'}
-    </div>`;
+      ${(d.sessions || []).map(x => {
+        // These fields were read here from the start and never written, so
+        // every row rendered as a bare note. The feed name matters most: it is
+        // what says whether a session's numbers are licensed.
+        const bits = [];
+        if (x.price_source) bits.push(`priced by <b>${esc(x.price_source)}</b>`);
+        if (x.universe != null) bits.push(`${x.universe} instruments`);
+        if (x.candidates != null) bits.push(`${x.candidates} candidates`);
+        if (x.opened != null || x.closed != null)
+          bits.push(`${x.opened ?? 0} opened / ${x.closed ?? 0} closed`);
+        return `<div style="margin-bottom:7px">
+          <div class="meta">${esc(x.date)}${x.rebalanced ? ' · <b>REBALANCE</b>' : ''} — ${esc(x.note || '')}</div>
+          ${bits.length ? `<div class="prov">${bits.join(' · ')}</div>` : ''}
+        </div>`;
+      }).join('') || '<div class="meta">No sessions recorded.</div>'}
+    </div>
+
+    <div id="coverageRoot">${coverageCard(COV)}</div>`;
 
   const badge = document.getElementById('nb-paper');
   if (badge) badge.textContent = s.open_positions || '';
