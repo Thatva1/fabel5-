@@ -163,6 +163,39 @@ def _fetch(symbols, period, config, label, out, progress_cb=None, cache_hours=No
     return frames
 
 
+def _carried_equity(config, book_path=None):
+    """Closing equity of the most recently archived book, or None.
+
+    Off unless `paper.carry_forward_equity` is set, because silently inheriting
+    a balance would make two runs of the same experiment incomparable — and the
+    first thing anyone does with a fresh strategy is run it from a known
+    starting figure.
+    """
+    import glob
+    import json as jsonlib
+
+    if not ((config or {}).get("paper") or {}).get("carry_forward_equity"):
+        return None
+
+    from .book import BOOK_PATH
+
+    base = (book_path or BOOK_PATH).rsplit(".json", 1)[0]
+    archives = sorted(glob.glob(f"{base}-archived-*.json"), reverse=True)
+    for path in archives:
+        try:
+            with open(path) as handle:
+                state = jsonlib.load(handle)
+            previous = Book(state)
+            equity = previous.equity()
+            if equity and equity > 0:
+                return {"equity": float(equity),
+                        "currency": previous.base_currency,
+                        "file": os.path.basename(path)}
+        except (OSError, ValueError, KeyError, TypeError):
+            continue        # a corrupt archive must not stop a new book starting
+    return None
+
+
 def _today():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -211,6 +244,23 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
     book = Book.load(book_path) if book_path else Book.load()
     if not book.started:
         equity, currency, note = _opening_balance(config, router, cfg)
+        # Carry the last book's closing equity into the new one, so a reset
+        # continues the simulation rather than restarting it.
+        #
+        # Worth being precise about what this does and does not change. An
+        # EXISTING book already compounds — cash and positions persist between
+        # sessions, so a profitable day raises the base the next day trades
+        # from, with no setting involved. The only thing that ever returned the
+        # balance to its opening figure was `--reset`, and this makes even that
+        # continuous.
+        carried = _carried_equity(config, book_path)
+        if carried is not None:
+            note = (f"Continued from the previous book at "
+                    f"{carried['equity']:,.2f} {carried['currency']} "
+                    f"(archived {carried['file']}). The starting balance in "
+                    f"config was not used, so the equity curve runs unbroken "
+                    f"across the reset.")
+            equity, currency = carried["equity"], carried["currency"]
         book.start(equity, currency, today)
         if note:
             book.sessions.append({"date": today, "ran_at": today, "note": note})
@@ -218,6 +268,7 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
     out = {"date": today, "started_fresh": not book.closed and not book.positions,
            "universe": 0, "universe_from_cache": None, "screen": None,
            "rebalanced": False, "opened": [], "closed": [], "skipped": {},
+           "realised_today": 0.0, "costs_today": 0.0,
            "notes": []}
 
     # --- 1. The universe -------------------------------------------------
@@ -298,7 +349,13 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
         fill = _slipped(level, position["direction"], cfg["slippage_bps"], opening=False)
         book.close_position(position, fill, today, reason)
         cost = simulator.cost_config_for(position["ticker"], config)
-        book.cash -= cost.get("commission_per_trade", 0.0)
+        commission = cost.get("commission_per_trade", 0.0)
+        book.cash -= commission
+        # Tracked so the day's record can separate money banked by closing
+        # trades from the drift on positions still open. An equity level cannot
+        # tell those apart, and they mean completely different things.
+        out["realised_today"] += position["pnl"] or 0.0
+        out["costs_today"] += commission
         out["closed"].append({"ticker": position["ticker"], "reason": reason,
                               "pnl": position["pnl"], "r": position["r_multiple"]})
 
@@ -310,6 +367,10 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
                         price_source=mark_source, rebalanced=False,
                         opened=0, closed=len(out["closed"]),
                         universe=out.get("universe"))
+        out["day"] = book.record_day(
+            today, realised=out["realised_today"], costs=out["costs_today"],
+            opened=0, closed=len(out["closed"]), price_source=mark_source,
+            note="marked only — not a rebalance day")
         book.save(book_path) if book_path else book.save()
         out.update({"equity": row["equity"], "summary": book.summary()})
         out["notes"].append(
@@ -369,6 +430,11 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
                     opened=len(out["opened"]), closed=len(out["closed"]),
                     universe=out.get("universe"),
                     candidates=out.get("candidates"))
+    out["day"] = book.record_day(
+        today, realised=out["realised_today"], costs=out["costs_today"],
+        opened=len(out["opened"]), closed=len(out["closed"]),
+        price_source=out.get("price_source"),
+        note=f"rebalanced — {len(out['opened'])} opened, {len(out['closed'])} closed")
     book.save(book_path) if book_path else book.save()
     out.update({"equity": row["equity"], "summary": book.summary()})
     return out

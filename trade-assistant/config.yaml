@@ -277,6 +277,21 @@ paper:
   # book runs in USD from there — otherwise its return would measure the
   # strategy plus the exchange rate, and you could not tell which was which.
   trading_currency: USD
+  # Continue the equity curve across a `--reset` instead of returning to the
+  # opening balance below.
+  #
+  # Note what this does NOT do, because it is easy to assume otherwise: a book
+  # that is simply left alone ALREADY compounds. Cash and open positions persist
+  # between sessions, so a day that makes money raises the base the next day
+  # trades from, with no setting involved. The only thing that ever restored the
+  # opening figure was archiving the book and starting a new one — and this
+  # makes even that continuous, by seeding the new book from the closing equity
+  # of the most recent archive.
+  #
+  # Off by default, and deliberately: silently inheriting a balance makes two
+  # runs of the same experiment incomparable, and a fresh strategy is normally
+  # run from a known starting figure.
+  carry_forward_equity: true
   # How often new positions may be OPENED. Exits are taken every session
   # regardless of this — a stop is never left waiting for a rebalance day.
   #

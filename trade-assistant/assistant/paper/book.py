@@ -61,6 +61,12 @@ class Book:
         # last run on Saturday and read on Monday is not wrong, but it has not
         # seen Monday, and nothing on screen said which.
         self.as_of = state.get("as_of")
+        # One row per trading day: what the day earned or lost, split into the
+        # part that was realised by closing trades and the part that is still
+        # open. The equity curve alone cannot answer "what did we make today" —
+        # it holds a level, and a level does not say whether a rise came from a
+        # winner being banked or from an open position drifting up.
+        self.daily = list(state.get("daily", []))
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -96,6 +102,7 @@ class Book:
             "last_rebalance": self.last_rebalance,
             "last_rebalance_at": self.last_rebalance_at,
             "as_of": self.as_of,
+            "daily": self.daily,
         }
 
     @property
@@ -226,6 +233,56 @@ class Book:
             entry.update({k: v for k, v in fields.items() if v is not None})
             self.sessions.append(entry)
         self.as_of = _now()
+        return row
+
+    def record_day(self, date, *, realised=0.0, costs=0.0, opened=0, closed=0,
+                   price_source=None, note=None):
+        """Close the day's books: what was made, and where it came from.
+
+        Split into realised and unrealised deliberately. A day can be up on
+        paper while every trade actually closed that day lost money, and a
+        single equity number hides which — so the two halves are recorded
+        separately and the split is what makes the record worth reading later.
+
+        One row per date, last write wins, so re-running a session does not
+        double-count the day.
+        """
+        equity = self.equity()
+        previous = (self.daily[-1]["equity"] if self.daily
+                    else (self.starting_equity or equity))
+        change = equity - previous
+        row = {
+            "date": date,
+            "equity": round(equity, 2),
+            "previous_equity": round(previous, 2),
+            "change": round(change, 2),
+            "change_pct": round(change / previous * 100, 3) if previous else 0.0,
+            # Realised is cash banked by trades that CLOSED today. Unrealised is
+            # everything else the day did — the drift on positions still open.
+            "realised": round(realised, 2),
+            "costs": round(costs, 2),
+            "unrealised_change": round(change - realised + costs, 2),
+            "open_positions": len(self.positions),
+            "opened": opened,
+            "closed": closed,
+            "cash": round(self.cash or 0.0, 2),
+            "exposure_pct": round(self.market_value() / equity * 100, 1) if equity else 0.0,
+            "price_source": price_source,
+            "note": note,
+            "recorded_at": _now(),
+        }
+        if self.daily and self.daily[-1]["date"] == date:
+            # Preserve the day's original opening level across a re-run;
+            # recomputing it from the last row would measure the day against
+            # itself and report a change of zero.
+            row["previous_equity"] = self.daily[-1]["previous_equity"]
+            row["change"] = round(equity - row["previous_equity"], 2)
+            row["change_pct"] = (round(row["change"] / row["previous_equity"] * 100, 3)
+                                 if row["previous_equity"] else 0.0)
+            row["unrealised_change"] = round(row["change"] - realised + costs, 2)
+            self.daily[-1] = row
+        else:
+            self.daily.append(row)
         return row
 
     # -- provenance --------------------------------------------------------

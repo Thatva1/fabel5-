@@ -1211,6 +1211,150 @@ fetchState();
    journal, which records ideas a human decided on. Kept apart deliberately:
    mixed together you could no longer tell a good month from good judgement. */
 
+/* ---------- daily P&L and the trade journal ----------
+   Two questions the book could not answer: what did today make, and why did
+   each trade do what it did. Both are derived from what the strategy recorded
+   before the outcome was known — nothing here is written after the fact. */
+
+function dailyCard(J) {
+  const rows = (J.daily || []);
+  const money = v => (v == null ? "—" : Number(v).toLocaleString(undefined,
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  const sign = v => (v > 0 ? "up" : v < 0 ? "down" : "");
+  const plus = v => (v > 0 ? "+" : "");
+
+  if (!rows.length) {
+    return `<div class="card"><div class="label">Daily P&amp;L</div>
+      <p class="meta">No days recorded yet. A row is written at the end of every
+        session.</p></div>`;
+  }
+  const body = rows.map(d => `
+    <tr style="border-bottom:1px solid rgba(128,128,128,.18)">
+      <td><b>${esc(d.date)}</b></td>
+      <td class="num ${sign(d.change)}" style="text-align:right;font-variant-numeric:tabular-nums">
+        <b>${plus(d.change)}${money(d.change)}</b>
+        <div class="meta" style="font-size:11px">${plus(d.change_pct)}${Number(d.change_pct || 0).toFixed(3)}%</div></td>
+      <td class="num ${sign(d.realised)}" style="text-align:right;font-variant-numeric:tabular-nums">${plus(d.realised)}${money(d.realised)}</td>
+      <td class="num ${sign(d.unrealised_change)}" style="text-align:right;font-variant-numeric:tabular-nums">${plus(d.unrealised_change)}${money(d.unrealised_change)}</td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(d.costs)}</td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(d.equity)}</td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${d.opened ?? 0} / ${d.closed ?? 0}</td>
+      <td class="meta">${esc(d.price_source || "—")}</td>
+    </tr>`).join("");
+
+  return `<div class="card">
+    <div class="label">Daily P&amp;L</div>
+    <p class="meta" style="margin:6px 0 12px">Realised is money banked by trades that
+      closed that day. Unrealised is everything else the day did — the drift on
+      positions still open. A day can be up while every trade it closed lost money,
+      which is why the two are never added together here.</p>
+    <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left;opacity:.6">
+        <th>Date</th>
+        <th class="num" style="text-align:right">Day P&amp;L</th>
+        <th class="num" style="text-align:right">Realised</th>
+        <th class="num" style="text-align:right">Unrealised</th>
+        <th class="num" style="text-align:right">Costs</th>
+        <th class="num" style="text-align:right">Equity</th>
+        <th class="num" style="text-align:right">Opened/Closed</th>
+        <th>Priced by</th>
+      </tr></thead><tbody>${body}</tbody></table>
+  </div>`;
+}
+
+function breakdownCard(J) {
+  const b = J.breakdown || {};
+  const t = J.totals || {};
+  const money = v => (v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }));
+  const sign = v => (v > 0 ? "up" : v < 0 ? "down" : "");
+
+  const table = (title, rows, hint) => `
+    <div style="flex:1;min-width:260px">
+      <div class="label" style="margin-bottom:4px">${title}</div>
+      <div class="prov" style="margin-bottom:6px">${hint}</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="text-align:left;opacity:.6"><th></th>
+          <th class="num" style="text-align:right">Trades</th>
+          <th class="num" style="text-align:right">Win%</th>
+          <th class="num" style="text-align:right">P&amp;L</th>
+          <th class="num" style="text-align:right">Avg R</th></tr></thead>
+        <tbody>${(rows || []).map(r => `<tr>
+          <td>${esc(r.key)}</td>
+          <td class="num" style="text-align:right">${r.trades}</td>
+          <td class="num" style="text-align:right">${r.win_rate_pct == null ? "—" : r.win_rate_pct + "%"}</td>
+          <td class="num ${sign(r.pnl)}" style="text-align:right">${money(r.pnl)}</td>
+          <td class="num" style="text-align:right">${r.avg_r == null ? "—" : r.avg_r}</td>
+        </tr>`).join("") || '<tr><td colspan="5" class="meta">No closed trades.</td></tr>'}</tbody>
+      </table>
+    </div>`;
+
+  return `<div class="card">
+    <div class="label">Where the money is made and lost</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:14px;margin:12px 0 18px">
+      <div><div class="label">Closed</div><b>${t.closed ?? 0}</b></div>
+      <div><div class="label">Realised</div><b class="${sign(t.realised_pnl)}">${money(t.realised_pnl)}</b></div>
+      <div><div class="label">Win rate</div><b>${t.win_rate_pct == null ? "—" : t.win_rate_pct + "%"}</b></div>
+      <div><div class="label">Avg win</div><b class="up">${money(t.avg_win)}</b></div>
+      <div><div class="label">Avg loss</div><b class="down">${money(t.avg_loss)}</b></div>
+      <div><div class="label">Profit factor</div><b>${t.profit_factor ?? "—"}</b></div>
+    </div>
+    ${(J.observations || []).map(o => `<div class="callout dashed" style="margin-bottom:8px"><span class="meta">${esc(o)}</span></div>`).join("")}
+    <div style="display:flex;gap:22px;flex-wrap:wrap;margin-top:14px">
+      ${table("By strategy", b.by_strategy, "Which rule set is paying")}
+      ${table("By market regime", b.by_regime, "Conditions the rules suit")}
+    </div>
+    <div style="display:flex;gap:22px;flex-wrap:wrap;margin-top:18px">
+      ${table("By exit", b.by_exit, "Stop, target, or the holding limit")}
+      ${table("By segment", b.by_segment, "Asset class")}
+    </div>
+  </div>`;
+}
+
+function journalCard(J) {
+  const entries = J.entries || [];
+  if (!entries.length) {
+    return `<div class="card">
+      <div class="label">Trade journal</div>
+      <p class="meta">No trades have closed yet. Each closed trade gets an entry here
+        recording why it was opened — quoted from before the outcome was known — and
+        why it made or lost money.</p></div>`;
+  }
+  const money = v => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return `<div class="card">
+    <div class="label">Trade journal</div>
+    <p class="meta" style="margin:6px 0 14px">Entry reasons are quoted from what the
+      strategy recorded before the trade was opened. Outcomes are mechanical — which
+      level was touched. Nothing here is narrated after the fact.</p>
+    ${entries.map(e => `
+      <div style="border-top:1px solid var(--line);padding:14px 0">
+        <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
+          <b style="font-size:16px">${esc(e.ticker)}</b>
+          <span class="pill">${esc((e.direction || "").toUpperCase())}</span>
+          <span class="pill">${esc(e.strategy || "")}</span>
+          <b class="${e.won ? "up" : "down"}" style="margin-left:auto;font-size:15px">
+            ${e.pnl > 0 ? "+" : ""}${money(e.pnl)}${e.r_multiple == null ? "" : ` · ${e.r_multiple}R`}</b>
+        </div>
+        <div class="prov" style="margin:4px 0 10px">
+          ${esc(e.entry_date || "")} → ${esc(e.exit_date || "")} ·
+          ${esc(e.outcome_title)} · priced by ${esc(e.price_source || "—")}</div>
+        <div style="display:flex;gap:22px;flex-wrap:wrap">
+          <div style="flex:1;min-width:250px">
+            <div class="label" style="margin-bottom:4px">Why it was opened</div>
+            <ul style="padding-left:16px">${(e.why_entered || []).map(x =>
+              `<li style="font-size:12.5px;margin-bottom:4px">${esc(x)}</li>`).join("")}</ul>
+            ${(e.measurements || []).length ? `<div class="prov" style="margin-top:6px">
+              ${e.measurements.map(esc).join(" · ")}</div>` : ""}
+          </div>
+          <div style="flex:1;min-width:250px">
+            <div class="label" style="margin-bottom:4px">Why this outcome</div>
+            <ul style="padding-left:16px">${(e.why_this_outcome || []).map(x =>
+              `<li style="font-size:12.5px;margin-bottom:4px">${esc(x)}</li>`).join("")}</ul>
+          </div>
+        </div>
+      </div>`).join("")}
+  </div>`;
+}
+
 /* ---------- archived books ----------
    A reset archives rather than deletes, so a track record cannot be quietly
    restarted after a bad run. That guarantee only means something if the old
@@ -1520,6 +1664,8 @@ async function loadPaper() {
     return;
   }
   try { COV = await (await fetch('/api/coverage')).json(); } catch (e) { /* optional */ }
+  let J = null;
+  try { J = await (await fetch('/api/paper/journal')).json(); } catch (e) { /* optional */ }
   // Hold-or-close for each open position. Read separately and tolerated when
   // it fails: a verdict is an opinion about the book, and losing the opinion
   // must never take the book itself off the screen.
@@ -1653,6 +1799,10 @@ async function loadPaper() {
         </div>`;
       }).join('') || '<div class="meta">No sessions recorded.</div>'}
     </div>
+
+    ${J ? dailyCard(J) : ''}
+    ${J ? breakdownCard(J) : ''}
+    ${J ? journalCard(J) : ''}
 
     <div id="archiveRoot" data-open="0"></div>
     <div id="coverageRoot">${coverageCard(COV)}</div>`;

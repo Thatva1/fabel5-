@@ -242,6 +242,29 @@ def api_paper_live():
     return jsonify(out)
 
 
+@app.get("/api/paper/journal")
+def api_paper_journal():
+    """Why each closed trade was taken, and why it won or lost.
+
+    Everything here is derived from what the strategy recorded BEFORE the
+    outcome was known. No language model is involved: a narrative written after
+    seeing the result will always find a reason the result was foreseeable,
+    which is the bias this record exists to defend against.
+    """
+    from ..paper import tradelog
+    from ..paper.book import Book
+
+    book = Book.load()
+    if not book.started:
+        return jsonify({"started": False, "entries": [], "daily": []})
+
+    out = tradelog.report(book)
+    out["started"] = True
+    # Newest day first — the question is almost always "what happened today".
+    out["daily"] = book.daily[::-1]
+    return jsonify(out)
+
+
 @app.get("/api/paper/archives")
 def api_paper_archives():
     """Books retired by `run.py paper --reset`, newest first.
