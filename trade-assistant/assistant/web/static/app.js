@@ -330,13 +330,30 @@ function viewToday() {
           const bc = S.paper.base_currency || "USD";
           const m = v => money(v, bc);
           const t = S.paper.today;
+          const rep = S.paper.reporting;
+          // The ACCOUNT currency leads, because that is what the holder can
+          // spend. The book currency sits underneath as the strategy's own
+          // result, with the FX contribution named rather than buried — one
+          // figure includes sterling's move and the other does not, and a
+          // reader who cannot tell them apart will credit the rules for a
+          // currency swing they never took a position on.
           return `
-          <div class="stat-v" style="margin-top:10px">${m(S.paper.equity)}</div>
+          <div class="stat-v" style="margin-top:10px">${rep ? money(rep.equity, rep.currency) : m(S.paper.equity)}</div>
           <div class="prov">
+            <span class="${(rep ? rep.return_pct : S.paper.return_pct) > 0 ? "up" : (rep ? rep.return_pct : S.paper.return_pct) < 0 ? "down" : ""}">
+              ${(rep ? rep.return_pct : S.paper.return_pct) > 0 ? "+" : ""}${Number((rep ? rep.return_pct : S.paper.return_pct) ?? 0).toFixed(2)}%</span>
+            from ${rep ? money(rep.starting_equity, rep.currency) : m(S.paper.starting_equity)} ·
+            ${S.paper.closed_trades} closed
+          </div>
+          ${rep ? `<div class="prov" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)">
+            <b>${m(S.paper.equity)}</b> in the book &mdash;
             <span class="${S.paper.return_pct > 0 ? "up" : S.paper.return_pct < 0 ? "down" : ""}">
               ${S.paper.return_pct > 0 ? "+" : ""}${Number(S.paper.return_pct ?? 0).toFixed(2)}%</span>
-            from ${m(S.paper.starting_equity)} · ${S.paper.closed_trades} closed
-          </div>
+            strategy only${rep.fx_contribution_pct != null ? `,
+            <span class="${rep.fx_contribution_pct > 0 ? "up" : rep.fx_contribution_pct < 0 ? "down" : ""}">
+              ${rep.fx_contribution_pct > 0 ? "+" : ""}${rep.fx_contribution_pct}%</span> from ${esc(rep.pair)}` : ""}
+            <div style="margin-top:2px">1 ${esc(bc)} = ${rep.rate} ${esc(rep.currency)}</div>
+          </div>` : ""}
           ${t ? `<div class="prov" style="margin-top:4px">
             Today <span class="${t.change > 0 ? "up" : t.change < 0 ? "down" : ""}">
             ${t.change > 0 ? "+" : ""}${m(t.change)}</span>

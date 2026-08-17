@@ -4,7 +4,7 @@ import os
 import threading
 from datetime import datetime, timezone
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, url_for
 
 from .. import closeout, execution, journal, pipeline
 from ..core.config import (DISCLAIMER, add_to_watchlist, load_config,
@@ -15,6 +15,46 @@ from ..strategies import registry as strategy_registry
 
 app = Flask(__name__, template_folder=os.path.join(os.path.dirname(__file__), "templates"))
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+# Never let a browser hold on to app.js or app.css. The dashboard is a local
+# single-user tool that is edited constantly, and a cached script is the worst
+# possible failure here: the page still renders, so it looks like working
+# software reporting stale numbers rather than like an old file. Combined with
+# the version stamp below, a reload cannot serve yesterday's code.
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
+
+@app.context_processor
+def _asset_version():
+    """Stamp every static URL with the file's own modification time.
+
+    `url_for('static', ...)` alone yields a stable URL, so a browser that has
+    cached it may keep using it. Appending the mtime changes the URL the moment
+    the file changes, which is the only cache-busting that does not depend on
+    the browser choosing to revalidate.
+    """
+    def static_url(filename):
+        path = os.path.join(app.static_folder or "", filename)
+        try:
+            stamp = int(os.path.getmtime(path))
+        except OSError:
+            stamp = 0
+        return url_for("static", filename=filename, v=stamp)
+    return {"static_url": static_url}
+
+
+@app.after_request
+def _no_store_on_api(response):
+    """API responses must never be cached.
+
+    A 304 on /api/state would hand the page a snapshot of the book from
+    whenever the browser last asked, which is indistinguishable from the app
+    having frozen.
+    """
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 # Hostnames this server will answer to. Binding to 127.0.0.1 keeps other
 # machines out, but it does NOT stop DNS rebinding: a page on evil.example
@@ -133,6 +173,76 @@ def _mark_stale(ideas, router):
         except Exception:
             pass
     return ideas
+
+
+def _reporting_currency(book, summary, config):
+    """The book's value in the ACCOUNT's currency, at today's rate.
+
+    Why both numbers exist, and why neither replaces the other:
+
+      * The book runs in USD because it holds one cash balance and most of its
+        instruments are dollar-denominated. Its USD return is the STRATEGY's
+        return — no exchange rate in it. That is the number to judge the rules
+        by, and the number a backtest is comparable to.
+
+      * The account is in GBP. What the holder can actually spend is the USD
+        equity converted at today's rate, which moves with sterling whether or
+        not a single position does. That is the number that matters to a UK
+        reader, and it is not a measure of the strategy.
+
+    Reporting one and hiding the other misleads in a different direction each
+    way: USD alone tells a UK investor nothing about their money, while GBP
+    alone credits or blames the strategy for currency moves it never took a
+    position on. So both are served, labelled, and the FX contribution between
+    them is stated outright.
+    """
+    account_ccy = (config.get("base_currency") or "GBP").upper()
+    book_ccy = (summary.get("base_currency") or "USD").upper()
+    if account_ccy == book_ccy:
+        return None
+
+    try:
+        router = pipeline.get_router(config)
+        rates = router.get_fx_rates({book_ccy, account_ccy}, account_ccy)
+        rate = rates.get(f"{book_ccy}{account_ccy}")
+        if not rate:
+            return None
+    except Exception:
+        return None
+
+    equity = summary["equity"] * rate
+    # The opening balance was converted at the rate on the day the book began.
+    # Reconstructing it from that rate — rather than today's — is what makes the
+    # difference between the two return figures the FX contribution.
+    opening_rate = None
+    for session in book.sessions:
+        note = session.get("note") or ""
+        if "converted" in note and "at " in note:
+            try:
+                opening_rate = float(note.rsplit("at ", 1)[1].split()[0].rstrip("."))
+            except (ValueError, IndexError):
+                opening_rate = None
+            break
+
+    start_account = (summary["starting_equity"] * (1 / opening_rate)
+                     if opening_rate else summary["starting_equity"] * rate)
+    return_pct = ((equity / start_account - 1) * 100) if start_account else None
+
+    return {
+        "currency": account_ccy,
+        "rate": round(rate, 6),
+        "pair": f"{book_ccy}{account_ccy}",
+        "equity": round(equity, 2),
+        "starting_equity": round(start_account, 2),
+        "return_pct": round(return_pct, 2) if return_pct is not None else None,
+        "strategy_return_pct": summary["return_pct"],
+        "fx_contribution_pct": (round(return_pct - summary["return_pct"], 2)
+                                if return_pct is not None
+                                and summary["return_pct"] is not None else None),
+        "note": (f"Book runs in {book_ccy}, so its {book_ccy} return is the "
+                 f"strategy's alone. The {account_ccy} figure converts at today's "
+                 f"rate and therefore also moves with sterling."),
+    }
 
 
 @app.get("/api/paper")
@@ -550,6 +660,7 @@ def api_state():
         summary = book.summary()
         today_row = book.daily[-1] if book.daily else None
         paper_summary = {
+            "reporting": _reporting_currency(book, summary, config),
             "equity": summary["equity"],
             "starting_equity": summary["starting_equity"],
             "return_pct": summary["return_pct"],
