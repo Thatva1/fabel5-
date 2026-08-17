@@ -50,6 +50,12 @@ class Book:
         # appended before the check ran, so a brand-new book decided it had
         # already rebalanced and opened nothing on its first day.
         self.last_rebalance = state.get("last_rebalance")
+        # When the book was last marked to market. Distinct from the newest
+        # curve date, which is a trading date: this is wall-clock, and the gap
+        # between the two is exactly what the dashboard needs to show. A book
+        # last run on Saturday and read on Monday is not wrong, but it has not
+        # seen Monday, and nothing on screen said which.
+        self.as_of = state.get("as_of")
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -83,6 +89,7 @@ class Book:
             "curve": self.curve,
             "sessions": self.sessions,
             "last_rebalance": self.last_rebalance,
+            "as_of": self.as_of,
         }
 
     @property
@@ -103,7 +110,8 @@ class Book:
         return any(p["ticker"] == ticker for p in self.positions)
 
     def open_position(self, *, ticker, direction, shares, price, stop, target,
-                      strategy, regime, date, headline="", meta=None):
+                      strategy, regime, date, headline="", meta=None,
+                      price_source=None, bar_date=None):
         """Open a position, charging the CAPITAL it consumes, not its notional.
 
         A share is paid for in full; a futures contract is carried on margin.
@@ -129,6 +137,15 @@ class Book:
             "margin_per_unit": margin,
             "committed": round(committed, 2),
             "meta": dict(meta or {}),
+            # Which feed produced this price and which session it belongs to.
+            # Stored per POSITION, not per book, because the two can differ: a
+            # book whose universe came from IBKR can still hold one instrument
+            # the licensed feed cannot price, and that is precisely the position
+            # that went unnoticed. A book-level source label would have called
+            # that position licensed too.
+            "price_source": price_source,
+            "bar_date": bar_date,
+            "priced_at": _now(),
         })
         return committed
 
@@ -180,8 +197,16 @@ class Book:
     def equity(self):
         return (self.cash or 0.0) + self.market_value()
 
-    def mark(self, date, note=None):
-        """Append today's equity point. One row per calendar date, last wins."""
+    def mark(self, date, note=None, **fields):
+        """Append today's equity point. One row per calendar date, last wins.
+
+        `fields` carries the structured record of what the session did —
+        price_source, opened, closed, universe, rebalanced. The dashboard has
+        always READ those keys and they were never written: only {date, ran_at,
+        note} was stored, so every session row rendered blank, including the one
+        field that matters most for trusting a number, which feed priced it. The
+        router computed price_source on every run and threw it away.
+        """
         equity = self.equity()
         exposure = (self.market_value() / equity * 100) if equity else 0.0
         row = {"date": date, "equity": round(equity, 2),
@@ -190,9 +215,43 @@ class Book:
             self.curve[-1] = row
         else:
             self.curve.append(row)
-        if note:
-            self.sessions.append({"date": date, "ran_at": _now(), "note": note})
+        if note or fields:
+            entry = {"date": date, "ran_at": _now(), "note": note}
+            entry.update({k: v for k, v in fields.items() if v is not None})
+            self.sessions.append(entry)
+        self.as_of = _now()
         return row
+
+    # -- provenance --------------------------------------------------------
+
+    def price_sources(self):
+        """Every distinct feed that priced something currently held.
+
+        More than one entry means the book is a mixture, and a mixed book
+        cannot honestly carry a single "licensed" badge.
+        """
+        return sorted({p.get("price_source") or "unknown" for p in self.positions})
+
+    def staleness(self, now=None):
+        """Per-position freshness against each instrument's own trading calendar.
+
+        Not a timestamp comparison. A London line and a US line close at
+        different times, and on a Monday morning both correctly show Friday —
+        so the only meaningful question is whether the market has traded since
+        the price was taken.
+        """
+        from ..core import market_clock
+
+        rows, worst = [], 0
+        for position in self.positions:
+            status = market_clock.bar_status(position["ticker"],
+                                             position.get("bar_date"), now)
+            rows.append({"ticker": position["ticker"],
+                         "price_source": position.get("price_source"),
+                         **status})
+            worst = max(worst, status["sessions_behind"] or 0)
+        return {"positions": rows, "worst_sessions_behind": worst,
+                "all_current": worst == 0}
 
     # -- reporting ---------------------------------------------------------
 

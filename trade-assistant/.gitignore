@@ -8,6 +8,11 @@
 # else's book.
 data/paper_book.json
 
+# Books retired by `run.py paper --reset`. Same reasoning as the live book, and
+# they are the evidence that a track record was not quietly restarted — which
+# only means anything while they stay on the machine that produced them.
+data/paper_book-archived-*.json
+
 # Caches, rebuilt on demand. The liquidity cache is ~1 MB of scratch that exists
 # only so a rate-limited screen can resume; the universe is re-screened weekly.
 data/paper_universe.json

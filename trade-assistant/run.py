@@ -10,7 +10,11 @@
   python run.py paper            one paper-trading session (marks the book,
                                  takes exits, rebalances if a month has turned;
                                  --status to just read it, --rebalance to force,
-                                 --refresh-universe to re-screen)
+                                 --refresh-universe to re-screen,
+                                 --reset to archive the book and start fresh)
+  python run.py coverage         measure what the LICENSED feed can actually
+                                 price, and name the subscription that would
+                                 unlock the rest (--universe for the full screen)
   python run.py journal          journal stats in the terminal
   python run.py selftest         run the deterministic-math unit tests
   python run.py ibkr-check       test the IB Gateway/TWS connection (places nothing)
@@ -203,6 +207,78 @@ def _write_trades_csv(path, out):
     return len(out["trades"])
 
 
+def _paper_reset(argv):
+    """Archive the current book and start a new one.
+
+    ARCHIVES rather than deletes. A paper book is a track record, and a track
+    record that can be silently erased and restarted is worth nothing — the
+    ability to quietly rerun a bad month is exactly what makes a paper result
+    unbelievable to anyone you show it to. The old file keeps its own timestamp
+    so the sequence of books is reconstructable after the fact.
+    """
+    import os
+    import shutil
+    from datetime import datetime, timezone
+
+    from assistant.paper.book import BOOK_PATH, Book
+
+    book = Book.load()
+    if not book.started:
+        print("No paper book to reset.")
+        return
+
+    if "--yes" not in argv:
+        summary = book.summary()
+        print("This will archive the current paper book and start a new one.\n")
+        print(f"  Started    {summary['started_at'][:10]}")
+        print(f"  Equity     {summary['equity']:,.2f} {summary['base_currency']}")
+        print(f"  Positions  {summary['open_positions']} open, "
+              f"{summary['closed_trades']} closed")
+        print("\nRe-run with --yes to confirm. The old book is archived, not deleted.")
+        return
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive = f"{BOOK_PATH.rsplit('.json', 1)[0]}-archived-{stamp}.json"
+    shutil.copy2(BOOK_PATH, archive)
+    os.remove(BOOK_PATH)
+    print(f"Archived to {os.path.basename(archive)}")
+    print("New book starts on the next `python run.py paper` run.")
+
+
+def _coverage(argv):
+    """Measure what the licensed feed can actually price."""
+    from assistant.core.config import load_config
+    from assistant.providers import coverage
+
+    config = load_config()
+    symbols = config.get("watchlist", [])
+    if "--universe" in argv:
+        from assistant.paper import screen
+        from assistant import pipeline
+        symbols, _, _ = screen.tradable_universe(config, pipeline.get_router(config))
+
+    print(f"Probing {len(symbols)} instruments against IBKR. "
+          f"About a second each.\n")
+    try:
+        report = coverage.probe_symbols(
+            symbols, config,
+            progress_cb=lambda done, total, ticker: print(
+                f"  {done}/{total} {ticker}", end="\r", flush=True))
+    except Exception as exc:
+        print(f"\nCould not measure coverage: {exc}")
+        return
+    coverage.save(report)
+
+    counts = report["counts"]
+    print(f"\n\nTRADABLE   {counts['tradable']:>4} of {counts['total']}"
+          f"   (licensed IBKR data)")
+    print(f"UNAVAILABLE{counts['unavailable']:>4}\n")
+    for group in coverage.subscription_summary(report)["groups"]:
+        print(f"  [{group['bundle']}] — {group['count']} instrument(s)")
+        print(f"    {', '.join(group['symbols'])}")
+        print(f"    -> {group['action']}\n")
+
+
 def _paper(argv):
     """One paper-trading session. Places nothing — there is no broker in it."""
     from assistant.paper import screen, session
@@ -210,6 +286,10 @@ def _paper(argv):
 
     force = "--refresh-universe" in argv
     rebalance = True if "--rebalance" in argv else None
+
+    if "--reset" in argv:
+        _paper_reset(argv)
+        return
 
     if "--status" in argv:
         book = Book.load()
@@ -503,6 +583,9 @@ def main():
 
     elif cmd == "paper":
         _paper(args[1:])
+
+    elif cmd == "coverage":
+        _coverage(args[1:])
 
     elif cmd == "journal":
         from assistant import journal

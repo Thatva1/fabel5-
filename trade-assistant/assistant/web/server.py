@@ -123,6 +123,7 @@ def api_paper():
     on. This is what the RULES did with nobody intervening, and mixing the two
     would make it impossible to tell a good month from good judgement.
     """
+    from ..core import market_clock
     from ..markets import asset_class_of, exposure_group
     from ..paper.book import Book
 
@@ -133,6 +134,7 @@ def api_paper():
 
     positions = []
     for p in book.positions:
+        freshness = market_clock.bar_status(p["ticker"], p.get("bar_date"))
         value = book.position_value(p)
         notional = abs(p["last_price"] * float(p.get("multiplier", 1.0) or 1.0)
                        * p["shares"])
@@ -148,9 +150,21 @@ def api_paper():
             "notional": round(notional, 2),
             "move_pct": round(move, 2),
             "unrealised": round(value - float(p.get("committed", 0) or 0), 2),
+            # Provenance travels with every row. A price with no feed name and
+            # no bar date beside it cannot be checked by the person reading it,
+            # and this dashboard spent its whole life showing exactly that.
+            "price_source": p.get("price_source"),
+            "bar_date": p.get("bar_date"),
+            "priced_at": p.get("priced_at"),
+            "mark_failed": bool(p.get("mark_failed")),
+            "freshness": freshness["label"],
+            "current": freshness["current"],
+            "sessions_behind": freshness["sessions_behind"],
         })
     positions.sort(key=lambda x: -abs(x["notional"]))
 
+    staleness = book.staleness()
+    sources = book.price_sources()
     return jsonify({
         "started": True,
         "summary": book.summary(),
@@ -159,7 +173,87 @@ def api_paper():
         "closed": book.closed[-25:][::-1],
         "curve": book.curve[-120:],
         "sessions": book.sessions[-10:][::-1],
+        # --- provenance and freshness, the headline facts about this book ---
+        "as_of": book.as_of,
+        "price_sources": sources,
+        "licensed": sources == ["ibkr"],
+        "markets": market_clock.summary(),
+        "staleness": staleness,
+        "banner": _book_banner(book, sources, staleness),
     })
+
+
+def _book_banner(book, sources, staleness):
+    """One sentence saying whether these numbers can be trusted right now.
+
+    Ranked worst-first and only ONE is returned, because a row of warnings is
+    read as decoration. The distinction that matters most is the one the
+    original complaint turned on: a book showing Friday's close on a Monday
+    morning is correct and must not be labelled stale, while a book that
+    skipped a session it should have run is a real problem wearing the same
+    dates.
+    """
+    if not book.positions:
+        return {"level": "ok", "message": "No open positions."}
+
+    failed = [p["ticker"] for p in book.positions if p.get("mark_failed")]
+    if failed:
+        return {"level": "error",
+                "message": f"{len(failed)} position(s) could not be priced at the "
+                           f"last run and are carried at an old mark: "
+                           f"{', '.join(failed[:6])}. Treat their value as unknown."}
+
+    if not staleness["all_current"]:
+        behind = staleness["worst_sessions_behind"]
+        return {"level": "warn",
+                "message": f"Prices are {behind} trading session(s) behind. Run a "
+                           f"session to mark the book to the latest close."}
+
+    unlicensed = [s for s in sources if s != "ibkr"]
+    if unlicensed:
+        return {"level": "warn",
+                "message": f"Some positions are priced by {', '.join(unlicensed)}, "
+                           f"not the licensed IBKR feed. Those numbers are not "
+                           f"licensed for commercial use."}
+
+    return {"level": "ok",
+            "message": "All positions marked to the latest close on licensed "
+                       "IBKR data."}
+
+
+@app.get("/api/coverage")
+def api_coverage():
+    """What the licensed feed can price, and what a subscription would unlock."""
+    from ..providers import coverage
+
+    report = coverage.load()
+    summary = coverage.subscription_summary(report)
+    if report:
+        summary["tradable_count"] = len(report.get("tradable") or {})
+        summary["tradable"] = sorted((report.get("tradable") or {}).keys())
+    return jsonify(summary)
+
+
+@app.post("/api/coverage/refresh")
+def api_coverage_refresh():
+    """Re-measure coverage against the account that is logged in right now.
+
+    Synchronous and slow (about a second per instrument) because it is a
+    deliberate action taken rarely, not something a page load triggers.
+    """
+    from ..providers import coverage
+
+    config = load_config()
+    symbols = (request.get_json(silent=True) or {}).get("symbols") \
+        or config.get("watchlist", [])
+    try:
+        report = coverage.probe_symbols(symbols, config)
+    except ProviderUnavailable as exc:
+        return jsonify({"error": str(exc), "retryable": True}), 503
+    except Exception as exc:
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+    coverage.save(report)
+    return jsonify(coverage.subscription_summary(report))
 
 
 @app.post("/api/paper/run")
@@ -194,6 +288,54 @@ def api_news(ticker):
     except Exception as exc:
         return jsonify({"ticker": ticker, "headlines": [],
                         "error": f"{type(exc).__name__}: {exc}"})
+
+
+@app.get("/api/verdict/<path:ticker>")
+def api_verdict(ticker):
+    """Buy / sell / avoid on one instrument, with the reasoning behind it.
+
+    Runs the full research pipeline, so it costs a data fetch and (when AI is
+    enabled) one model call. That expense is why it is an explicit request
+    rather than something computed for every row of the dashboard.
+    """
+    from ..research import verdict as verdict_module
+
+    config = load_config()
+    symbol = ticker.strip().upper()
+    try:
+        analysis = pipeline.analyze_ticker(symbol, config)
+    except ProviderUnavailable as exc:
+        return jsonify({"error": f"Market data unavailable: {exc}",
+                        "retryable": True}), 503
+    except Exception as exc:
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+    if analysis.get("error"):
+        return jsonify({"error": analysis["error"]}), 422
+
+    out = verdict_module.for_idea(analysis, config)
+    out["disclaimer"] = DISCLAIMER
+    return jsonify(out)
+
+
+@app.get("/api/paper/verdicts")
+def api_paper_verdicts():
+    """Hold or close, for every position currently in the paper book.
+
+    Cheap: reads the levels fixed when each position was opened against its
+    last mark. No fetch, no model call — which is what lets it be shown next to
+    every row rather than requested one at a time.
+    """
+    from ..paper.book import Book
+    from ..research import verdict as verdict_module
+
+    config = load_config()
+    book = Book.load()
+    if not book.started:
+        return jsonify({"started": False, "verdicts": []})
+    verdicts = [verdict_module.for_position(p, config=config) for p in book.positions]
+    return jsonify({"started": True, "verdicts": verdicts,
+                    "summary": verdict_module.summarise(verdicts),
+                    "disclaimer": DISCLAIMER})
 
 
 @app.get("/api/state")

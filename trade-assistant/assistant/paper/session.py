@@ -143,6 +143,30 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
     report_stage("screening the universe")
     universe, screen_report, cached = screen.tradable_universe(
         config, router, force_refresh=force_refresh)
+
+    # Drop what the LICENSED feed cannot price, before anything is ranked.
+    # Filtering here rather than at fetch time is the whole point: an
+    # instrument that survives to the ranking stage and only then fails to
+    # fetch gets quietly served by the fallback, which is how the book came to
+    # hold a spot-FX position priced off an unlicensed feed. Fails open — with
+    # no coverage report the universe passes through untouched and the report
+    # says so, because an empty universe would stop the book dead.
+    from ..providers import coverage as coverage_report
+    if ((config.get("providers") or {}).get("ibkr") or {}).get("enabled"):
+        universe, coverage_info = coverage_report.tradable_symbols(universe, config)
+        out["coverage"] = coverage_info
+        if coverage_info.get("filtered"):
+            dropped = coverage_info.get("dropped") or []
+            if dropped:
+                out.setdefault("notes", []).append(
+                    f"{len(dropped)} instrument(s) excluded — the licensed feed "
+                    f"cannot price them: {', '.join(sorted(dropped)[:12])}"
+                    + ("…" if len(dropped) > 12 else ""))
+        else:
+            out.setdefault("notes", []).append(
+                f"Coverage NOT applied ({coverage_info.get('reason')}). Instruments "
+                "IBKR cannot price may be priced by the yfinance fallback instead.")
+
     out["universe"], out["universe_from_cache"] = len(universe), cached
     out["screen"] = screen_report
     if not universe:
@@ -154,19 +178,35 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
     # --- 2. Mark open positions and take exits ---------------------------
     held = [p["ticker"] for p in book.positions]
     frames = {}
+    mark_source = None
     if held:
         report_stage(f"marking {len(held)} open positions")
-        frames = _fetch(held, "6mo", config, "marks", out)
+        mark_out = {}
+        frames = _fetch(held, "6mo", config, "marks", mark_out)
+        out.setdefault("notes", []).extend(mark_out.get("notes", []))
+        # Captured separately from the universe fetch below. Both write
+        # price_source into the same report dict, and the universe fetch ran
+        # last — so a book marked from the fallback while the universe came from
+        # IBKR reported "ibkr" for everything, which is the wrong half of the
+        # answer to keep.
+        mark_source = mark_out.get("price_source")
 
     for position in list(book.positions):
         df = frames.get(position["ticker"])
         if df is None or len(df) == 0:
             out["notes"].append(
-                f"{position['ticker']}: no price today, carried at its last mark")
+                f"{position['ticker']}: no price today, carried at its last mark "
+                f"({position.get('bar_date') or 'unknown date'}) — this position is "
+                f"NOT marked to today's market")
+            position["mark_failed"] = True
             continue
         bar = df.iloc[-1]
         position["last_price"] = float(bar["Close"])
         position["bars_held"] += 1
+        position["price_source"] = mark_source
+        position["bar_date"] = str(df.index[-1])[:10]
+        position["priced_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        position["mark_failed"] = False
 
         reason, level = _exit_reason(position, bar)
         if reason is None and position["bars_held"] >= int(cfg["max_holding_bars"]):
@@ -184,7 +224,10 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
     # --- 3. Rebalance, if this is a rebalance day ------------------------
     due = _rebalance_due(book, today) if rebalance_override is None else rebalance_override
     if not due:
-        row = book.mark(today, "marked only — not a rebalance day")
+        row = book.mark(today, "marked only — not a rebalance day",
+                        price_source=mark_source, rebalanced=False,
+                        opened=0, closed=len(out["closed"]),
+                        universe=out.get("universe"))
         book.save(book_path) if book_path else book.save()
         out.update({"equity": row["equity"], "summary": book.summary()})
         out["notes"].append(
@@ -237,7 +280,11 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
     _open_positions(book, ideas, universe_frames, config, cfg, limits, today, out)
 
     row = book.mark(today, f"rebalanced — {len(out['opened'])} opened, "
-                           f"{len(out['closed'])} closed")
+                           f"{len(out['closed'])} closed",
+                    price_source=out.get("price_source"), rebalanced=True,
+                    opened=len(out["opened"]), closed=len(out["closed"]),
+                    universe=out.get("universe"),
+                    candidates=out.get("candidates"))
     book.save(book_path) if book_path else book.save()
     out.update({"equity": row["equity"], "summary": book.summary()})
     return out
@@ -495,7 +542,10 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
             ticker=idea.ticker, direction=idea.direction, shares=shares,
             price=fill, stop=idea.stop, target=idea.target,
             strategy=idea.strategy, regime=idea.regime, date=today,
-            headline=idea.headline, meta=idea.meta)
+            headline=idea.headline, meta=idea.meta,
+            price_source=out.get("price_source"),
+            bar_date=str(frames[idea.ticker].index[-1])[:10]
+            if idea.ticker in frames else None)
         book.cash -= commission
         out["opened"].append({"ticker": idea.ticker, "strategy": idea.strategy,
                               "shares": shares, "price": round(fill, 2),

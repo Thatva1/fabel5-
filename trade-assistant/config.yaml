@@ -43,12 +43,20 @@ account:
   max_sector_exposure_pct: 25.0
   max_open_positions: 60
   correlation_flag_threshold: 0.75
-positions:
-- ticker: MSFT
-  shares: 25
-  entry_price: 410.0
-  sector: Technology
-  currency: USD
+# Positions you hold OUTSIDE this system, declared by hand so the risk gate can
+# see your true exposure before permitting a new idea.
+#
+# Emptied 2026-08-17. This block shipped with a sample holding — MSFT, 25 shares
+# at 410 — which was demonstration data from the first build and was never a
+# position anyone held. The dashboard could not know that, so it rendered the
+# sample next to real numbers as though it were real, and every exposure
+# percentage on the portfolio panel was computed against it.
+#
+# Leave this empty unless you genuinely hold something elsewhere. An invented
+# entry here does not make the dashboard look more finished; it makes the risk
+# gate wrong in the one direction that matters, by consuming exposure budget
+# that is actually free.
+positions: []
 watchlist:
 - MU
 - NVDA
@@ -398,6 +406,28 @@ portfolio:
   #   70%: 5.04% / 18.3%          100%:  7.55% / 25.8%     Calmar 0.29
   max_gross_exposure_pct: 90.0
   max_open_positions: 60
+  # Per-position cap for the PAPER BOOK, deliberately separate from
+  # account.max_position_pct (15%), which still governs the live risk gate.
+  #
+  # Why this exists: max_open_positions was 60 and the book held SEVEN. The
+  # position count was never the binding constraint — the 90% gross exposure
+  # budget was, and at 15% per position that budget is exhausted by six or
+  # seven names. Raising the position cap could not have changed that, because
+  # the two limits multiply: 90% / 15% = 6 positions, and no amount of
+  # headroom on the count adds a seventh idea's worth of room.
+  #
+  # So the way to hold more positions WITHOUT loosening any risk limit is to
+  # make each one smaller. Total exposure stays at 90%, risk per trade stays at
+  # 1%, the correlation cap still bites; the same capital is simply spread over
+  # ~22 names instead of 7, which is the diversification the correlation
+  # threshold below was already trying to achieve and could not.
+  #
+  # NOT YET MEASURED, unlike every other number in this block. The exposure and
+  # per-market caps above carry sweep results because they were swept; this one
+  # is reasoned from the arithmetic above. Sweep it before trusting it:
+  #   python run.py backtest --years 10
+  # and compare CAGR/drawdown at 3, 4, 5 and 15 percent.
+  max_position_pct: 4.0
   # 8, measured. A cap of 4 cost 0.66 points of CAGR by blocking good trades;
   # 2 was far worse (2.87%). Above 8 adds nothing. Correlation is the better
   # tool for this job anyway — it measures whether positions actually move
