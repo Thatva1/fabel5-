@@ -60,6 +60,11 @@ DEFAULTS = {
     "include_macro": True,
     "include_fx": True,
     "include_futures": True,
+    # London. Hand-listed rather than screened, because the liquidity filter
+    # reads a Finnhub listing that only covers US exchanges — there is no bulk
+    # LSE equivalent here. Needs IBKR: yfinance serves .L symbols, but the
+    # licensed feed is the point of trading them at all.
+    "include_lse": True,
     # Leveraged and inverse funds price as a MULTIPLE of something else, so a
     # momentum ranking that buys them is taking leverage the risk gate never
     # sees: a 15% position in a 3x fund is a 45% position in the thing it
@@ -136,8 +141,12 @@ def macro_symbols(config):
     cfg = settings(config)
     if not cfg.get("include_macro", True):
         return []
-    return [s for s in macro_catalogue(include_fx=cfg.get("include_fx", True),
-                                       include_futures=cfg.get("include_futures", True))]
+    out = list(macro_catalogue(include_fx=cfg.get("include_fx", True),
+                               include_futures=cfg.get("include_futures", True)))
+    if cfg.get("include_lse", True):
+        from ..markets import lse_universe
+        out += lse_universe()
+    return out
 
 
 def candidate_symbols(config, router):

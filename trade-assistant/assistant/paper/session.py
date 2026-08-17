@@ -53,6 +53,35 @@ def settings(config):
     return {k: v for k, v in cfg.items() if k != "screen"}
 
 
+def _fetch(symbols, period, config, label, out, progress_cb=None):
+    """Universe history from IBKR when enabled, yfinance otherwise.
+
+    The feed is named in the session report rather than assumed. A book built
+    on yfinance and one built on IBKR are not the same experiment — the second
+    is licensed, includes instruments the first has forgotten, and reaches
+    London — so which one produced a number has to travel with it.
+    """
+    from ..providers import bulk
+    from ..risk import kelly  # noqa: F401  (kept for import symmetry)
+
+    if ((config.get("providers") or {}).get("ibkr") or {}).get("enabled"):
+        try:
+            frames, missing = bulk.ohlcv_history_ibkr(
+                symbols, period=period, config=config, progress_cb=progress_cb)
+            out.setdefault("notes", []).append(
+                f"{label}: {len(frames)} instruments from IBKR"
+                + (f"; {len(missing)} unavailable (usually a missing market-data "
+                   "subscription for that venue)" if missing else ""))
+            out["price_source"] = "ibkr"
+            return frames
+        except Exception as exc:
+            out.setdefault("notes", []).append(
+                f"IBKR unavailable ({type(exc).__name__}), falling back to "
+                "yfinance — results are NOT on licensed data.")
+    out["price_source"] = "yfinance"
+    return bulk.ohlcv_history(symbols, period=period)
+
+
 def _today():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -127,8 +156,7 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
     frames = {}
     if held:
         report_stage(f"marking {len(held)} open positions")
-        from ..providers import bulk
-        frames = bulk.ohlcv_history(held, period="6mo")
+        frames = _fetch(held, "6mo", config, "marks", out)
 
     for position in list(book.positions):
         df = frames.get(position["ticker"])
@@ -167,8 +195,10 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
     out["rebalanced"] = True
     book.last_rebalance = today
     report_stage(f"fetching history for {len(universe)} instruments")
-    from ..providers import bulk
-    universe_frames = bulk.ohlcv_history(universe, period=cfg["history_period"])
+    universe_frames = _fetch(
+        universe, cfg["history_period"], config, "universe", out,
+        progress_cb=lambda done, total, ok: report_stage(
+            f"fetching {done}/{total} — {ok} with data"))
     if len(universe_frames) < 10:
         out["notes"].append(
             f"Only {len(universe_frames)} instruments returned history; "

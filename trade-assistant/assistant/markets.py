@@ -113,6 +113,27 @@ MACRO_ETFS = {
 }
 
 
+# London. Screened by hand rather than by the liquidity filter, because that
+# filter reads a Finnhub listing that only covers US exchanges — there is no
+# equivalent bulk list here for the LSE. These are FTSE 100 constituents liquid
+# enough that a position can be exited at something close to the modelled price.
+#
+# Yahoo-style .L suffixes, which is what the rest of the project speaks; the
+# IBKR provider maps the suffix onto LSE/GBP.
+LSE_UNIVERSE = [
+    "AZN.L", "SHEL.L", "HSBA.L", "ULVR.L", "BP.L", "RIO.L", "GSK.L", "DGE.L",
+    "BATS.L", "GLEN.L", "REL.L", "LSEG.L", "NG.L", "CPG.L", "RKT.L", "BARC.L",
+    "AAL.L", "LLOY.L", "NWG.L", "PRU.L", "TSCO.L", "IMB.L", "VOD.L", "BT-A.L",
+    "SSE.L", "AV.L", "LGEN.L", "STAN.L", "ANTO.L", "BA.L", "SGE.L", "EXPN.L",
+    "INF.L", "SMT.L", "III.L", "WTB.L", "SBRY.L", "KGF.L", "ITV.L", "SN.L",
+]
+
+
+def lse_universe():
+    """The London names, when London is switched on."""
+    return list(LSE_UNIVERSE)
+
+
 def macro_universe():
     """FX, futures and the cash ETFs that track the same exposures.
 
