@@ -535,6 +535,32 @@ def api_state():
     exposure = exposure_summary(positions, portfolio_value, None, base_ccy, fx_rates)
 
     from ..core import market_clock
+    from ..paper.book import Book
+
+    # The paper book's own equity, served alongside the config figure.
+    #
+    # These are different things and the dashboard conflated them. The card
+    # showed account.portfolio_value — a fixed number in config.yaml used to
+    # size risk — while the book that had actually traded sat elsewhere with a
+    # different balance. So a profitable day left the headline reading exactly
+    # £1,000,000, which looks like a page that has stopped updating.
+    book = Book.load()
+    paper_summary = None
+    if book.started:
+        summary = book.summary()
+        today_row = book.daily[-1] if book.daily else None
+        paper_summary = {
+            "equity": summary["equity"],
+            "starting_equity": summary["starting_equity"],
+            "return_pct": summary["return_pct"],
+            "cash": summary["cash"],
+            "open_positions": summary["open_positions"],
+            "closed_trades": summary["closed_trades"],
+            "base_currency": summary["base_currency"],
+            "exposure_pct": summary["exposure_pct"],
+            "as_of": book.as_of,
+            "today": today_row,
+        }
 
     with _lock:
         scan, scanning, error = _state["scan"], _state["scanning"], _state["error"]
@@ -547,6 +573,7 @@ def api_state():
     return jsonify({
         "disclaimer": DISCLAIMER,
         "markets": markets,
+        "paper": paper_summary,
         "any_market_open": any(m["open"] for m in markets.values()),
         "next_market_open": min(
             (m["next_open"] for m in markets.values() if m["next_open"]), default=None),

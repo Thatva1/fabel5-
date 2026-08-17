@@ -320,9 +320,34 @@ function viewToday() {
 
     <div class="grid" style="gap:var(--s4)">
       <div class="card marks"><i class="mk"></i>
-        <div class="label">Portfolio</div>
-        <div class="stat-v" style="margin-top:10px">${money(p.value)}</div>
-        <div class="prov">${esc(S.base_currency || "USD")} · from ${S.execution?.connected ? "IBKR" : "config.yaml"}</div>
+        <div class="label">${S.paper ? "Paper book" : "Portfolio"}</div>
+        ${S.paper ? (() => {
+          // The book runs in its OWN currency — converted once when it opened,
+          // so its return measures the strategies rather than the strategies
+          // plus the exchange rate. Formatting it with the account's currency
+          // symbol produced "£1,362,499 USD", which is two different claims
+          // about the same number.
+          const bc = S.paper.base_currency || "USD";
+          const m = v => money(v, bc);
+          const t = S.paper.today;
+          return `
+          <div class="stat-v" style="margin-top:10px">${m(S.paper.equity)}</div>
+          <div class="prov">
+            <span class="${S.paper.return_pct > 0 ? "up" : S.paper.return_pct < 0 ? "down" : ""}">
+              ${S.paper.return_pct > 0 ? "+" : ""}${Number(S.paper.return_pct ?? 0).toFixed(2)}%</span>
+            from ${m(S.paper.starting_equity)} · ${S.paper.closed_trades} closed
+          </div>
+          ${t ? `<div class="prov" style="margin-top:4px">
+            Today <span class="${t.change > 0 ? "up" : t.change < 0 ? "down" : ""}">
+            ${t.change > 0 ? "+" : ""}${m(t.change)}</span>
+            (realised ${m(t.realised)})</div>` : ""}
+          <div class="prov" style="margin-top:4px">Risk budget ${money(p.value)} from config.yaml</div>`;
+        })() : `
+          <div class="stat-v" style="margin-top:10px">${money(p.value)}</div>
+          <div class="prov">${esc(S.base_currency || "USD")} · from ${S.execution?.connected ? "IBKR" : "config.yaml"}
+            — no paper book has been started, so this is the configured risk budget,
+            not a traded balance.</div>
+        `}
         <div style="margin-top:16px">
           <div style="display:flex;justify-content:space-between;font-size:12px">
             <span class="muted">Exposure</span><span class="num" style="text-align:right;font-variant-numeric:tabular-nums">${pct(p.exposure_pct)}</span>
