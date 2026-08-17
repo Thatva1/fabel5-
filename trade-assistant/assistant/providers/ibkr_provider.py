@@ -105,6 +105,11 @@ class IBKRDataProvider(DataProvider):
         ib = self._connect()
         try:
             contract = self._contract_for(ticker)
+            if str(ticker).upper().endswith("=F"):
+                resolved = self._resolve_future(ib, contract)
+                if resolved is None:
+                    raise ProviderUnavailable(f"{SOURCE}: no contract for {ticker}")
+                contract = resolved
             bars = ib.reqHistoricalData(
                 contract, endDateTime="", durationStr=self._duration(period),
                 barSizeSetting="1 day", whatToShow="TRADES", useRTH=True,
@@ -175,12 +180,35 @@ class IBKRDataProvider(DataProvider):
 
     # -- helpers -----------------------------------------------------------
 
-    @staticmethod
-    def _contract_for(ticker):
+    # Which exchange each futures root trades on. IB rejects a Future with no
+    # exchange outright — "Please enter exchange" — so an empty string is not a
+    # wildcard the way SMART is for equities.
+    FUTURES_EXCHANGE = {
+        "ES": "CME", "NQ": "CME", "RTY": "CME", "YM": "CBOT",
+        "ZN": "CBOT", "ZB": "CBOT", "ZF": "CBOT", "ZT": "CBOT",
+        "ZC": "CBOT", "ZS": "CBOT", "ZW": "CBOT",
+        "CL": "NYMEX", "NG": "NYMEX", "GC": "COMEX", "SI": "COMEX",
+        "HG": "COMEX",
+        "6E": "CME", "6J": "CME", "6B": "CME", "6A": "CME",
+        # European index futures on Eurex.
+        "ESTX50": "EUREX", "DAX": "EUREX",
+    }
+
+    # Non-US equities need their real exchange and currency; SMART/USD silently
+    # resolves a European line to a US cross-listing or to nothing at all.
+    EXCHANGE_SUFFIX = {
+        ".L": ("LSE", "GBP"), ".AS": ("AEB", "EUR"), ".DE": ("IBIS", "EUR"),
+        ".PA": ("SBF", "EUR"), ".SW": ("EBS", "CHF"), ".MI": ("BVME", "EUR"),
+        ".MC": ("BM", "EUR"), ".BR": ("ENEXT.BE", "EUR"), ".ST": ("SFB", "SEK"),
+    }
+
+    @classmethod
+    def _contract_for(cls, ticker):
         """Map a project ticker onto an IB contract.
 
         The project's symbols follow Yahoo's conventions — "=X" for FX, "=F"
-        for futures — so the suffix is what decides the contract type.
+        for futures, a dotted suffix for a non-US listing — so the suffix
+        decides both the contract type and, for equities, the exchange.
         """
         try:
             from ib_async import Forex, Future, Stock
@@ -191,10 +219,36 @@ class IBKRDataProvider(DataProvider):
         if symbol.endswith("=X"):
             return Forex(symbol[:-2])
         if symbol.endswith("=F"):
-            # Continuous front month; IB wants the root without the suffix.
-            return Future(symbol=symbol[:-2], exchange="", currency="USD",
+            root = symbol[:-2]
+            return Future(symbol=root, exchange=cls.FUTURES_EXCHANGE.get(root, "CME"),
+                          currency="USD" if root not in ("ESTX50", "DAX") else "EUR",
                           includeExpired=False)
+        for suffix, (exchange, currency) in cls.EXCHANGE_SUFFIX.items():
+            if symbol.endswith(suffix):
+                return Stock(symbol[:-len(suffix)], exchange, currency)
         return Stock(symbol.replace("-", " "), "SMART", "USD")
+
+    @staticmethod
+    def _resolve_future(ib, contract):
+        """Pick the NEAREST expiry for a futures root.
+
+        A root like ESTX50 matches fifteen contracts across three years and two
+        contract sizes, and qualifyContracts raises "ambiguous" rather than
+        choosing — which reads in a probe as "not available" when the instrument
+        is perfectly available. Front month is what a continuous series means.
+        """
+        details = ib.reqContractDetails(contract)
+        if not details:
+            return None
+        dated = [d.contract for d in details
+                 if getattr(d.contract, "lastTradeDateOrContractMonth", "")]
+        if not dated:
+            return details[0].contract
+        # Smallest multiplier first at equal expiry, so a probe does not pick
+        # the jumbo contract when a mini exists.
+        dated.sort(key=lambda c: (c.lastTradeDateOrContractMonth,
+                                  float(c.multiplier or 0)))
+        return dated[0]
 
     @staticmethod
     def _duration(period):

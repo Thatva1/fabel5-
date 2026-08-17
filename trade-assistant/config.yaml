@@ -404,7 +404,7 @@ providers:
   # or empty data rather than an error you would notice, so run
   # `python run.py ibkr-data-check` before trusting a study run against it.
   ibkr:
-    enabled: false
+    enabled: true
     host: 127.0.0.1
     port: 7497
     data_client_id: 991     # distinct from the broker's, so both can connect
