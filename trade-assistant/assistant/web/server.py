@@ -115,6 +115,68 @@ def _mark_stale(ideas, router):
     return ideas
 
 
+@app.get("/api/paper")
+def api_paper():
+    """The paper book: cash, open positions, and the session log.
+
+    Separate from /api/state, which serves the journal — ideas a human decides
+    on. This is what the RULES did with nobody intervening, and mixing the two
+    would make it impossible to tell a good month from good judgement.
+    """
+    from ..markets import asset_class_of, exposure_group
+    from ..paper.book import Book
+
+    book = Book.load()
+    if not book.started:
+        return jsonify({"started": False,
+                        "message": "No paper book yet. Run a session to start one."})
+
+    positions = []
+    for p in book.positions:
+        value = book.position_value(p)
+        notional = abs(p["last_price"] * float(p.get("multiplier", 1.0) or 1.0)
+                       * p["shares"])
+        move = ((p["last_price"] / p["entry_price"] - 1) * 100
+                if p["entry_price"] else 0.0)
+        positions.append({
+            **{k: p.get(k) for k in ("ticker", "direction", "shares", "entry_price",
+                                     "last_price", "stop", "target", "strategy",
+                                     "entry_date", "bars_held", "headline")},
+            "segment": asset_class_of(p["ticker"]),
+            "exposure_group": exposure_group(p["ticker"]),
+            "value": round(value, 2),
+            "notional": round(notional, 2),
+            "move_pct": round(move, 2),
+            "unrealised": round(value - float(p.get("committed", 0) or 0), 2),
+        })
+    positions.sort(key=lambda x: -abs(x["notional"]))
+
+    return jsonify({
+        "started": True,
+        "summary": book.summary(),
+        "gross_exposure": round(book.gross_exposure(), 2),
+        "positions": positions,
+        "closed": book.closed[-25:][::-1],
+        "curve": book.curve[-120:],
+        "sessions": book.sessions[-10:][::-1],
+    })
+
+
+@app.post("/api/paper/run")
+def api_paper_run():
+    """Run one session on demand. Places no orders — there is no broker in it."""
+    from ..paper import session as paper_session
+
+    force = bool((request.get_json(silent=True) or {}).get("rebalance"))
+    try:
+        result = paper_session.run(rebalance_override=True if force else None)
+    except Exception as exc:
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+    return jsonify({k: result.get(k) for k in
+                    ("date", "rebalanced", "opened", "closed", "skipped",
+                     "notes", "universe", "price_source", "summary")})
+
+
 @app.get("/api/state")
 def api_state():
     try:

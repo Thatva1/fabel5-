@@ -142,7 +142,7 @@ strategies:
     skip_bars: 21                # the 1: last month excluded, it mean-reverts
     top_n: 12                    # hold the top 10-15 of the ranking
     min_universe: 10             # fewer names than this is not a cross-section
-    rebalance: monthly
+    rebalance: weekly
     require_market_trend: true   # the anti-crash overlay; false = the raw 1993 rule
     max_vol_pct: 60.0            # skip a leader whose own vol has exploded
     stop_atr: 3.0                # wide: this holds for weeks, not days
@@ -161,7 +161,7 @@ strategies:
     directions: [long]
     lookback_bars: 252
     min_abs_return_pct: 0.0      # 0 = the published rule, pure sign
-    rebalance: monthly
+    rebalance: weekly
     require_ma_agreement: true   # false = the unmodified 2012 rule
     max_vol_pct: 80.0
     stop_atr: 3.0
@@ -177,7 +177,7 @@ strategies:
     max_vol_rank_pct: 40.0       # the calmest 40% of the watchlist
     max_vol_pct: 30.0            # absolute fallback when there is no universe
     require_above_trend: true    # calm is not the same as rising
-    rebalance: monthly
+    rebalance: weekly
     stop_atr: 2.5
     reward_multiple: 2.5
 
@@ -197,7 +197,7 @@ paper:
   # book runs in USD from there — otherwise its return would measure the
   # strategy plus the exchange rate, and you could not tell which was which.
   trading_currency: USD
-  max_holding_bars: 40        # matches the backtest; the dominant exit
+  max_holding_bars: 10        # ~2 weeks, not ~2 months
   slippage_bps: 5.0           # charged against you on entry AND exit
   history_period: 2y          # 12-month signal + 200-day average needs ~1.5y
   screen:
@@ -325,12 +325,12 @@ portfolio:
   #   60%: 4.55% / 17.5%           90%:  7.44% / 22.7%  <- best Calmar 0.33
   #   70%: 5.04% / 18.3%          100%:  7.55% / 25.8%     Calmar 0.29
   max_gross_exposure_pct: 90.0
-  max_open_positions: 12
+  max_open_positions: 30
   # 8, measured. A cap of 4 cost 0.66 points of CAGR by blocking good trades;
   # 2 was far worse (2.87%). Above 8 adds nothing. Correlation is the better
   # tool for this job anyway — it measures whether positions actually move
   # together instead of guessing from the exchange they list on.
-  max_positions_per_market: 8
+  max_positions_per_market: 12
   max_new_entries_per_day: null   # null = unlimited
   # Tested at 0.8 and it COST return (7.44% -> 6.63%) while drawdown got
   # slightly worse. Left off until there is evidence for it.

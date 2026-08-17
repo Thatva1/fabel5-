@@ -35,14 +35,14 @@ from . import screen
 from .book import Book
 
 DEFAULTS = {
-    "max_holding_bars": 40,     # matches the backtest; the dominant exit
+    "max_holding_bars": 10,     # ~2 weeks; a trading book, not a holding book
     "slippage_bps": 5.0,        # against you, both sides
     "starting_equity": None,    # defaults to account.portfolio_value
     "history_period": "2y",     # enough for a 12-month signal plus a 200-day MA
     # Floor on a new position, as a percentage of equity. Below this the
     # position cannot affect the result but still pays commission and occupies
     # a slot — the sliver left when the exposure cap is nearly full.
-    "min_position_pct": 1.0,
+    "min_position_pct": 0.5,   # smaller floor so 30 positions can fit
 }
 
 

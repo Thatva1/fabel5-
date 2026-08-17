@@ -850,7 +850,7 @@ function legalDialog() {
 }
 
 /* ---------- render + events ---------- */
-const TITLES = { today: "Today", watchlist: "Watchlist", ideas: "Ideas", journal: "Journal", detail: "Idea" };
+const TITLES = { today: "Today", watchlist: "Watchlist", ideas: "Ideas", journal: "Journal", detail: "Idea" , paper: "Book" };
 
 function go(v) { view = v; render(); window.scrollTo(0, 0); }
 
@@ -869,6 +869,12 @@ function render() {
     : `${(S.watchlist_symbols || []).length} tickers · ${(S.scan?.watchlist || []).filter(w => w.setup_count > 0).length} with setups · ${ideas().length} ideas`;
   $("#scanBtn").disabled = !!S.scanning;
 
+  if (view === "paper") {
+    // Rendered from its own endpoint: the book is live state, not part of the
+    // scan snapshot the rest of these views read from.
+    loadPaper();
+    return;
+  }
   const html = { today: viewToday, watchlist: viewWatchlist, ideas: viewIdeas, journal: viewJournal, detail: viewDetail }[view]();
   $("#viewRoot").innerHTML = html;
   bindView();
@@ -1094,3 +1100,132 @@ document.addEventListener("keydown", e => {
 });
 
 fetchState();
+
+
+/* ============================ PAPER BOOK ============================
+   The rules trading forward with nobody intervening — separate from the
+   journal, which records ideas a human decided on. Kept apart deliberately:
+   mixed together you could no longer tell a good month from good judgement. */
+
+async function loadPaper() {
+  const root = document.getElementById('viewRoot');
+  root.innerHTML = '<div class="card"><div class="label">Loading the book…</div></div>';
+  let d;
+  try {
+    d = await (await fetch('/api/paper')).json();
+  } catch (e) {
+    root.innerHTML = '<div class="card"><b>Could not load the book.</b></div>';
+    return;
+  }
+
+  if (!d.started) {
+    root.innerHTML = `<div class="card">
+      <b>No paper book yet.</b>
+      <p class="meta">${d.message || ''}</p>
+      <button class="btn btn-primary" onclick="runPaper(true)">Start trading</button>
+    </div>`;
+    return;
+  }
+
+  const s = d.summary, ccy = s.base_currency;
+  const money = (v) => (v == null ? '—' : Number(v).toLocaleString(undefined,
+    { minimumFractionDigits: 0, maximumFractionDigits: 0 }));
+  const pct = (v) => (v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%');
+  const cls = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : '');
+
+  const rows = d.positions.map(p => `
+    <tr>
+      <td><b>${p.ticker}</b><div class="meta">${p.segment}</div></td>
+      <td>${p.strategy}</td>
+      <td class="num">${money(p.shares)}</td>
+      <td class="num">${Number(p.entry_price).toFixed(2)}</td>
+      <td class="num">${Number(p.last_price).toFixed(2)}</td>
+      <td class="num ${cls(p.move_pct)}">${pct(p.move_pct)}</td>
+      <td class="num ${cls(p.unrealised)}">${money(p.unrealised)}</td>
+      <td class="num">${money(p.notional)}</td>
+      <td class="num">${Number(p.stop).toFixed(2)}</td>
+      <td class="num">${p.bars_held}</td>
+    </tr>`).join('');
+
+  const closed = (d.closed || []).map(c => `
+    <tr>
+      <td><b>${c.ticker}</b></td><td>${c.strategy || ''}</td>
+      <td>${c.exit_reason || ''}</td>
+      <td class="num ${cls(c.pnl)}">${money(c.pnl)}</td>
+      <td class="num">${c.r_multiple == null ? '—' : c.r_multiple + 'R'}</td>
+      <td class="meta">${c.entry_date} → ${c.exit_date}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="meta">Nothing closed yet.</td></tr>';
+
+  root.innerHTML = `
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div>
+          <div class="label">Equity</div>
+          <div style="font-size:1.9rem;font-variant-numeric:tabular-nums">
+            ${money(s.equity)} <span class="meta">${ccy}</span>
+            <span class="${cls(s.return_pct)}" style="font-size:1rem">${pct(s.return_pct)}</span>
+          </div>
+        </div>
+        <div class="row" style="gap:8px">
+          <button class="btn" onclick="runPaper(false)">Run session</button>
+          <button class="btn btn-primary" onclick="runPaper(true)">Force rebalance</button>
+        </div>
+      </div>
+      <div class="row" style="gap:26px;margin-top:14px;flex-wrap:wrap">
+        <div><div class="label">Cash</div><b>${money(s.cash)}</b></div>
+        <div><div class="label">Exposure</div><b>${s.exposure_pct}%</b></div>
+        <div><div class="label">Gross notional</div><b>${money(d.gross_exposure)}</b></div>
+        <div><div class="label">Open</div><b>${s.open_positions}</b></div>
+        <div><div class="label">Closed</div><b>${s.closed_trades}</b></div>
+        <div><div class="label">Win rate</div><b>${s.win_rate_pct == null ? '—' : s.win_rate_pct + '%'}</b></div>
+        <div><div class="label">Max drawdown</div><b>${s.max_drawdown_pct}%</b></div>
+        <div><div class="label">Sessions</div><b>${s.days}</b></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Open positions</div>
+      <table class="tbl"><thead><tr>
+        <th>Instrument</th><th>Strategy</th><th class="num">Units</th>
+        <th class="num">Entry</th><th class="num">Now</th><th class="num">Move</th>
+        <th class="num">Unrealised</th><th class="num">Notional</th>
+        <th class="num">Stop</th><th class="num">Days</th>
+      </tr></thead><tbody>${rows || '<tr><td colspan="10" class="meta">No open positions.</td></tr>'}</tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="label">Recently closed</div>
+      <table class="tbl"><thead><tr>
+        <th>Instrument</th><th>Strategy</th><th>Exit</th>
+        <th class="num">P&L</th><th class="num">R</th><th>Held</th>
+      </tr></thead><tbody>${closed}</tbody></table>
+    </div>
+
+    <div class="card">
+      <div class="label">Session log</div>
+      ${(d.sessions || []).map(x => `<div class="meta">${x.date} — ${x.note || ''}</div>`).join('')
+        || '<div class="meta">No sessions recorded.</div>'}
+    </div>`;
+
+  const badge = document.getElementById('nb-paper');
+  if (badge) badge.textContent = s.open_positions || '';
+}
+
+async function runPaper(rebalance) {
+  const root = document.getElementById('viewRoot');
+  root.insertAdjacentHTML('afterbegin',
+    '<div class="card" id="paperBusy"><b>Running a session…</b>' +
+    '<p class="meta">A rebalance re-ranks the whole universe and can take a few ' +
+    'minutes on IBKR data. Nothing is ordered — there is no broker in this path.</p></div>');
+  try {
+    const r = await fetch('/api/paper/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rebalance: !!rebalance }),
+    });
+    const out = await r.json();
+    if (out.error) alert('Session failed: ' + out.error);
+  } catch (e) {
+    alert('Session failed: ' + e);
+  }
+  await loadPaper();
+}
