@@ -268,6 +268,23 @@ def ohlcv_history_ibkr(symbols, period="2y", config=None, progress_cb=None):
                     contract, endDateTime="", durationStr=provider._duration(period),
                     barSizeSetting="1 day", whatToShow="TRADES", useRTH=True,
                     formatDate=1)
+                # The same trailing-dot retry get_prices does. Without it this
+                # path — the one that actually builds the tradable universe —
+                # silently dropped London lines whose IB symbol carries a dot:
+                # BT-A.L, AV.L, BA.L, SN.L, CPG.L all failed here while the
+                # identical lookup succeeded through get_prices. A fix applied
+                # to one of two fetch paths is not a fix.
+                if not bars:
+                    for variant in provider._symbol_variants(symbol):
+                        probe = provider._contract_for(symbol)
+                        probe.symbol = variant
+                        bars = ib.reqHistoricalData(
+                            probe, endDateTime="",
+                            durationStr=provider._duration(period),
+                            barSizeSetting="1 day", whatToShow="TRADES",
+                            useRTH=True, formatDate=1)
+                        if bars:
+                            break
                 if bars:
                     frame = pd.DataFrame([{
                         "Open": b.open, "High": b.high, "Low": b.low,
