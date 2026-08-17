@@ -168,6 +168,9 @@ function triageRow(i) {
     </div>
     <div>
       <div style="font-size:12px" class="${v.cls}">${v.glyph} ${v.word}${stale}</div>
+      ${i.judgment ? `<div style="font-size:12px;margin-top:2px">
+        <b class="${{ BUY: "ok", SELL: "bad", WAIT: "warn", AVOID: "muted" }[i.judgment.action] || ""}">${esc(i.judgment.action)}</b>
+        <span class="prov">${esc(i.judgment.confidence || "")} confidence</span></div>` : ""}
       <div class="excerpt">${esc(i.thesis_summary || "")}</div>
     </div>
     <div class="rr num" style="font-size:13px">
@@ -351,6 +354,53 @@ function setupCard(i) {
   </div>`;
 }
 
+/* The answer, above the evidence for it.
+
+   Placed at the top of the idea deliberately. Everything below this card was
+   already on the page and the reader was left to combine five panels into a
+   decision; putting the conclusion last is what made the tool feel like it
+   never gave one. */
+function judgmentCard(j) {
+  if (!j) return "";
+  const tone = { BUY: "ok", SELL: "bad", HOLD: "", WAIT: "warn", AVOID: "muted" }[j.action] || "";
+  const bullets = (title, arr, cls) => (arr && arr.length)
+    ? `<div style="flex:1;min-width:210px">
+         <div class="label ${cls}" style="margin-bottom:6px">${title}</div>
+         <ul style="padding-left:16px">${arr.map(x =>
+            `<li style="font-size:13px;margin-bottom:4px">${esc(x)}</li>`).join("")}</ul>
+       </div>` : "";
+
+  const news = (j.news || []).length ? `
+    <div style="margin-top:14px">
+      <div class="label" style="margin-bottom:6px">Recent news</div>
+      ${j.news.map(n => `<div style="font-size:13px;margin-bottom:4px">
+          ${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.headline)}</a>`
+                  : esc(n.headline)}
+          <span class="prov">${esc([n.source, n.date].filter(Boolean).join(" · "))}</span>
+        </div>`).join("")}
+      <div class="prov" style="margin-top:6px">Context only — no rule in this system
+        trades on a headline.</div>
+    </div>` : "";
+
+  return `<div class="card">
+    <div style="display:flex;gap:14px;align-items:baseline;flex-wrap:wrap">
+      <span class="h ${tone}" style="font-size:26px">${esc(j.action)}</span>
+      <span class="pill">${esc(j.confidence || "")} confidence</span>
+    </div>
+    <p style="max-width:70ch;margin-top:8px"><b>${esc(j.headline || "")}</b></p>
+    <p class="meta" style="max-width:70ch">${esc(j.meaning || "")}</p>
+    ${(j.because || []).length ? `<ul style="padding-left:16px;margin-top:8px">
+      ${j.because.map(x => `<li style="font-size:13px;margin-bottom:4px">${esc(x)}</li>`).join("")}
+    </ul>` : ""}
+    ${j.conflict ? `<div class="callout warn" style="margin-top:10px">${esc(j.conflict)}</div>` : ""}
+    <div style="display:flex;gap:22px;flex-wrap:wrap;margin-top:14px">
+      ${bullets("Reasons for", j.pros, "ok")}
+      ${bullets("Reasons against", j.cons, "bad")}
+    </div>
+    ${news}
+  </div>`;
+}
+
 function viewDetail() {
   const i = byId(openIdeaId);
   if (!i) return `<div class="callout bad">Idea not found.</div>`;
@@ -378,6 +428,8 @@ function viewDetail() {
         </div>
         <div class="prov" style="margin-top:6px">Idea #${i.id} · ${esc(i.created_at)} UTC · ${esc(th.source || "")}</div>
       </div>
+
+      ${judgmentCard(i.judgment)}
 
       ${setupCard(i)}
 

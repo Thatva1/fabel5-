@@ -140,16 +140,31 @@ def for_idea(analysis, config=None):
         because.append(f"Regime: {snapshot['regime_label']}")
 
     # --- the decision ----------------------------------------------------
-    if not strategy_idea or strategy_idea.get("status") != "actionable" or not direction:
+    #
+    # Hard failures are tested BEFORE "is there a setup", because they are the
+    # more specific answer. An idea can reach here with no strategy attached —
+    # every idea journalled before the strategy library existed is shaped that
+    # way — and reporting those as "no setup fired" throws away the gate's
+    # actual reason for refusing, which is the thing worth reading.
+    has_setup = bool(strategy_idea) and strategy_idea.get("status") == "actionable" \
+        and bool(direction)
+
+    if hard:
+        action = AVOID
+        subject = f"this {direction} setup on {ticker}" if has_setup else ticker
+        headline = f"Risk gate refused {subject}."
+        because = hard + because
+    elif not has_setup:
         action = AVOID
         headline = f"No setup on {ticker}."
-        because = ["No strategy rule fired a directional setup on this instrument."]
+        # The gate's soft flags carry the specific reason — "watch item only, no
+        # direction yet" tells the reader far more than the generic sentence,
+        # and without them a squeeze being monitored looks identical to an
+        # instrument nothing has ever looked at.
+        because = list(soft) or [
+            "No strategy rule fired a directional setup on this instrument."]
         if snapshot.get("regime_label"):
             because.append(f"Regime: {snapshot['regime_label']}")
-    elif hard:
-        action = AVOID
-        headline = f"Risk gate refused this {direction} setup on {ticker}."
-        because = hard + because
     elif verdict == "needs_more_research":
         action = WAIT
         headline = f"A {direction} setup fired on {ticker}, but it is not clear to trade."

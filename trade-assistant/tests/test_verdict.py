@@ -48,6 +48,37 @@ def test_hard_failure_is_avoid_and_names_the_blocker():
     assert "concentration cap" in out["because"][0]
 
 
+def test_a_gated_idea_with_no_strategy_reports_the_gate_reason_not_no_setup():
+    """Every idea journalled before the strategy library exists in this shape —
+    a gate verdict and no strategy_idea. Reporting those as 'no setup fired'
+    discards the gate's actual reason, which is the part worth reading."""
+    legacy = idea(status=None, direction=None,
+                  hard=["Position would exceed the 60% total exposure cap."])
+    legacy["strategy_idea"] = {}
+    out = verdict.for_idea(legacy)
+    assert out["action"] == verdict.AVOID
+    assert "exposure cap" in out["because"][0]
+    assert "No setup" not in out["headline"]
+
+
+def test_an_ungated_idea_with_no_strategy_still_reports_no_setup():
+    bare = idea(status=None, direction=None)
+    bare["strategy_idea"] = {}
+    assert "No setup" in verdict.for_idea(bare)["headline"]
+
+
+def test_a_watch_item_explains_that_it_is_being_watched():
+    """A squeeze under observation and an instrument nobody has looked at both
+    reach AVOID; only the soft flags tell them apart."""
+    watching = idea(status="watch", direction=None,
+                    soft=["Watch item only — no direction yet, so no trade plan "
+                          "and no position size were built."])
+    watching["strategy_idea"] = {}
+    out = verdict.for_idea(watching)
+    assert out["action"] == verdict.AVOID
+    assert "Watch item only" in out["because"][0]
+
+
 def test_needs_more_research_is_wait_not_buy():
     out = verdict.for_idea(idea(verdict_name="needs_more_research",
                                 soft=["Earnings in 2 days."]))

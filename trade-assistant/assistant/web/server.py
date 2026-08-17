@@ -290,6 +290,40 @@ def api_news(ticker):
                         "error": f"{type(exc).__name__}: {exc}"})
 
 
+def _attach_verdicts(ideas, config):
+    """Give every journalled idea its one-word answer.
+
+    Free: the stored payload already holds the thesis, gate, plan and strategy
+    idea, so this is dict arithmetic over data the journal fetched once. No
+    price call and no model call, which is what makes it affordable to show on
+    every row rather than one ticker at a time.
+
+    News is absent here — it is not persisted with the idea — so the panel
+    reads pros and cons from the stored thesis and leaves headlines to
+    /api/verdict/<ticker>, which re-runs the pipeline live.
+    """
+    from ..research import verdict as verdict_module
+
+    for idea in ideas:
+        payload = idea.get("payload") or {}
+        try:
+            idea["judgment"] = verdict_module.for_idea({
+                "ticker": idea.get("ticker"),
+                "thesis": payload.get("thesis"),
+                "gate": payload.get("gate"),
+                "plan": payload.get("plan"),
+                "strategy_idea": payload.get("strategy_idea"),
+                "snapshot": payload.get("snapshot"),
+                "context": None,
+            }, config)
+        except Exception as exc:
+            # A malformed row must not take the whole dashboard down with it.
+            idea["judgment"] = {"action": "AVOID", "headline": "Could not judge this idea.",
+                                "because": [f"{type(exc).__name__}: {exc}"],
+                                "pros": [], "cons": [], "news": [], "confidence": "low"}
+    return ideas
+
+
 @app.get("/api/verdict/<path:ticker>")
 def api_verdict(ticker):
     """Buy / sell / avoid on one instrument, with the reasoning behind it.
@@ -377,7 +411,7 @@ def api_state():
         },
         "scan_progress": progress,
         "strategies": strategy_registry.describe(config),
-        "ideas": _mark_stale(journal.list_ideas(), router),
+        "ideas": _attach_verdicts(_mark_stale(journal.list_ideas(), router), config),
         "stats": journal.stats(),
         "execution": execution.execution_status(config),
         "orders": journal.list_orders(),
