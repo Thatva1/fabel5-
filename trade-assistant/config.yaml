@@ -454,12 +454,28 @@ portfolio:
   # ~22 names instead of 7, which is the diversification the correlation
   # threshold below was already trying to achieve and could not.
   #
+  # 2026-08-17, second change: 4.0 -> 2.0. At 4% the 90% budget was exhausted by
+  # 24 names and the book sat at 90.03% gross with 926 candidates refused for
+  # exposure — full, not selective. Halving the position halves what each name
+  # consumes, so the SAME budget spreads across roughly 45.
+  #
+  #   90% gross ÷ 4.0% = ~22 positions      90% ÷ 2.0% = ~45 positions
+  #
+  # Note this does not add risk: gross exposure is still capped at 90%, risk per
+  # trade is still 1%, and the correlation cap still bites. The same capital is
+  # simply divided more ways, which is the direction that reduces single-name
+  # concentration rather than increasing it. max_open_positions (60) still has
+  # headroom above 45, so the count remains a backstop rather than the binding
+  # limit — the exposure budget continues to do the real work.
+  #
   # NOT YET MEASURED, unlike every other number in this block. The exposure and
   # per-market caps above carry sweep results because they were swept; this one
   # is reasoned from the arithmetic above. Sweep it before trusting it:
   #   python run.py backtest --years 10
-  # and compare CAGR/drawdown at 3, 4, 5 and 15 percent.
-  max_position_pct: 4.0
+  # and compare CAGR/drawdown at 1.5, 2, 3, 4 and 15 percent. More names is not
+  # automatically better: past some point the marginal position is a worse idea
+  # than the one it dilutes, and each one still pays commission and slippage.
+  max_position_pct: 2.0
   # 8, measured. A cap of 4 cost 0.66 points of CAGR by blocking good trades;
   # 2 was far worse (2.87%). Above 8 adds nothing. Correlation is the better
   # tool for this job anyway — it measures whether positions actually move
