@@ -21,6 +21,7 @@ module. Fills are modelled at the next available close with slippage, which is
 optimistic against a real market open and is stated as such in the output.
 """
 import os
+import time
 from datetime import datetime, timezone
 
 from ..backtest import engine as backtest_engine, portfolio as portfolio_limits, simulator
@@ -396,9 +397,23 @@ def _load_kelly_edges():
     try:
         with open(path) as handle:
             payload = json.load(handle)
-        return payload.get("out_of_sample_returns") or {}
+        returns = payload.get("out_of_sample_returns") or {}
     except (OSError, ValueError):
-        return {}
+        return {}, None
+
+    # The file itself carries no generation date, and it SIZES POSITIONS — so
+    # without this the book could bet on edges measured against a strategy
+    # library that has since been rewritten, with nothing on screen to say so.
+    # Reported rather than enforced: a stale edge file is a reason to re-run the
+    # study, not a reason to stop trading mid-session.
+    try:
+        age_days = (time.time() - os.path.getmtime(path)) / 86400
+    except OSError:
+        age_days = None
+    return returns, {"path": os.path.basename(path),
+                     "split_date": payload.get("split_date"),
+                     "strategies": len(returns),
+                     "age_days": round(age_days, 1) if age_days is not None else None}
 
 
 def _kelly_units(idea, *, equity, fill, multiplier, config, edges,
@@ -446,11 +461,17 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
     """Take the best candidates that fit inside the portfolio limits."""
     skipped = {"exposure": 0, "max_positions": 0, "correlation": 0,
                "duplicate_exposure": 0, "size_too_small": 0, "cash": 0}
-    kelly_edges = _load_kelly_edges() if kelly.settings(config).get("enabled") else {}
+    kelly_edges, edge_provenance = (
+        _load_kelly_edges() if kelly.settings(config).get("enabled") else ({}, None))
     if kelly_edges:
+        age = (edge_provenance or {}).get("age_days")
+        out["kelly_edges"] = edge_provenance
         out.setdefault("notes", []).append(
             f"Kelly sizing active for {len(kelly_edges)} strategies with an "
-            "out-of-sample edge; the rest fall back to fixed-risk sizing.")
+            f"out-of-sample edge (split {(edge_provenance or {}).get('split_date')}, "
+            f"file {age}d old); the rest fall back to fixed-risk sizing."
+            + (" That edge file is over a quarter old — re-run the study before "
+               "trusting it to size positions." if age and age > 90 else ""))
     returns = {t: df["Close"].pct_change().dropna() for t, df in frames.items()}
     for series in returns.values():
         series.index = [str(d)[:10] for d in series.index]
