@@ -221,6 +221,27 @@ def _book_banner(book, sources, staleness):
                        "IBKR data."}
 
 
+@app.get("/api/paper/live")
+def api_paper_live():
+    """The book repriced to where the market is now. Persists nothing.
+
+    Deliberately a separate endpoint from /api/paper: the book's own marks are
+    the record of what the rules achieved and must not move when a page
+    refreshes, while this answers the different question of what the positions
+    are worth at this moment.
+    """
+    from ..paper import live
+    from ..paper.book import Book
+
+    book = Book.load()
+    if not book.started:
+        return jsonify({"started": False, "available": False, "positions": []})
+    force = request.args.get("force") in ("1", "true", "yes")
+    out = live.snapshot(book, load_config(), force=force)
+    out["started"] = True
+    return jsonify(out)
+
+
 @app.get("/api/coverage")
 def api_coverage():
     """What the licensed feed can price, and what a subscription would unlock."""

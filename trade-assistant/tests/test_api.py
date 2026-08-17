@@ -120,13 +120,36 @@ def test_invalid_decision_value_rejected(client):
 
 # ---------- Execution endpoints degrade cleanly ----------
 
-def test_prepare_order_when_execution_disabled_is_409_not_500(client):
+@pytest.fixture
+def execution_off(monkeypatch):
+    """Force execution off for the duration of a test.
+
+    These two tests used to read the real state.yaml and passed only because
+    execution happened to be switched off there. The day it was switched on,
+    the 'disabled' branch stopped being reachable and the test failed while
+    asserting nothing about the code it was meant to cover — a test whose
+    result depends on the developer's live trading configuration is not
+    testing the server.
+    """
+    from assistant.web import server
+
+    real_load = server.load_config
+
+    def disabled_config():
+        config = dict(real_load())
+        config["execution"] = {**(config.get("execution") or {}), "enabled": False}
+        return config
+
+    monkeypatch.setattr(server, "load_config", disabled_config)
+
+
+def test_prepare_order_when_execution_disabled_is_409_not_500(client, execution_off):
     resp = client.post("/api/ideas/1/prepare-order")
     assert resp.status_code == 409
     assert "disabled" in resp.get_json()["error"]
 
 
-def test_confirm_order_when_execution_disabled_is_409(client):
+def test_confirm_order_when_execution_disabled_is_409(client, execution_off):
     resp = client.post("/api/orders/1/confirm", json={"confirmation": "TEST"})
     assert resp.status_code == 409
 

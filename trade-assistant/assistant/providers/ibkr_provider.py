@@ -195,6 +195,59 @@ class IBKRDataProvider(DataProvider):
             f"{self.client_id}-{self.client_id + CLIENT_ID_ATTEMPTS - 1}. Is it "
             f"running, logged in, and is the API enabled in its settings?")
 
+    # -- live-ish intraday prices ------------------------------------------
+
+    def intraday_marks(self, tickers, bar_size="5 mins"):
+        """Latest intraday price per ticker, over ONE held-open connection.
+
+        This exists because the book marks to DAILY bars, and today's daily bar
+        does not exist until today's closing bell. Watching a book during the
+        session therefore showed yesterday's close on every row, unmoving, for
+        the entire trading day — the position had not frozen, it was simply
+        being priced by a bar that had not been written yet.
+
+        Real-time quotes are not available here: reqMktData returns NaN on this
+        account for both live and delayed modes, because it carries no
+        streaming market-data subscription. Intraday HISTORICAL bars sit under
+        different entitlements and do work, arriving roughly 10-15 minutes
+        behind. That delay is stated everywhere this data is shown rather than
+        smoothed over — a number presented as live when it is a quarter-hour
+        old is the same class of lie this whole provenance effort exists to
+        stop.
+
+        Returns {ticker: {price, bar_time, bar_size}}, omitting anything that
+        did not answer. One connection for the batch: the handshake dominates,
+        exactly as it does for the daily universe fetch.
+        """
+        out = {}
+        ib = self._connect()
+        try:
+            for ticker in dict.fromkeys(tickers):
+                try:
+                    contract = self._contract_for(ticker)
+                    if str(ticker).upper().endswith("=F"):
+                        contract = self._resolve_future(ib, contract) or contract
+                    bars = ib.reqHistoricalData(
+                        contract, endDateTime="", durationStr="1 D",
+                        barSizeSetting=bar_size, whatToShow="TRADES",
+                        useRTH=True, formatDate=1)
+                    if not bars:
+                        continue
+                    last = bars[-1]
+                    out[ticker] = {
+                        "price": float(last.close),
+                        "bar_time": str(last.date),
+                        "bar_size": bar_size,
+                        "source": SOURCE,
+                    }
+                except Exception:
+                    # One instrument failing must not cost the whole batch; the
+                    # caller reports coverage from what came back.
+                    continue
+        finally:
+            ib.disconnect()
+        return out
+
     # -- prices ------------------------------------------------------------
 
     def get_prices(self, ticker, period="1y"):

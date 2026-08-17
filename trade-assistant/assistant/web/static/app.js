@@ -1159,6 +1159,91 @@ fetchState();
    journal, which records ideas a human decided on. Kept apart deliberately:
    mixed together you could no longer tell a good month from good judgement. */
 
+/* ---------- live P&L ----------
+   The book's own marks are daily closes and must not move when a page
+   refreshes — they are the record of what the rules achieved. This panel
+   answers the other question, "what is it worth right now", and is a view
+   only: nothing here is written back to the book. */
+
+let livePoll = null;
+
+function livePanel(L) {
+  if (!L || !L.started) return "";
+  if (!L.available) {
+    return `<div class="card">
+      <div class="label">Live P&amp;L</div>
+      <p class="meta">${esc(L.note || "Live prices are unavailable right now.")}</p>
+    </div>`;
+  }
+  const s = L.summary || {};
+  const sign = v => (v > 0 ? "up" : v < 0 ? "down" : "");
+  const money = v => (v == null ? "—" : Number(v).toLocaleString(undefined,
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+
+  const breach = (L.breaches || []).length ? `
+    <div class="callout warn" style="margin-top:12px">
+      <b>${L.breaches.length} position(s) have reached an exit level right now:</b>
+      ${L.breaches.map(b => `<div>${esc(b.ticker)} — through its ${esc(b.kind)}
+        at ${money(b.level)} (live ${money(b.live_price)})</div>`).join("")}
+      <div class="prov" style="margin-top:6px">The book takes exits on DAILY bars,
+        so these will not be actioned until a session runs after the close.</div>
+    </div>` : "";
+
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+      <div>
+        <div class="label">Live P&amp;L — today</div>
+        <div style="font-size:1.9rem;font-variant-numeric:tabular-nums" class="${sign(s.today_pnl)}">
+          ${s.today_pnl > 0 ? "+" : ""}${money(s.today_pnl)}
+          <span class="meta">${esc(s.base_currency || "")}</span>
+          <span style="font-size:1rem">${s.today_pct > 0 ? "+" : ""}${Number(s.today_pct || 0).toFixed(3)}%</span>
+        </div>
+      </div>
+      <button class="btn btn-sm" onclick="refreshLive(true)">Refresh now</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:16px 24px;margin-top:16px">
+      <div><div class="label">Equity now</div><b>${money(s.equity)}</b></div>
+      <div><div class="label">Open P&amp;L</div>
+        <b class="${sign(s.open_pnl)}">${s.open_pnl > 0 ? "+" : ""}${money(s.open_pnl)}</b></div>
+      <div><div class="label">Cash</div><b>${money(s.cash)}</b></div>
+      <div><div class="label">Gross notional</div><b>${money(s.gross_exposure)}</b></div>
+      <div><div class="label">Priced live</div><b>${L.priced}/${L.priced + L.unpriced}</b></div>
+    </div>
+    ${breach}
+    <div class="prov" style="margin-top:12px">${esc(L.delay_note || "")}
+      Updated ${esc((L.as_of || "").replace("T", " ").replace("+00:00", " UTC"))}.</div>
+  </div>`;
+}
+
+async function refreshLive(force) {
+  const host = document.getElementById("liveRoot");
+  if (!host) return;
+  try {
+    const L = await (await fetch("/api/paper/live" + (force ? "?force=1" : ""))).json();
+    host.innerHTML = livePanel(L);
+    // Live price and today's move, written onto the rows already on screen, so
+    // the table does not have to be rebuilt underneath the reader.
+    (L.positions || []).forEach(p => {
+      const cell = document.querySelector(`[data-live="${p.ticker}"]`);
+      if (!cell) return;
+      const cls = p.today_pct > 0 ? "up" : p.today_pct < 0 ? "down" : "";
+      cell.innerHTML = p.has_live
+        ? `<b class="${cls}">${Number(p.live_price).toFixed(2)}</b>
+           <div class="meta" style="font-size:11px">${p.today_pct > 0 ? "+" : ""}${Number(p.today_pct).toFixed(2)}% today</div>`
+        : '<span class="meta">—</span>';
+    });
+  } catch (e) { /* the book stays on screen without the overlay */ }
+}
+
+function startLivePolling() {
+  if (livePoll) clearInterval(livePoll);
+  // Bars are five minutes wide and arrive ~10-15 min late, so polling faster
+  // than this would just re-fetch the same bar and reopen a socket to do it.
+  livePoll = setInterval(() => {
+    if (view === "paper") refreshLive(false); else { clearInterval(livePoll); livePoll = null; }
+  }, 60000);
+}
+
 /* Verdict as a coloured word. SELL is red because it is the one that needs
    acting on today; HOLD is deliberately quiet so a book of holds reads as calm
    rather than as a wall of alerts. */
@@ -1291,6 +1376,8 @@ async function loadPaper() {
         ${Number(p.last_price).toFixed(2)}${p.mark_failed || !p.current ? ' <span class="warn">⚠</span>' : ''}
         <div class="meta" style="font-size:11px">${p.bar_date || '—'}${srcWarn ? ' · ' + p.price_source : ''}</div>
       </td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums"
+          data-live="${esc(p.ticker)}"><span class="meta">…</span></td>
       <td class="num ${cls(p.move_pct)}" style="text-align:right;font-variant-numeric:tabular-nums">${pct(p.move_pct)}</td>
       <td class="num ${cls(p.unrealised)}" style="text-align:right;font-variant-numeric:tabular-nums">${money(p.unrealised)}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(p.notional)}</td>
@@ -1312,6 +1399,7 @@ async function loadPaper() {
 
   root.innerHTML = `
     ${bookBanner(d)}
+    <div id="liveRoot"></div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
         <div>
@@ -1342,10 +1430,10 @@ async function loadPaper() {
       <div class="label">Open positions</div>
       <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;opacity:.6">
         <th>Instrument</th><th>Strategy</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Units</th>
-        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Entry</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Now</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Move</th>
+        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Entry</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Session</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Live</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Move</th>
         <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Unrealised</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Notional</th>
         <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Stop</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Days</th><th>Verdict</th><th></th>
-      </tr></thead><tbody>${rows || '<tr><td colspan="12" class="meta">No open positions.</td></tr>'}</tbody></table>
+      </tr></thead><tbody>${rows || '<tr><td colspan="13" class="meta">No open positions.</td></tr>'}</tbody></table>
       <div id="newsPanel"></div>
     </div>
 
@@ -1380,6 +1468,11 @@ async function loadPaper() {
 
   const badge = document.getElementById('nb-paper');
   if (badge) badge.textContent = s.open_positions || '';
+
+  // Painted after the table exists, then kept warm on a timer, so the page
+  // stops being something the reader has to reload by hand.
+  refreshLive(false);
+  startLivePolling();
 }
 
 async function runPaper(rebalance) {
