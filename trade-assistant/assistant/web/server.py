@@ -83,24 +83,44 @@ STALE_DRIFT_PCT = 2.0
 
 
 def _mark_stale(ideas, router):
-    """Flag ideas whose plan no longer matches the market, so the UI can warn
-    without every client re-pricing all of them. Cheap: only checks ideas the
-    user has approved (the only ones that can become orders) and relies on the
-    router's price cache."""
+    """Flag ideas whose plan no longer matches the market.
+
+    Two checks, and they cost very different amounts:
+
+      * AGE is arithmetic on a stored timestamp. Free, so every idea gets it.
+      * PRICE DRIFT needs a quote per instrument. Paid, so only ideas that
+        could actually become an order get it.
+
+    Those were previously conflated, and the whole function returned early for
+    anything the user had not approved. The result was that a journal of ideas
+    12 to 21 days old rendered with exactly one staleness warning on it — the
+    single approved one — while eighty-one plans built against three-week-old
+    prices displayed as though they were current. The saving was never the
+    reason to skip the age check; it was only ever the reason to skip the fetch.
+    """
     for idea in ideas:
         idea["stale"] = False
         idea["stale_reason"] = None
-        plan = (idea.get("payload") or {}).get("plan")
-        if not plan or idea.get("decision") != "approved":
-            continue
+        idea["age_hours"] = None
+
         try:
             age_h = (datetime.now(timezone.utc)
                      - datetime.fromisoformat(idea["created_at"])).total_seconds() / 3600
         except Exception:
             age_h = None
+        idea["age_hours"] = round(age_h, 1) if age_h is not None else None
+
         if age_h is not None and age_h > STALE_AFTER_HOURS:
             idea["stale"] = True
-            idea["stale_reason"] = f"plan is {int(age_h)}h old"
+            days = age_h / 24
+            idea["stale_reason"] = (
+                f"researched {days:.0f} days ago" if days >= 2
+                else f"researched {int(age_h)}h ago")
+            # Already stale on age; re-pricing it cannot make it less so.
+            continue
+
+        plan = (idea.get("payload") or {}).get("plan")
+        if not plan or idea.get("decision") != "approved":
             continue
         try:
             df = router.get_prices(idea["ticker"], period="5d")

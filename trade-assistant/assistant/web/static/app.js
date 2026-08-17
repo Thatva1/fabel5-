@@ -209,7 +209,12 @@ function setNav() {
 function triageRow(i) {
   const v = VERDICT[i.verdict] || VERDICT.rejected;
   const plan = i.payload?.plan;
-  const stale = i.stale ? `<span class="pill warn" style="margin-left:6px">${GLYPH.advisory} Stale</span>` : "";
+  // The age goes ON the row, not only in a filter. An idea researched three
+  // weeks ago and one researched this morning looked identical here, which is
+  // how a journal of old scans came to read as today's work.
+  const stale = i.stale
+    ? `<span class="pill warn" style="margin-left:6px">${GLYPH.advisory} ${esc(i.stale_reason || "stale")}</span>`
+    : "";
   return `<button class="triage v-${i.verdict}" data-idea="${i.id}">
     <div>
       <div class="tk">${esc(i.ticker)}</div>
@@ -260,18 +265,38 @@ function viewToday() {
       <div class="prov" style="margin-top:4px">Theses fall back to a rule-based screen.</div></div>` : ""),
   ].filter(Boolean).join("") || `<div class="prov">${GLYPH.ok} Nothing needs attention.</div>`;
 
+  // How much of the queue is left over from old scans. When it is all of it,
+  // the honest headline is "nothing current", not "81 decisions waiting".
+  const freshPending = pending.filter(i => !i.stale);
+  const stalePending = pending.filter(i => i.stale);
+  const queueNotice = (pending.length && !freshPending.length) ? `
+    <div class="callout warn" style="margin-bottom:12px">
+      <b>${GLYPH.advisory} Nothing here is current.</b>
+      <div class="prov" style="margin-top:4px">All ${pending.length} pending ideas
+        come from earlier scans — the oldest is
+        ${Math.round(Math.max(...pending.map(i => i.age_hours || 0)) / 24)} days old.
+        Their prices and levels were computed then, not now.
+        Run a scan to get ideas against today's market.</div>
+      <button class="btn btn-sm" style="margin-top:8px" onclick="document.getElementById('scanBtn').click()">Run a scan</button>
+    </div>` : "";
+
   return `
   <div class="grid" style="grid-template-columns:1fr 320px;align-items:start">
     <div class="grid" style="gap:var(--s5)">
       <section>
-        <div class="label" style="margin-bottom:12px">Needs your decision (${pending.length})</div>
-        ${pending.length ? `<div class="grid" style="gap:10px">${pending.slice(0, 5).map(triageRow).join("")}</div>`
+        <div class="label" style="margin-bottom:12px">Needs your decision
+          (${freshPending.length}${stalePending.length ? ` current · ${stalePending.length} from old scans` : ""})</div>
+        ${queueNotice}
+        ${pending.length ? `<div class="grid" style="gap:10px">${[...freshPending, ...stalePending].slice(0, 5).map(triageRow).join("")}</div>`
       : emptyIdeas()}
         ${pending.length > 5 ? `<button class="btn btn-sm" style="margin-top:12px" data-goto="ideas">See all ${pending.length}</button>` : ""}
       </section>
 
       <section>
-        <div class="label" style="margin-bottom:12px">Setups found in last scan (${flagged.length})</div>
+        <div class="label" style="margin-bottom:12px">${S.scan ? `Setups found in last scan (${flagged.length})` : "Setups found in last scan"}</div>
+        ${!S.scan ? `<div class="callout dashed" style="margin-bottom:10px"><span class="muted">
+          No scan has run in this session, so there is nothing to show here — this is
+          not the same as a scan that found nothing.</span></div>` : ""}
         ${flagged.length ? `<div class="card" style="padding:0"><table class="wide"><thead><tr>
             <th>Ticker</th><th class="n">Price</th><th class="n">Chg</th>
             <th class="n">Vol vs 20d</th><th class="n">RSI</th><th>Market</th>
