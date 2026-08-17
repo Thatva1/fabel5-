@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from ..backtest import engine as backtest_engine, portfolio as portfolio_limits, simulator
 from .. import markets
 from ..core import fx
-from ..core.config import load_config
+from ..core.config import DATA_DIR, load_config
 from ..research import scanner
 from ..risk import kelly, sizing
 from ..strategies import router as strategy_router
@@ -54,7 +54,70 @@ def settings(config):
     return {k: v for k, v in cfg.items() if k != "screen"}
 
 
-def _fetch(symbols, period, config, label, out, progress_cb=None):
+HISTORY_CACHE_PATH = os.path.join(DATA_DIR, "universe_history_cache.pkl")
+
+
+def _history_cache_key(symbols, period):
+    import hashlib
+
+    digest = hashlib.sha1("\n".join(sorted(symbols)).encode()).hexdigest()[:16]
+    return f"{period}:{len(symbols)}:{digest}"
+
+
+def _load_history_cache(symbols, period, max_age_hours):
+    """Reuse a recent universe fetch instead of walking IBKR again.
+
+    Why this is sound: the strategies rank on 252-day lookbacks and 200-day
+    averages. Between two runs on the same day the only bar that can differ is
+    today's still-forming one, and one partial bar at the end of a 252-bar
+    window does not move a ranking.
+
+    Why it is necessary: the fetch is ~1.44s per instrument over a held-open
+    connection, so a 1,560-name universe costs about 38 minutes. Under the old
+    monthly schedule that was paid once a month. At half-day it would be paid
+    twice a day — 76 minutes of continuous pulling — which is not a schedule
+    anyone would actually leave running.
+
+    The cache is keyed on the exact symbol set, so re-screening the universe
+    invalidates it rather than silently ranking against yesterday's membership.
+    """
+    import pickle
+
+    if not max_age_hours:
+        return None
+    try:
+        with open(HISTORY_CACHE_PATH, "rb") as handle:
+            payload = pickle.load(handle)
+    except (OSError, ValueError, EOFError, pickle.UnpicklingError, AttributeError):
+        return None
+
+    if payload.get("key") != _history_cache_key(symbols, period):
+        return None
+    age_h = (time.time() - payload.get("fetched_at", 0)) / 3600
+    if age_h > float(max_age_hours):
+        return None
+    return {"frames": payload.get("frames") or {},
+            "price_source": payload.get("price_source"),
+            "age_hours": round(age_h, 2)}
+
+
+def _save_history_cache(symbols, period, frames, price_source):
+    import pickle
+
+    try:
+        os.makedirs(os.path.dirname(HISTORY_CACHE_PATH), exist_ok=True)
+        tmp = HISTORY_CACHE_PATH + ".tmp"
+        with open(tmp, "wb") as handle:
+            pickle.dump({"key": _history_cache_key(symbols, period),
+                         "fetched_at": time.time(), "frames": frames,
+                         "price_source": price_source}, handle,
+                        protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, HISTORY_CACHE_PATH)
+    except OSError:
+        pass        # a cache that cannot be written must not fail the session
+
+
+def _fetch(symbols, period, config, label, out, progress_cb=None, cache_hours=None):
     """Universe history from IBKR when enabled, yfinance otherwise.
 
     The feed is named in the session report rather than assumed. A book built
@@ -63,6 +126,18 @@ def _fetch(symbols, period, config, label, out, progress_cb=None):
     London — so which one produced a number has to travel with it.
     """
     from ..providers import bulk
+
+    if cache_hours:
+        cached = _load_history_cache(symbols, period, cache_hours)
+        if cached and cached["frames"]:
+            out["price_source"] = cached["price_source"]
+            out.setdefault("notes", []).append(
+                f"{label}: reused {len(cached['frames'])} instruments fetched "
+                f"{cached['age_hours']}h ago (cache), priced by "
+                f"{cached['price_source']}. Daily bars, so a same-day reuse "
+                f"cannot change a 252-bar ranking.")
+            out["universe_history_cached"] = True
+            return cached["frames"]
     from ..risk import kelly  # noqa: F401  (kept for import symmetry)
 
     if ((config.get("providers") or {}).get("ibkr") or {}).get("enabled"):
@@ -74,13 +149,18 @@ def _fetch(symbols, period, config, label, out, progress_cb=None):
                 + (f"; {len(missing)} unavailable (usually a missing market-data "
                    "subscription for that venue)" if missing else ""))
             out["price_source"] = "ibkr"
+            if cache_hours:
+                _save_history_cache(symbols, period, frames, "ibkr")
             return frames
         except Exception as exc:
             out.setdefault("notes", []).append(
                 f"IBKR unavailable ({type(exc).__name__}), falling back to "
                 "yfinance — results are NOT on licensed data.")
     out["price_source"] = "yfinance"
-    return bulk.ohlcv_history(symbols, period=period)
+    frames = bulk.ohlcv_history(symbols, period=period)
+    if cache_hours:
+        _save_history_cache(symbols, period, frames, "yfinance")
+    return frames
 
 
 def _today():
@@ -223,7 +303,8 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
                               "pnl": position["pnl"], "r": position["r_multiple"]})
 
     # --- 3. Rebalance, if this is a rebalance day ------------------------
-    due = _rebalance_due(book, today) if rebalance_override is None else rebalance_override
+    due = (_rebalance_due(book, today, config) if rebalance_override is None
+           else rebalance_override)
     if not due:
         row = book.mark(today, "marked only — not a rebalance day",
                         price_source=mark_source, rebalanced=False,
@@ -238,11 +319,13 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
 
     out["rebalanced"] = True
     book.last_rebalance = today
+    book.last_rebalance_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     report_stage(f"fetching history for {len(universe)} instruments")
     universe_frames = _fetch(
         universe, cfg["history_period"], config, "universe", out,
         progress_cb=lambda done, total, ok: report_stage(
-            f"fetching {done}/{total} — {ok} with data"))
+            f"fetching {done}/{total} — {ok} with data"),
+        cache_hours=cfg.get("universe_history_cache_hours"))
     if len(universe_frames) < 10:
         out["notes"].append(
             f"Only {len(universe_frames)} instruments returned history; "
@@ -692,22 +775,99 @@ def _hand_the_calendar_to_the_session(config):
     return {**config, "strategies": blocks}
 
 
-def _rebalance_due(book, today):
-    """First session of a new calendar month.
+REBALANCE_SCHEDULES = ("monthly", "weekly", "daily", "half_day")
+
+
+def _rebalance_window(schedule, moment, split_hour):
+    """A label that changes exactly when a new rebalance becomes due.
+
+    Comparing labels rather than doing date arithmetic keeps every schedule the
+    same three lines and makes "have we already rebalanced in this window"
+    answerable from one stored string.
+    """
+    if schedule == "monthly":
+        return moment.strftime("%Y-%m")
+    if schedule == "weekly":
+        year, week, _ = moment.isocalendar()
+        return f"{year}-W{week:02d}"
+    if schedule == "daily":
+        return moment.strftime("%Y-%m-%d")
+    # half_day: two windows per calendar day, split at split_hour UTC.
+    half = "A" if moment.hour < split_hour else "B"
+    return f"{moment.strftime('%Y-%m-%d')}-{half}"
+
+
+def _rebalance_due(book, today, config=None, now=None):
+    """Is a rebalance due under the configured schedule?
 
     Keyed on the last REBALANCE, not on the last session. A trader switched off
     for six weeks rebalances the day it comes back rather than waiting for the
-    next month boundary and holding a stale book.
+    next boundary and holding a stale book.
 
     Deriving this from the session log instead coupled the trading calendar to
     anything that wrote a log line, and it broke immediately: the note recording
     the opening FX conversion landed in `sessions` before this ran, so the very
     first session of a brand-new book concluded it had already rebalanced and
     opened nothing.
+
+    WHAT A FASTER SCHEDULE DOES AND DOES NOT BUY. Every strategy here ranks on
+    DAILY bars — a trailing year of returns, a 200-day average. Those inputs do
+    not change between two runs on the same day, so a sub-daily schedule
+    produces the SAME ranking each time; it cannot find a different set of
+    names. What it does do is reuse capital sooner: the rebalance step only ever
+    opens positions (exits are taken separately, every session), so a slot freed
+    by a stop this morning is refilled this afternoon instead of standing empty
+    until the next month boundary. Names already held are skipped, so running
+    more often does not churn the book or pay commission twice for the same
+    position.
     """
-    if not book.last_rebalance:
+    cfg = (config or {}).get("paper") or {}
+    schedule = str(cfg.get("rebalance_every", "monthly")).lower()
+    if schedule not in REBALANCE_SCHEDULES:
+        schedule = "monthly"
+    split_hour = int(cfg.get("half_day_split_hour_utc", 12))
+
+    previous = book.last_rebalance_at or book.last_rebalance
+    if not previous:
         return True
-    return book.last_rebalance[:7] != today[:7]
+
+    # The session's DATE comes from `today`, which the caller owns and which the
+    # tests drive the calendar through; only the TIME OF DAY comes from the
+    # clock, because that is the one thing a date string cannot supply and a
+    # sub-daily window needs. Reading both from the clock made every schedule
+    # ignore `today` entirely — a session replaying 2026-01-06 was judged
+    # against the window the machine happened to be in when it ran.
+    moment = now
+    if moment is None:
+        wall = datetime.now(timezone.utc)
+        try:
+            moment = datetime.strptime(today[:10], "%Y-%m-%d").replace(
+                tzinfo=timezone.utc, hour=wall.hour, minute=wall.minute)
+        except (TypeError, ValueError):
+            moment = wall
+    current = _rebalance_window(schedule, moment, split_hour)
+
+    # A book written before this setting existed stored only a date. Its window
+    # label is recomputed from that date so an upgrade does not read as "never
+    # rebalanced" and immediately rebalance again.
+    if book.last_rebalance_at:
+        try:
+            previous_moment = datetime.fromisoformat(book.last_rebalance_at)
+        except ValueError:
+            previous_moment = moment
+    else:
+        try:
+            previous_moment = datetime.strptime(book.last_rebalance[:10], "%Y-%m-%d") \
+                .replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            return True
+        # A legacy date carries no time of day, so it cannot say which half of
+        # that day it belonged to. Treated as the first window, which at worst
+        # allows one extra rebalance on upgrade rather than suppressing one.
+        if schedule == "half_day":
+            previous_moment = previous_moment.replace(hour=0)
+
+    return current != _rebalance_window(schedule, previous_moment, split_hour)
 
 
 def _benchmark(router, config):

@@ -277,6 +277,38 @@ paper:
   # book runs in USD from there — otherwise its return would measure the
   # strategy plus the exchange rate, and you could not tell which was which.
   trading_currency: USD
+  # How often new positions may be OPENED. Exits are taken every session
+  # regardless of this — a stop is never left waiting for a rebalance day.
+  #
+  #   monthly  (was the only behaviour) · weekly · daily · half_day
+  #
+  # Set to half_day on 2026-08-17. Be clear about what that changes and what it
+  # does not: every strategy here ranks on DAILY bars — a trailing year of
+  # returns, a 200-day average — and those inputs are identical between two runs
+  # on the same day. The second run therefore produces the SAME ranking as the
+  # first and cannot find a different set of names.
+  #
+  # What it does buy is capital turnover. The rebalance step only ever opens
+  # positions, so under `monthly` a slot freed by a stop on the 3rd stood empty
+  # until the 1st of the next month. Now it refills the same day. Names already
+  # held are skipped, so running more often does not churn the book or pay
+  # commission twice for a position it already owns.
+  #
+  # Picking different names intraday would need the strategies rebuilt on
+  # intraday bars, which would also invalidate every backtest figure in this
+  # file — those were all measured on daily data.
+  rebalance_every: half_day
+  half_day_split_hour_utc: 12   # windows are [00:00,12:00) and [12:00,24:00) UTC
+  # Reuse a recent universe history fetch instead of walking IBKR again.
+  # The fetch is ~1.44s per instrument, so 1,560 names costs ~38 minutes. Paid
+  # once a month that was tolerable; at half_day it would be 76 minutes of
+  # continuous pulling every day, which is not a schedule anyone would leave
+  # running. Safe because the strategies rank on 252-day lookbacks — between two
+  # runs on the same day the only bar that can differ is today's still-forming
+  # one, and one partial bar at the end of a 252-bar window does not move a
+  # ranking. Keyed on the exact symbol set, so re-screening invalidates it.
+  # Set to 0 to always re-fetch.
+  universe_history_cache_hours: 8
   max_holding_bars: 10        # ~2 weeks, not ~2 months
   slippage_bps: 5.0           # charged against you on entry AND exit
   history_period: 2y          # 12-month signal + 200-day average needs ~1.5y

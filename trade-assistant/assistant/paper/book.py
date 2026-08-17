@@ -50,6 +50,11 @@ class Book:
         # appended before the check ran, so a brand-new book decided it had
         # already rebalanced and opened nothing on its first day.
         self.last_rebalance = state.get("last_rebalance")
+        # The DATE above cannot express a sub-daily schedule — it cannot say
+        # which half of a day a rebalance belonged to. Stored alongside rather
+        # than replacing it, so a book written before sub-daily schedules
+        # existed still loads and still answers the monthly question correctly.
+        self.last_rebalance_at = state.get("last_rebalance_at")
         # When the book was last marked to market. Distinct from the newest
         # curve date, which is a trading date: this is wall-clock, and the gap
         # between the two is exactly what the dashboard needs to show. A book
@@ -89,6 +94,7 @@ class Book:
             "curve": self.curve,
             "sessions": self.sessions,
             "last_rebalance": self.last_rebalance,
+            "last_rebalance_at": self.last_rebalance_at,
             "as_of": self.as_of,
         }
 
