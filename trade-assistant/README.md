@@ -255,8 +255,59 @@ gracefully and the dashboard shows which providers are active):
 python run.py serve             # dashboard at http://127.0.0.1:5002
 python run.py scan              # CLI watchlist scan
 python run.py analyze tesla     # one ticker (company names auto-resolve)
+python run.py coverage          # what the LICENSED feed can actually price
+python run.py paper             # one paper session (--status, --rebalance, --reset)
 python run.py selftest          # unit tests for all deterministic math
 ```
+
+## Where every price came from
+
+Three questions have to be answerable about any number on the dashboard, and
+until 2026-08-17 none of them were:
+
+**Which feed produced it.** `is_available()` on the IBKR provider used to return
+the config flag, so with `enabled: true` and Gateway shut the app reported
+"IBKR" and served yfinance underneath. It now opens a real (cached) connection,
+IBKR appears in the provider list, and every position stores the feed that
+priced it. A book holding a mixture cannot claim to be licensed.
+
+**Which session it belongs to.** Positions store `bar_date`, and freshness is
+judged against each instrument's own trading calendar
+(`assistant/core/market_clock.py`) rather than against the clock. A Friday close
+read on Monday morning is **current** — it is the newest bar that exists — and
+reporting it as stale is what made a working feed look broken. London and New
+York close at different times, so one book-level timestamp could never have
+answered this for both.
+
+**Whether it can be traded at all.** `run.py coverage` probes every instrument
+against IBKR and writes `data/ibkr_coverage.json`. The paper session filters the
+universe through it *before* ranking, so an instrument the licensed feed cannot
+price is dropped rather than quietly served by the fallback — which is exactly
+how the book once came to hold a spot-FX position on unlicensed data. It fails
+open (no report = no filtering) and says which way it failed.
+
+On this account, 90 of 98 watchlist instruments price on licensed data. The
+remaining 8 are spot FX and need the IDEALPRO subscription; the CME currency
+futures (`6E=F`, `6J=F`, `6B=F`, `6A=F`) carry the same exposure on data the
+account already has.
+
+## Buy, sell, or leave it alone
+
+`assistant/research/verdict.py` turns a pipeline result into one action with its
+reasoning: **BUY / SELL / HOLD / WAIT / AVOID**, plus reasons for, reasons
+against, and any recent headlines.
+
+The action derives from the deterministic layers only — the strategy rules and
+the risk gate. The LLM's thesis supplies the pros and cons a human reads and can
+lower confidence or raise a conflict, but **it cannot turn an AVOID into a
+BUY**. Where the rules and the narrative disagree, the disagreement is shown
+rather than resolved. News is carried as context and no branch reads it: a
+headline becomes a signal only once something has measured that its arrival
+predicts a return, and nothing here has measured that.
+
+Open positions get `HOLD` or `SELL` read from the levels fixed when they were
+opened — re-running entry logic on a held position is how a stop gets talked out
+of being hit.
 
 ## Global by default — not US-only
 
@@ -365,8 +416,35 @@ account, IBKR serves **historical daily bars** (what the scanner needs) but
 returns *no* live quotes and refuses fundamentals (`Error 10358: Fundamentals
 data is not allowed`). It also provides no macro series and no usable news feed.
 So yfinance + FRED + Finnhub still do real work, and research keeps running when
-Gateway is closed. Adding an `IBKRProvider` for prices is a sensible option once
-you hold market-data subscriptions — it's one new class against `DataProvider`.
+Gateway is closed.
+
+The fallback is the reason provenance is tracked per position rather than per
+book: silently degrading to yfinance is the correct behaviour for *research*
+and the wrong behaviour for a number presented as licensed. Both now happen,
+and the dashboard says which.
+
+### Two symbol conventions that hid tradable instruments
+
+Both failed identically to an instrument that does not exist — IB returns zero
+contracts either way — so each quietly shrank the tradable universe:
+
+- **London trailing dot.** IB writes some LSE lines with a trailing dot, so BP
+  plc is `BP.`, not `BP`. A share-class letter moves inside the dot, so Yahoo's
+  `BT-A.L` is IB's `BT.A`. `_symbol_variants()` retries these after the plain
+  form fails.
+- **CME currency futures.** Yahoo names them by floor code (`6E`); IB names them
+  by currency (`EUR`) and puts the floor code only in the *local* symbol, so
+  IB's own reply reads `6EU6`. See `FUTURES_SYMBOL`.
+
+### One client id is not enough
+
+IB allows many simultaneous API clients but requires each to hold a distinct
+client id, and refuses a duplicate by **going silent** rather than answering —
+so a collision arrives as a connect timeout indistinguishable from Gateway being
+down. With a single fixed `data_client_id`, running a rebalance locked the
+dashboard out of its own data source and it reported IBKR unreachable while
+serving yfinance. `_connect()` now walks a small range of ids, configured value
+first.
 
 ## Swapping providers
 
