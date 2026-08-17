@@ -85,7 +85,57 @@ async function fetchState() {
       <div class="muted" style="margin-top:6px">${esc(e)}</div></div>`;
   }
   clearTimeout(poll);
-  poll = setTimeout(fetchState, S.scanning ? 3000 : 15000);
+  poll = null;
+
+  // Poll only while something can actually change.
+  //
+  // A scan is work in progress and its own reason to poll. Otherwise the only
+  // thing that moves these numbers is a trading session, so once every market
+  // is closed a timer re-fetches figures that are identical by definition —
+  // and keeps doing it all night. Nothing is gained and the page flickers
+  // through a re-render every fifteen seconds.
+  //
+  // When everything is shut there is exactly one moment worth waking for: the
+  // next open, which the server reports. One timer is set for then rather than
+  // hundreds of requests spent discovering it. Refresh by hand any time.
+  if (S.scanning) {
+    poll = setTimeout(fetchState, 3000);
+  } else if (S.any_market_open !== false) {
+    poll = setTimeout(fetchState, 15000);
+  } else {
+    scheduleWakeAtOpen();
+  }
+}
+
+/* One timer, set for the next market open. Capped because setTimeout is
+   unreliable over very long sleeps and a laptop suspended overnight would
+   otherwise wake with a dead page. */
+const MAX_SLEEP_MS = 30 * 60 * 1000;
+
+function scheduleWakeAtOpen() {
+  let wait = MAX_SLEEP_MS;
+  if (S.next_market_open) {
+    const ms = new Date(S.next_market_open).getTime() - Date.now();
+    if (isFinite(ms)) wait = Math.max(30000, Math.min(ms + 5000, MAX_SLEEP_MS));
+  }
+  clearTimeout(poll);
+  poll = setTimeout(fetchState, wait);
+}
+
+/* Shown wherever auto-refresh has been suspended, so a page that is not
+   updating never looks like a page that has broken. */
+function marketClosedNotice() {
+  if (S.any_market_open !== false) return "";
+  const when = S.next_market_open
+    ? new Date(S.next_market_open).toLocaleString(undefined,
+        { weekday: "short", hour: "2-digit", minute: "2-digit" })
+    : "the next session";
+  return `<div class="card">
+    <div class="meta">Every market is closed — auto-refresh is off, because no
+      price can change until ${esc(when)}. Prices below are the last close.
+      <button class="btn btn-sm" style="margin-left:8px" onclick="fetchState()">Refresh now</button>
+    </div>
+  </div>`;
 }
 
 async function post(url, body) {
@@ -928,7 +978,9 @@ function render() {
     return;
   }
   const html = { today: viewToday, watchlist: viewWatchlist, ideas: viewIdeas, journal: viewJournal, detail: viewDetail }[view]();
-  $("#viewRoot").innerHTML = html;
+  // The notice leads the view: a page that has deliberately stopped updating
+  // must say so, or it is indistinguishable from one that has broken.
+  $("#viewRoot").innerHTML = marketClosedNotice() + html;
   bindView();
 }
 
@@ -1360,11 +1412,20 @@ async function refreshLive(force) {
 }
 
 function startLivePolling() {
-  if (livePoll) clearInterval(livePoll);
+  if (livePoll) { clearInterval(livePoll); livePoll = null; }
+
+  // Never poll a closed market. Every refresh opens a socket to the broker and
+  // walks every holding, and outside trading hours it returns the same closing
+  // bar every time — so the cost is real and the information gained is zero.
+  if (S.any_market_open === false) return;
+
   // Bars are five minutes wide and arrive ~10-15 min late, so polling faster
   // than this would just re-fetch the same bar and reopen a socket to do it.
   livePoll = setInterval(() => {
-    if (view === "paper") refreshLive(false); else { clearInterval(livePoll); livePoll = null; }
+    if (view !== "paper" || S.any_market_open === false) {
+      clearInterval(livePoll); livePoll = null; return;
+    }
+    refreshLive(false);
   }, 60000);
 }
 
@@ -1468,7 +1529,8 @@ async function loadPaper() {
   } catch (e) { /* positions still render without it */ }
 
   if (!d.started) {
-    root.innerHTML = `<div class="card">
+    root.innerHTML = `${marketClosedNotice()}
+    <div class="card">
       <b>No paper book yet.</b>
       <p class="meta">${d.message || ''}</p>
       <button class="btn btn-primary" onclick="runPaper(true)">Start trading</button>
@@ -1524,6 +1586,7 @@ async function loadPaper() {
     </tr>`).join('') || '<tr><td colspan="6" class="meta">Nothing closed yet.</td></tr>';
 
   root.innerHTML = `
+    ${marketClosedNotice()}
     ${bookBanner(d)}
     <div id="liveRoot"></div>
     <div class="card">
@@ -1597,9 +1660,26 @@ async function loadPaper() {
   const badge = document.getElementById('nb-paper');
   if (badge) badge.textContent = s.open_positions || '';
 
-  // Painted after the table exists, then kept warm on a timer, so the page
-  // stops being something the reader has to reload by hand.
-  refreshLive(false);
+  // Painted after the table exists, then kept warm on a timer while a market is
+  // trading. With everything closed the live panel would repeat the closing
+  // marks already in the table, at the cost of a broker socket and a walk
+  // through every holding — so it is not fetched at all.
+  if (S.any_market_open === false) {
+    const host = document.getElementById("liveRoot");
+    if (host) host.innerHTML = `<div class="card">
+      <div class="label">Live P&amp;L</div>
+      <p class="meta">Markets are closed. The prices in the table are the last
+        close and cannot move until the next session, so nothing is being
+        fetched and nothing is refreshing.
+        <button class="btn btn-sm" style="margin-left:6px" onclick="refreshLive(true)">Fetch anyway</button>
+      </p>
+    </div>`;
+    document.querySelectorAll("[data-live]").forEach(cell => {
+      cell.innerHTML = '<span class="meta">—</span>';
+    });
+  } else {
+    refreshLive(false);
+  }
   startLivePolling();
 }
 

@@ -491,11 +491,22 @@ def api_state():
         {base_ccy} | {p.get("currency", base_ccy) for p in positions}, base_ccy)
     exposure = exposure_summary(positions, portfolio_value, None, base_ccy, fx_rates)
 
+    from ..core import market_clock
+
     with _lock:
         scan, scanning, error = _state["scan"], _state["scanning"], _state["error"]
         progress = dict(_state["progress"]) if _state["progress"] else None
+
+    # Served so the page can stop polling when nothing can change. Prices only
+    # move while a market trades; refreshing a closed book on a timer re-fetches
+    # figures that are identical by definition, and does it forever.
+    markets = market_clock.summary()
     return jsonify({
         "disclaimer": DISCLAIMER,
+        "markets": markets,
+        "any_market_open": any(m["open"] for m in markets.values()),
+        "next_market_open": min(
+            (m["next_open"] for m in markets.values() if m["next_open"]), default=None),
         "ai_ready": bool(os.environ.get("ANTHROPIC_API_KEY")) and config.get("ai", {}).get("enabled", True),
         "providers": router.provider_status(),
         "base_currency": base_ccy,
