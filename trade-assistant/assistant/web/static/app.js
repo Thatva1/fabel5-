@@ -174,7 +174,7 @@ function triageRow(i) {
       ${plan ? `${n(plan.reward_risk, 1)}:1<div class="prov">max loss ${money(plan.risk_amount, plan.currency)}</div>` : "—"}
     </div>
     <div class="conf-bar">
-      ${plan ? `<div class="num" style="font-size:18px">${plan.confidence}</div>
+      ${plan ? `<div class="num" style="text-align:right;font-variant-numeric:tabular-nums" style="font-size:18px">${plan.confidence}</div>
                 <div class="meter"><i style="width:${plan.confidence}%"></i></div>` : ""}
     </div>
   </button>`;
@@ -247,7 +247,7 @@ function viewToday() {
         <div class="prov">${esc(S.base_currency || "USD")} · from ${S.execution?.connected ? "IBKR" : "config.yaml"}</div>
         <div style="margin-top:16px">
           <div style="display:flex;justify-content:space-between;font-size:12px">
-            <span class="muted">Exposure</span><span class="num">${pct(p.exposure_pct)}</span>
+            <span class="muted">Exposure</span><span class="num" style="text-align:right;font-variant-numeric:tabular-nums">${pct(p.exposure_pct)}</span>
           </div>
           <div class="meter" style="height:6px;margin-top:5px">
             <i style="width:${Math.min(100, (p.exposure_pct / (p.max_total_exposure_pct || 60)) * 100)}%"></i>
@@ -255,8 +255,8 @@ function viewToday() {
           <div class="prov" style="margin-top:4px">cap ${pct(p.max_total_exposure_pct)}</div>
         </div>
         <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:16px;gap:var(--s2)">
-          <div><div class="num" style="font-size:19px">${(p.positions || []).length}</div><div class="stat-l">Open positions</div></div>
-          <div><div class="num" style="font-size:19px">${pct(p.risk_per_trade_pct)}</div><div class="stat-l">Risk per trade</div></div>
+          <div><div class="num" style="text-align:right;font-variant-numeric:tabular-nums" style="font-size:19px">${(p.positions || []).length}</div><div class="stat-l">Open positions</div></div>
+          <div><div class="num" style="text-align:right;font-variant-numeric:tabular-nums" style="font-size:19px">${pct(p.risk_per_trade_pct)}</div><div class="stat-l">Risk per trade</div></div>
         </div>
       </div>
 
@@ -409,13 +409,13 @@ function viewDetail() {
       <div class="card marks"><i class="mk"></i>
         <div class="label" style="margin-bottom:12px">Trade plan</div>
         <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
-          <div><div class="stat-l">Entry zone</div><div class="num">${n(plan.entry_zone[0])}–${n(plan.entry_zone[1])}</div></div>
+          <div><div class="stat-l">Entry zone</div><div class="num" style="text-align:right;font-variant-numeric:tabular-nums">${n(plan.entry_zone[0])}–${n(plan.entry_zone[1])}</div></div>
           <div><div class="stat-l">Target</div><div class="num ok">${n(plan.target)}</div></div>
           <div><div class="stat-l">Stop</div><div class="num bad">${n(plan.stop)}</div></div>
-          <div><div class="stat-l">Reward:risk</div><div class="num">${n(plan.reward_risk, 1)}:1</div></div>
-          <div><div class="stat-l">Size</div><div class="num">${plan.shares} sh</div>
+          <div><div class="stat-l">Reward:risk</div><div class="num" style="text-align:right;font-variant-numeric:tabular-nums">${n(plan.reward_risk, 1)}:1</div></div>
+          <div><div class="stat-l">Size</div><div class="num" style="text-align:right;font-variant-numeric:tabular-nums">${plan.shares} sh</div>
                <div class="prov">${money(plan.position_value, plan.currency)}</div></div>
-          <div><div class="stat-l">Max loss</div><div class="num">${money(plan.risk_amount, plan.currency)}</div>
+          <div><div class="stat-l">Max loss</div><div class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(plan.risk_amount, plan.currency)}</div>
                <div class="prov">${n(plan.risk_pct_of_portfolio ?? (plan.risk_amount / (S.portfolio?.value || 1) * 100), 2)}% of book</div></div>
         </div>
         ${plan.sized_down_to_cap ? `<div class="callout warn" style="margin-top:12px;font-size:12px">
@@ -423,7 +423,7 @@ function viewDetail() {
           — risking ${plan.risk_budget_used_pct}% of budget.</div>` : ""}
         <div style="margin-top:14px">
           <div style="display:flex;justify-content:space-between;font-size:12px">
-            <span class="muted">Confidence</span><span class="num">${plan.confidence}/100</span></div>
+            <span class="muted">Confidence</span><span class="num" style="text-align:right;font-variant-numeric:tabular-nums">${plan.confidence}/100</span></div>
           <div class="meter" style="margin-top:5px"><i style="width:${plan.confidence}%"></i></div>
         </div>
         <details style="margin-top:10px"><summary class="prov">Why ${plan.confidence} — reasons</summary>
@@ -646,7 +646,7 @@ function performanceTable(title, groups, note) {
 function viewJournal() {
   const st = S.stats || {};
   const kpi = (v, l) => `<div class="card marks"><i class="mk"></i>
-    <div class="num" style="font-size:26px">${v}</div><div class="stat-l">${l}</div></div>`;
+    <div class="num" style="text-align:right;font-variant-numeric:tabular-nums" style="font-size:26px">${v}</div><div class="stat-l">${l}</div></div>`;
   const months = Object.entries(st.by_month || {});
   const maxM = Math.max(1, ...months.map(([, o]) => (o.win || 0) + (o.loss || 0) + (o.scratch || 0)));
 
@@ -687,7 +687,7 @@ function viewJournal() {
         ${buckets.map(([label, o]) => `<div style="margin-bottom:10px">
           <div style="display:flex;justify-content:space-between;font-size:12px">
             <span>${esc(label)}</span>
-            <span class="num">${o.win_rate_pct === null ? "—" : o.win_rate_pct + "%"} <span class="prov">(${o.wins}W/${o.losses}L)</span></span>
+            <span class="num" style="text-align:right;font-variant-numeric:tabular-nums">${o.win_rate_pct === null ? "—" : o.win_rate_pct + "%"} <span class="prov">(${o.wins}W/${o.losses}L)</span></span>
           </div>
           <div class="hbar"><i style="width:${o.win_rate_pct || 0}%"></i></div></div>`).join("")}
         <div class="prov">Does a higher confidence score actually predict a better outcome?</div>
@@ -696,7 +696,7 @@ function viewJournal() {
         <div class="label" style="margin-bottom:12px">Win rate by risk-gate verdict</div>
         ${verdicts.length ? verdicts.map(([v, o]) => `<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px">
           <span>${esc((VERDICT[v] || {}).word || v)}</span>
-          <span class="num">${o.win_rate_pct === null ? "—" : o.win_rate_pct + "%"}</span></div>`).join("")
+          <span class="num" style="text-align:right;font-variant-numeric:tabular-nums">${o.win_rate_pct === null ? "—" : o.win_rate_pct + "%"}</span></div>`).join("")
       : `<span class="muted prov">No closed ideas yet.</span>`}
       </div>
     </div>
@@ -759,13 +759,13 @@ function showTicket(ticket) {
 
           <div class="ticket-grid">
             <div class="ticket-cell"><div class="stat-l">Side / quantity</div>
-              <div class="num" style="font-size:18px">${esc(ticket.side.toUpperCase())} ${ticket.quantity}</div></div>
+              <div class="num" style="text-align:right;font-variant-numeric:tabular-nums" style="font-size:18px">${esc(ticket.side.toUpperCase())} ${ticket.quantity}</div></div>
             <div class="ticket-cell"><div class="stat-l">Limit entry</div>
-              <div class="num" style="font-size:18px">${n(ticket.limit_price)} ${esc(ticket.currency)}</div></div>
+              <div class="num" style="text-align:right;font-variant-numeric:tabular-nums" style="font-size:18px">${n(ticket.limit_price)} ${esc(ticket.currency)}</div></div>
             <div class="ticket-cell"><div class="stat-l">Protective stop</div>
               <div class="num bad" style="font-size:18px">${n(ticket.stop_price)}</div></div>
             <div class="ticket-cell ${isLive ? "danger" : ""}"><div class="stat-l">Max loss</div>
-              <div class="num" style="font-size:18px">${money0(ticket.max_loss)}</div>
+              <div class="num" style="text-align:right;font-variant-numeric:tabular-nums" style="font-size:18px">${money0(ticket.max_loss)}</div>
               ${isLive ? `<div class="prov live" style="margin-top:3px">REAL MONEY AT RISK</div>` : ""}</div>
           </div>
 
@@ -1134,31 +1134,31 @@ async function loadPaper() {
   const cls = (v) => (v > 0 ? 'up' : v < 0 ? 'down' : '');
 
   const rows = d.positions.map(p => `
-    <tr>
+    <tr style="border-bottom:1px solid rgba(128,128,128,.18)">
       <td><b>${p.ticker}</b><div class="meta">${p.segment}</div></td>
       <td>${p.strategy}</td>
-      <td class="num">${money(p.shares)}</td>
-      <td class="num">${Number(p.entry_price).toFixed(2)}</td>
-      <td class="num">${Number(p.last_price).toFixed(2)}</td>
-      <td class="num ${cls(p.move_pct)}">${pct(p.move_pct)}</td>
-      <td class="num ${cls(p.unrealised)}">${money(p.unrealised)}</td>
-      <td class="num">${money(p.notional)}</td>
-      <td class="num">${Number(p.stop).toFixed(2)}</td>
-      <td class="num">${p.bars_held}</td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(p.shares)}</td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${Number(p.entry_price).toFixed(2)}</td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${Number(p.last_price).toFixed(2)}</td>
+      <td class="num ${cls(p.move_pct)}" style="text-align:right;font-variant-numeric:tabular-nums">${pct(p.move_pct)}</td>
+      <td class="num ${cls(p.unrealised)}" style="text-align:right;font-variant-numeric:tabular-nums">${money(p.unrealised)}</td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(p.notional)}</td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${Number(p.stop).toFixed(2)}</td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${p.bars_held}</td>
     </tr>`).join('');
 
   const closed = (d.closed || []).map(c => `
-    <tr>
+    <tr style="border-bottom:1px solid rgba(128,128,128,.18)">
       <td><b>${c.ticker}</b></td><td>${c.strategy || ''}</td>
       <td>${c.exit_reason || ''}</td>
-      <td class="num ${cls(c.pnl)}">${money(c.pnl)}</td>
-      <td class="num">${c.r_multiple == null ? '—' : c.r_multiple + 'R'}</td>
+      <td class="num ${cls(c.pnl)}" style="text-align:right;font-variant-numeric:tabular-nums">${money(c.pnl)}</td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${c.r_multiple == null ? '—' : c.r_multiple + 'R'}</td>
       <td class="meta">${c.entry_date} → ${c.exit_date}</td>
     </tr>`).join('') || '<tr><td colspan="6" class="meta">Nothing closed yet.</td></tr>';
 
   root.innerHTML = `
     <div class="card">
-      <div class="row" style="justify-content:space-between;align-items:center">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
         <div>
           <div class="label">Equity</div>
           <div style="font-size:1.9rem;font-variant-numeric:tabular-nums">
@@ -1166,12 +1166,12 @@ async function loadPaper() {
             <span class="${cls(s.return_pct)}" style="font-size:1rem">${pct(s.return_pct)}</span>
           </div>
         </div>
-        <div class="row" style="gap:8px">
+        <div style="display:flex;gap:8px">
           <button class="btn" onclick="runPaper(false)">Run session</button>
           <button class="btn btn-primary" onclick="runPaper(true)">Force rebalance</button>
         </div>
       </div>
-      <div class="row" style="gap:26px;margin-top:14px;flex-wrap:wrap">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:18px 26px;margin-top:18px">
         <div><div class="label">Cash</div><b>${money(s.cash)}</b></div>
         <div><div class="label">Exposure</div><b>${s.exposure_pct}%</b></div>
         <div><div class="label">Gross notional</div><b>${money(d.gross_exposure)}</b></div>
@@ -1185,19 +1185,19 @@ async function loadPaper() {
 
     <div class="card">
       <div class="label">Open positions</div>
-      <table class="tbl"><thead><tr>
-        <th>Instrument</th><th>Strategy</th><th class="num">Units</th>
-        <th class="num">Entry</th><th class="num">Now</th><th class="num">Move</th>
-        <th class="num">Unrealised</th><th class="num">Notional</th>
-        <th class="num">Stop</th><th class="num">Days</th>
+      <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;opacity:.6">
+        <th>Instrument</th><th>Strategy</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Units</th>
+        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Entry</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Now</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Move</th>
+        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Unrealised</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Notional</th>
+        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Stop</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Days</th>
       </tr></thead><tbody>${rows || '<tr><td colspan="10" class="meta">No open positions.</td></tr>'}</tbody></table>
     </div>
 
     <div class="card">
       <div class="label">Recently closed</div>
-      <table class="tbl"><thead><tr>
+      <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;opacity:.6">
         <th>Instrument</th><th>Strategy</th><th>Exit</th>
-        <th class="num">P&L</th><th class="num">R</th><th>Held</th>
+        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">P&L</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">R</th><th>Held</th>
       </tr></thead><tbody>${closed}</tbody></table>
     </div>
 
