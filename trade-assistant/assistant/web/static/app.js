@@ -365,19 +365,31 @@ function viewToday() {
             — no paper book has been started, so this is the configured risk budget,
             not a traded balance.</div>
         `}
+        ${(() => {
+          // Exposure and position count must describe the SAME portfolio as the
+          // equity above it. They read from config.positions — holdings declared
+          // by hand for the risk gate — which is empty, so a book carrying 46
+          // positions at 88% exposure displayed "0 open positions, 0.0%"
+          // directly beneath its own equity.
+          const usingBook = !!S.paper;
+          const exposure = usingBook ? S.paper.exposure_pct : p.exposure_pct;
+          const cap = usingBook ? 90 : (p.max_total_exposure_pct || 60);
+          const count = usingBook ? S.paper.open_positions : (p.positions || []).length;
+          return `
         <div style="margin-top:16px">
           <div style="display:flex;justify-content:space-between;font-size:12px">
-            <span class="muted">Exposure</span><span class="num" style="text-align:right;font-variant-numeric:tabular-nums">${pct(p.exposure_pct)}</span>
+            <span class="muted">Exposure</span><span class="num" style="text-align:right;font-variant-numeric:tabular-nums">${pct(exposure)}</span>
           </div>
           <div class="meter" style="height:6px;margin-top:5px">
-            <i style="width:${Math.min(100, (p.exposure_pct / (p.max_total_exposure_pct || 60)) * 100)}%"></i>
+            <i style="width:${Math.min(100, (exposure / cap) * 100)}%"></i>
           </div>
-          <div class="prov" style="margin-top:4px">cap ${pct(p.max_total_exposure_pct)}</div>
+          <div class="prov" style="margin-top:4px">cap ${pct(cap)}${usingBook ? " · paper book" : ""}</div>
         </div>
         <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:16px;gap:var(--s2)">
-          <div><div class="num" style="text-align:right;font-variant-numeric:tabular-nums" style="font-size:19px">${(p.positions || []).length}</div><div class="stat-l">Open positions</div></div>
-          <div><div class="num" style="text-align:right;font-variant-numeric:tabular-nums" style="font-size:19px">${pct(p.risk_per_trade_pct)}</div><div class="stat-l">Risk per trade</div></div>
-        </div>
+          <div><div class="num" style="font-size:19px;font-variant-numeric:tabular-nums">${count}</div><div class="stat-l">Open positions</div></div>
+          <div><div class="num" style="font-size:19px;font-variant-numeric:tabular-nums">${pct(p.risk_per_trade_pct)}</div><div class="stat-l">Risk per trade</div></div>
+        </div>`;
+        })()}
       </div>
 
       <div class="card">
