@@ -17,6 +17,7 @@
                                  unlock the rest (--universe for the full screen)
   python run.py intraday         does an edge exist on 5/15/30/60-minute bars?
                                  (--bars 15m, --cost-bps 10, then tickers)
+  python run.py sweep --all      sweep EVERY strategy's lookback on one split
   python run.py sweep STRATEGY   does a SHORTER lookback still work? Ranks
                                  settings on the first half of history and
                                  tests the winner on the second half
@@ -287,8 +288,100 @@ def _coverage(argv):
         print(f"    -> {group['action']}\n")
 
 
+def _sweep_all(argv):
+    """Sweep every strategy that has a lookback, and write one report.
+
+    Run as a batch rather than one at a time so every strategy is judged on the
+    same split of the same history. Sweeping them separately over weeks would
+    mean comparing results fitted to different windows, which is how a
+    "best settings" table quietly becomes a collection of unrelated accidents.
+    """
+    import json as _json
+    import os
+    import time as _time
+
+    from assistant import pipeline
+    from assistant.backtest import sweep as sweep_mod
+    from assistant.core.config import load_config
+    from assistant.paper import session as paper_session, screen
+    from assistant.providers import coverage
+
+    limit = 250
+    for i, a in enumerate(argv):
+        if a == "--instruments" and i + 1 < len(argv):
+            limit = int(argv[i + 1])
+
+    config = load_config()
+    router = pipeline.get_router(config)
+    print("Loading history…")
+    universe, _, _ = screen.tradable_universe(config, router)
+    universe, _ = coverage.tradable_symbols(universe, config)
+    out_state = {}
+    frames = paper_session._fetch(
+        universe[:limit], config["paper"]["history_period"], config, "sweep",
+        out_state, cache_hours=config["paper"].get("universe_history_cache_hours"))
+    benchmark = paper_session._benchmark(router, config)
+    split_at = sweep_mod.midpoint_split(frames)
+
+    # Each strategy is swept around ITS OWN published horizon. Testing a
+    # three-year reversal at 20 bars is not a shorter version of it, it is a
+    # different rule — so the grid is scaled per strategy rather than shared.
+    lookbacks = paper_session._strategy_lookbacks(config)
+    grids = {}
+    for name, need in lookbacks.items():
+        base = need
+        if base >= 700:
+            grids[name] = [126, 252, 504, 756]
+        elif base >= 200:
+            grids[name] = [20, 60, 120, 252]
+        else:
+            grids[name] = [5, 10, 21, 42]
+
+    print(f"{len(frames)} instruments · split {split_at} · "
+          f"{len(grids)} strategies\n")
+
+    results, started = {}, _time.time()
+    for index, (name, values) in enumerate(sorted(grids.items()), 1):
+        print(f"[{index}/{len(grids)}] {name} — lookbacks {values}", flush=True)
+        try:
+            results[name] = sweep_mod.sweep(
+                name, frames, config, {"lookback_bars": values}, split_at,
+                benchmark=benchmark)
+        except Exception as exc:
+            results[name] = {"error": f"{type(exc).__name__}: {exc}"}
+        print(f"    {results[name].get('verdict') or results[name].get('error')}\n",
+              flush=True)
+
+    path = os.path.join(PROJECT_ROOT, "reports", "SWEEP-LOOKBACKS.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as handle:
+        _json.dump({"split_at": split_at, "instruments": len(frames),
+                    "results": results}, handle, indent=2, default=str)
+
+    print(f"\n{'strategy':<18}{'current':>9}{'best':>7}{'in R':>9}{'out R':>9}{'t out':>8}  verdict")
+    for name in sorted(results):
+        r = results[name]
+        if r.get("error") or not r.get("winner"):
+            print(f"{name:<18}{lookbacks.get(name,0):>9}{'—':>7}{'—':>9}{'—':>9}{'—':>8}  "
+                  f"{(r.get('verdict') or r.get('error') or '')[:44]}")
+            continue
+        w, o = r["winner"], r["out_of_sample"]
+        print(f"{name:<18}{lookbacks.get(name,0):>9}"
+              f"{w['config'].get('lookback_bars'):>7}"
+              f"{(w['in_sample']['mean_r'] or 0):>9.3f}{(o.get('mean_r') or 0):>9.3f}"
+              f"{(o.get('t_stat') or 0):>8.2f}  {r['verdict'].split('.')[0]}")
+
+    print(f"\nWrote {path}   ({(_time.time()-started)/60:.1f} min)")
+    print("\nRead the DEGRADATION, not the best in-sample score. An out-of-sample")
+    print("result that BEATS in-sample is a regime artefact, not robustness —")
+    print("the same pattern reports/share/RESULTS-1M.md already flags.")
+    print(f"\n{DISCLAIMER}")
+
+
 def _sweep(argv):
     """Re-fit one strategy at shorter lookbacks, validated out-of-sample."""
+    if argv and argv[0] == "--all":
+        return _sweep_all(argv[1:])
     from assistant import pipeline
     from assistant.backtest import sweep as sweep_mod
     from assistant.core.config import load_config
