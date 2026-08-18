@@ -17,6 +17,10 @@
                                  unlock the rest (--universe for the full screen)
   python run.py intraday         does an edge exist on 5/15/30/60-minute bars?
                                  (--bars 15m, --cost-bps 10, then tickers)
+  python run.py sweep STRATEGY   does a SHORTER lookback still work? Ranks
+                                 settings on the first half of history and
+                                 tests the winner on the second half
+                                 (--lookbacks 20,40,60,120,252 --split DATE)
   python run.py publish          build the PUBLIC static site (no app, no broker,
                                  no order code) — --out DIR, --positions
   python run.py journal          journal stats in the terminal
@@ -281,6 +285,66 @@ def _coverage(argv):
         print(f"  [{group['bundle']}] — {group['count']} instrument(s)")
         print(f"    {', '.join(group['symbols'])}")
         print(f"    -> {group['action']}\n")
+
+
+def _sweep(argv):
+    """Re-fit one strategy at shorter lookbacks, validated out-of-sample."""
+    from assistant import pipeline
+    from assistant.backtest import sweep as sweep_mod
+    from assistant.core.config import load_config
+    from assistant.paper import session as paper_session, screen
+    from assistant.providers import coverage
+
+    if not argv or argv[0].startswith("--"):
+        print("Which strategy? e.g.  python run.py sweep ts_momentum")
+        return
+    strategy = argv[0]
+
+    lookbacks = [20, 40, 60, 120, 252]
+    split_at = None          # default: halve whatever history is available
+    for i, a in enumerate(argv):
+        if a == "--lookbacks" and i + 1 < len(argv):
+            lookbacks = [int(x) for x in argv[i + 1].split(",")]
+        if a == "--split" and i + 1 < len(argv):
+            split_at = argv[i + 1]
+
+    config = load_config()
+    router = pipeline.get_router(config)
+    print("Loading history (uses the session cache when it is warm)…")
+    universe, _, _ = screen.tradable_universe(config, router)
+    universe, _ = coverage.tradable_symbols(universe, config)
+    universe = universe[:400]          # enough to rank; keeps the sweep tractable
+    out = {}
+    frames = paper_session._fetch(
+        universe, config["paper"]["history_period"], config, "sweep", out,
+        cache_hours=config["paper"].get("universe_history_cache_hours"))
+    from assistant.backtest import sweep as _sw
+    split_at = split_at or _sw.midpoint_split(frames)
+    print(f"{len(frames)} instruments · split {split_at} · "
+          f"{len(lookbacks)} lookbacks\n")
+
+    result = sweep_mod.sweep(
+        strategy, frames, config, {"lookback_bars": lookbacks}, split_at,
+        benchmark=paper_session._benchmark(router, config),
+        progress_cb=lambda i, n, c: print(f"  {i}/{n} lookback={c.get('lookback_bars')}",
+                                          end="\r", flush=True))
+    if result.get("error"):
+        print(result["error"])
+        return
+
+    print(f"\n\n{'lookback':>9}{'trades':>8}{'mean R':>10}{'t':>7}{'win%':>7}")
+    for row in result["results"]:
+        sc = row["in_sample"]
+        print(f"{row['config'].get('lookback_bars'):>9}{sc['trades']:>8}"
+              f"{(sc['mean_r'] or 0):>10.4f}{(sc['t_stat'] or 0):>7.2f}"
+              f"{(sc['win_rate_pct'] or 0):>7}")
+
+    if result["winner"]:
+        w = result["winner"]
+        print(f"\nBest in-sample: lookback={w['config'].get('lookback_bars')}")
+        print(f"Out-of-sample:  {result['out_of_sample']}")
+    print(f"\n{result['verdict']}")
+    print(f"\n{DISCLAIMER}")
 
 
 def _publish(argv):
@@ -700,6 +764,9 @@ def main():
 
     elif cmd == "publish":
         _publish(args[1:])
+
+    elif cmd == "sweep":
+        _sweep(args[1:])
 
     elif cmd == "journal":
         from assistant import journal
