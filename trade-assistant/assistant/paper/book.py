@@ -78,7 +78,16 @@ class Book:
         except (OSError, ValueError):
             return cls()
 
-    def save(self, path=BOOK_PATH):
+    def save(self, path=BOOK_PATH, archive_closed=True):
+        # Closed trades move to their own append-only file, leaving the book to
+        # describe what is actually held. The tail kept inline is a copy of
+        # rows already archived, so trimming it cannot lose a trade.
+        if archive_closed:
+            try:
+                from . import closed_archive
+                closed_archive.flush(self)
+            except Exception:
+                pass        # a failed archive must never fail the save
         os.makedirs(os.path.dirname(path), exist_ok=True)
         # Written to a temporary file and moved into place: a run interrupted
         # mid-write would otherwise leave a truncated book, and the next session
@@ -326,7 +335,14 @@ class Book:
             peak = row["equity"] if peak is None else max(peak, row["equity"])
             if peak:
                 worst = max(worst, (peak - row["equity"]) / peak * 100)
-        wins = [c for c in self.closed if (c.get("pnl") or 0) > 0]
+        # Read the full history, not the inline tail. Using the tail would let
+        # a win rate improve simply because old losses scrolled out of the book.
+        try:
+            from . import closed_archive
+            history = closed_archive.merged(self)
+        except Exception:
+            history = list(self.closed)
+        wins = [c for c in history if (c.get("pnl") or 0) > 0]
         return {
             "started_at": self.started_at,
             "days": len(self.curve),
@@ -336,8 +352,8 @@ class Book:
             "cash": round(self.cash or 0.0, 2),
             "exposure_pct": round(self.market_value() / equity * 100, 1) if equity else 0.0,
             "open_positions": len(self.positions),
-            "closed_trades": len(self.closed),
-            "win_rate_pct": round(len(wins) / len(self.closed) * 100, 1) if self.closed else None,
+            "closed_trades": len(history),
+            "win_rate_pct": round(len(wins) / len(history) * 100, 1) if history else None,
             "max_drawdown_pct": round(worst, 2),
             "base_currency": self.base_currency,
         }

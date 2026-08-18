@@ -247,7 +247,10 @@ def observations(closed, by):
 
 def report(book):
     """The full trade journal for one book."""
-    closed = list(book.closed)
+    # The full archive, not the book's inline tail — otherwise every figure
+    # below silently improves as old trades scroll out of the book.
+    from . import closed_archive
+    closed = closed_archive.merged(book)
     entries = [entry(t) for t in closed][::-1]      # newest first
     by = breakdown(closed)
     realised = sum((t.get("pnl") or 0.0) for t in closed)

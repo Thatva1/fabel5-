@@ -35,3 +35,7 @@ data/universe_history_cache.pkl
 
 # The most recent scan, so any process can render it. Rebuilt by every scan.
 data/last_scan.json
+
+# Closed trades, moved out of the book so it describes only what is held.
+# Append-only history; the book keeps a short tail that is a copy of these rows.
+data/closed_trades.jsonl
