@@ -262,6 +262,17 @@ def api_paper():
         return jsonify({"started": False,
                         "message": "No paper book yet. Run a session to start one."})
 
+    # Realised P&L per ticker, from the full archive. A row's unrealised figure
+    # answers "what is this worth now"; realised answers "what has this
+    # instrument actually banked", and they are different questions — an
+    # instrument can be red today and net positive across the book's life.
+    from ..paper import closed_archive
+    realised_by_ticker = {}
+    for closed_trade in closed_archive.merged(book):
+        ticker = closed_trade.get("ticker")
+        realised_by_ticker[ticker] = (realised_by_ticker.get(ticker, 0.0)
+                                      + (closed_trade.get("pnl") or 0.0))
+
     positions = []
     for p in book.positions:
         freshness = market_clock.bar_status(p["ticker"], p.get("bar_date"))
@@ -280,6 +291,17 @@ def api_paper():
             "notional": round(notional, 2),
             "move_pct": round(move, 2),
             "unrealised": round(value - float(p.get("committed", 0) or 0), 2),
+            "realised": round(realised_by_ticker.get(p["ticker"], 0.0), 2),
+            # The exit levels fixed when the position opened. Both were always
+            # stored and only the stop was ever shown, so the take-profit — the
+            # number that decides when this trade is finished — was invisible.
+            "target": p.get("target"),
+            "target_pct": (round((p["target"] / p["entry_price"] - 1) * 100
+                                 * (1 if p.get("direction") == "long" else -1), 2)
+                           if p.get("target") and p.get("entry_price") else None),
+            "stop_pct": (round((p["stop"] / p["entry_price"] - 1) * 100
+                               * (1 if p.get("direction") == "long" else -1), 2)
+                         if p.get("stop") and p.get("entry_price") else None),
             # Provenance travels with every row. A price with no feed name and
             # no bar date beside it cannot be checked by the person reading it,
             # and this dashboard spent its whole life showing exactly that.
@@ -305,6 +327,7 @@ def api_paper():
         "sessions": book.sessions[-10:][::-1],
         # --- provenance and freshness, the headline facts about this book ---
         "as_of": book.as_of,
+        "realised_total": round(sum(realised_by_ticker.values()), 2),
         "price_sources": sources,
         "licensed": sources == ["ibkr"],
         "markets": market_clock.summary(),

@@ -1869,8 +1869,12 @@ async function loadPaper() {
           data-live="${esc(p.ticker)}"><span class="meta">…</span></td>
       <td class="num ${cls(p.move_pct)}" style="text-align:right;font-variant-numeric:tabular-nums">${pct(p.move_pct)}</td>
       <td class="num ${cls(p.unrealised)}" style="text-align:right;font-variant-numeric:tabular-nums">${money(p.unrealised)}</td>
+      <td class="num ${cls(p.realised)}" style="text-align:right;font-variant-numeric:tabular-nums">${p.realised ? money(p.realised) : '—'}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(p.notional)}</td>
-      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${Number(p.stop).toFixed(2)}</td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${Number(p.stop).toFixed(2)}
+        <div class="meta" style="font-size:11px">${p.stop_pct == null ? '' : p.stop_pct + '%'}</div></td>
+      <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${p.target == null ? '—' : Number(p.target).toFixed(2)}
+        <div class="meta" style="font-size:11px">${p.target_pct == null ? '' : '+' + p.target_pct + '%'}</div></td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${p.bars_held}</td>
       <td>${v ? verdictPill(v) : '—'}</td>
       <td><button class="btn btn-sm" onclick="showNews('${p.ticker}')">News</button></td>
@@ -1911,6 +1915,7 @@ async function loadPaper() {
         <div><div class="label">Gross notional</div><b>${money(d.gross_exposure)}</b></div>
         <div><div class="label">Open</div><b>${s.open_positions}</b></div>
         <div><div class="label">Closed</div><b>${s.closed_trades}</b></div>
+        <div><div class="label">Realised</div><b class="${cls(d.realised_total)}">${d.realised_total ? money(d.realised_total) : '—'}</b></div>
         <div><div class="label">Win rate</div><b>${s.win_rate_pct == null ? '—' : s.win_rate_pct + '%'}</b></div>
         <div><div class="label">Max drawdown</div><b>${s.max_drawdown_pct}%</b></div>
         <div><div class="label">Sessions</div><b>${s.days}</b></div>
@@ -1922,9 +1927,9 @@ async function loadPaper() {
       <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;opacity:.6">
         <th>Instrument</th><th>Strategy</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Units</th>
         <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Entry</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Session</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Live</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Move</th>
-        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Unrealised</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Notional</th>
-        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Stop</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Days</th><th>Verdict</th><th></th>
-      </tr></thead><tbody>${rows || '<tr><td colspan="13" class="meta">No open positions.</td></tr>'}</tbody></table>
+        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Unrealised</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Realised</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Notional</th>
+        <th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Stop</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Exit / target</th><th class="num" style="text-align:right;font-variant-numeric:tabular-nums">Days</th><th>Verdict</th><th></th>
+      </tr></thead><tbody>${rows || '<tr><td colspan="15" class="meta">No open positions.</td></tr>'}</tbody></table>
       <div id="newsPanel"></div>
     </div>
 
