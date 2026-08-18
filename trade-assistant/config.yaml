@@ -552,7 +552,20 @@ portfolio:
   # and compare CAGR/drawdown at 1.5, 2, 3, 4 and 15 percent. More names is not
   # automatically better: past some point the marginal position is a worse idea
   # than the one it dilutes, and each one still pays commission and slippage.
-  max_position_pct: 2.0
+  # 2026-08-18: 2.0 -> 1.0. At 2% the 90% budget held exactly 45 names, which
+  # is arithmetic rather than a cap being hit — 90 / 2 = 45. Halving the
+  # position halves what each consumes, so the same budget holds about 90.
+  #
+  # The extra slots are also what lets a London line win one at all. With 45
+  # slots every one went to a US equity; UK names sit in the universe, rank
+  # below US on liquidity, and were never reached.
+  #
+  # Still NOT measured, like the 4.0 and 2.0 before it. More names is not
+  # automatically better: past some point the marginal position is a worse idea
+  # than the one it dilutes, and each still pays commission. At this book size
+  # that commission is ~0.007% of a position, which is why it is affordable
+  # here and would not be on a small account.
+  max_position_pct: 1.0
   # 8, measured. A cap of 4 cost 0.66 points of CAGR by blocking good trades;
   # 2 was far worse (2.87%). Above 8 adds nothing. Correlation is the better
   # tool for this job anyway — it measures whether positions actually move

@@ -573,9 +573,30 @@ def _interleave_segments(ideas):
     """
     from ..markets import asset_class_of
 
+    def bucket_key(ticker):
+        """Asset class, and for equities the VENUE as well.
+
+        The same arrival-order bias this function was written to fix repeats one
+        level down. Every listed share — 1,000+ US names and 40 London ones —
+        landed in a single "equity" bucket, and the London names sort below the
+        US names on liquidity, so no UK line ever reached a slot: the book ran
+        45 US equities and zero UK while holding UK names in its universe the
+        whole time.
+
+        Splitting by venue applies the existing argument where it still bites.
+        It forces no trade and fills no quota — a venue with nothing to offer
+        drops out — it only stops one venue taking every slot because it
+        happened to be listed first.
+        """
+        asset_class = asset_class_of(ticker)
+        if asset_class != "equity":
+            return asset_class
+        from ..core.market_clock import venue_for
+        return f"equity:{venue_for(ticker)}"
+
     buckets = {}
     for idea in ideas:
-        buckets.setdefault(asset_class_of(idea.ticker), []).append(idea)
+        buckets.setdefault(bucket_key(idea.ticker), []).append(idea)
     order = sorted(buckets, key=lambda k: -(buckets[k][0].reward_risk or 0))
 
     out = []
