@@ -514,7 +514,12 @@ portfolio:
   #   60%: 4.55% / 17.5%           90%:  7.44% / 22.7%  <- best Calmar 0.33
   #   70%: 5.04% / 18.3%          100%:  7.55% / 25.8%     Calmar 0.29
   max_gross_exposure_pct: 90.0
-  max_open_positions: 60
+  # 60 -> 120. With the position at 1% the EXPOSURE budget allows about ninety
+  # names, but the count cap bound first and 894 candidates were refused on it
+  # while the book sat at 58% of a 90% budget — a limit meant as a backstop
+  # doing the allocating instead. Set above the ~90 the budget implies so the
+  # budget is what binds, which is the limit that actually measures risk.
+  max_open_positions: 120
   # Per-position cap for the PAPER BOOK, deliberately separate from
   # account.max_position_pct (15%), which still governs the live risk gate.
   #
