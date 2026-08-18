@@ -335,7 +335,33 @@ def breakeven_cost_bps(trades):
     return round(mean_gross_pct * 100, 2)      # percent -> basis points
 
 
-def evaluate(frames, *, cost_bps=10.0, strategies=None):
+# Minutes per bar, so a window expressed in MINUTES can be converted to bars.
+BAR_MINUTES = {"1 min": 1, "5 mins": 5, "15 mins": 15, "30 mins": 30,
+               "1 hour": 60, "2 hours": 120}
+
+
+def windows_for(bar_size):
+    """Strategy windows in BARS for this bar size, from windows in minutes.
+
+    These parameters were counted in bars, which silently made them mean
+    different things at different resolutions: open_bars=6 is the first half
+    hour at 5-minute bars and the first SIX HOURS at hourly. On an hourly run
+    the once-a-day rules needed 13 bars from a session that has about seven, so
+    four of them produced nothing at all — and a strategy that cannot fire looks
+    exactly like one that fired and lost.
+    """
+    minutes = BAR_MINUTES.get(bar_size, 5)
+    bars = lambda mins: max(1, round(mins / minutes))
+    return {
+        "market_intraday_momentum": {"open_bars": bars(30), "close_bars": bars(30)},
+        "first_hour_continuation": {"hour_bars": bars(60)},
+        "last_hour_momentum": {"hour_bars": bars(60)},
+        "opening_range_break": {"range_bars": bars(30)},
+        "intraday_mean_reversion": {"lookback": max(5, bars(70))},
+    }
+
+
+def evaluate(frames, *, cost_bps=10.0, strategies=None, bar_size="5 mins"):
     """Run every strategy over every instrument and report what survives.
 
     frames: {ticker: intraday OHLCV DataFrame}
@@ -344,6 +370,7 @@ def evaluate(frames, *, cost_bps=10.0, strategies=None):
       half-spread on both sides are counted.
     """
     chosen = strategies or list(STRATEGIES)
+    windows = windows_for(bar_size)
     per_strategy = defaultdict(list)
     per_ticker = defaultdict(lambda: defaultdict(list))
     sessions_seen = 0
@@ -354,7 +381,8 @@ def evaluate(frames, *, cost_bps=10.0, strategies=None):
         for _day, rows, prev_close in _sessions(frame):
             sessions_seen += 1
             for name in chosen:
-                for trade in STRATEGIES[name](rows, prev_close):
+                for trade in STRATEGIES[name](rows, prev_close,
+                                              **windows.get(name, {})):
                     trade["ticker"] = ticker
                     per_strategy[name].append(trade)
                     per_ticker[name][ticker].append(trade)
@@ -369,6 +397,10 @@ def evaluate(frames, *, cost_bps=10.0, strategies=None):
             "net": net, "gross": gross,
             "breakeven_cost_bps": breakeven,
             "tradable_at_cost": (breakeven is not None and breakeven > cost_bps),
+            # No trades is not a weak result, it is an absent one — usually the
+            # window not fitting the session at this bar size.
+            "no_trades": not net.get("trades"),
+            "window": windows.get(name),
             "by_ticker": {
                 ticker: _stats(_returns(ts, cost_bps))
                 for ticker, ts in per_ticker[name].items()
@@ -377,6 +409,7 @@ def evaluate(frames, *, cost_bps=10.0, strategies=None):
 
     return {
         "cost_bps": cost_bps,
+        "bar_size": bar_size,
         "instruments": len([f for f in frames.values() if f is not None and len(f)]),
         "sessions": sessions_seen,
         "results": results,

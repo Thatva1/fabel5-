@@ -524,15 +524,17 @@ def _intraday(argv):
     for ticker, frame in list(got.items())[:3]:
         print(f"  {ticker}: {len(frame)} bars, {frame.index[0]} -> {frame.index[-1]}")
 
-    out = intraday.evaluate(got, cost_bps=cost_bps)
+    out = intraday.evaluate(got, cost_bps=cost_bps, bar_size=bar_size)
     print(f"\n{out['sessions']} sessions across {out['instruments']} instruments, "
           f"assuming {cost_bps} bps round-trip cost.\n")
     print(f"{'strategy':<26}{'trades':>7}{'net/trade':>11}{'win%':>7}"
           f"{'t':>7}{'breakeven':>11}  verdict")
     for name, r in out["results"].items():
         net, be = r["net"], r["breakeven_cost_bps"]
-        if not net.get("trades"):
-            print(f"{name:<26}{'—':>7}")
+        if r.get("no_trades"):
+            w = r.get("window") or {}
+            print(f"{name:<26}{'—':>7}   no trades — window {w} does not fit a "
+                  f"{bar_size} session")
             continue
         print(f"{name:<26}{net['trades']:>7}{net['mean_pct']:>10.4f}%"
               f"{net['win_rate_pct']:>7}{(net['t_stat'] or 0):>7.2f}"
