@@ -125,6 +125,26 @@ def run_job(mode):
             result = pipeline.run_scan(config=config)
             notes.append(f"scan: {result.get('scanned')} instruments, "
                          f"{len(result.get('ideas') or [])} ideas")
+
+        # Rebuild the public site from whatever the run just produced. Doing it
+        # here rather than on a separate timer means the published page cannot
+        # be older than the book behind it — a public page showing last week's
+        # equity is the same failure as a dashboard doing it, with an audience.
+        publish_cfg = (config.get("publish") or {})
+        if publish_cfg.get("enabled"):
+            try:
+                import os
+
+                from ..core.config import PROJECT_ROOT
+                from ..publish import export
+
+                out_dir = publish_cfg.get("out_dir") or os.path.join(PROJECT_ROOT, "public")
+                export.write(out_dir, config,
+                             include_positions=bool(publish_cfg.get("include_positions")),
+                             title=publish_cfg.get("title") or "Trade Assistant")
+                notes.append(f"published to {out_dir}")
+            except Exception as exc:
+                notes.append(f"publish failed: {type(exc).__name__}: {exc}")
     except Exception as exc:
         ok = False
         notes.append(f"{type(exc).__name__}: {exc}")

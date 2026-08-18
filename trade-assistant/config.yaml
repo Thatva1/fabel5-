@@ -581,6 +581,28 @@ providers:
     macro: 21600
     fx: 3600
   finnhub_max_calls_per_min: 55
+# --- The PUBLIC site ---------------------------------------------------------
+# Regenerated after every scheduled run into `public/`, then deployed to your
+# domain by whatever hosting you use. Static files only.
+#
+# WHY THIS IS AN EXPORT AND NOT THE DASHBOARD BEHIND A LOGIN. The dashboard has
+# fourteen state-changing endpoints and no authentication, three of which reach
+# the broker: toggle execution, prepare a ticket, confirm an order. Serving that
+# publicly with the dangerous routes disabled by a setting would put order entry
+# one config mistake away from the internet, and the typed-ticker confirmation
+# is no defence because the ticker is printed on the page.
+#
+# The exported site contains no order code, no broker client and no endpoints.
+# There is nothing in it to disable, which is the same argument the paper book
+# already makes about itself.
+publish:
+  enabled: true
+  out_dir: null                 # null = <project>/public
+  title: Trade Assistant
+  # Publishing live holdings tells the world what you are in before you are out
+  # of it. Off by default; the closed-trade record is published either way.
+  include_positions: false
+
 server:
   port: 5002
 execution:

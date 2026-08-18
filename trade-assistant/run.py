@@ -17,6 +17,8 @@
                                  unlock the rest (--universe for the full screen)
   python run.py intraday         does an edge exist on 5/15/30/60-minute bars?
                                  (--bars 15m, --cost-bps 10, then tickers)
+  python run.py publish          build the PUBLIC static site (no app, no broker,
+                                 no order code) — --out DIR, --positions
   python run.py journal          journal stats in the terminal
   python run.py selftest         run the deterministic-math unit tests
   python run.py ibkr-check       test the IB Gateway/TWS connection (places nothing)
@@ -279,6 +281,34 @@ def _coverage(argv):
         print(f"  [{group['bundle']}] — {group['count']} instrument(s)")
         print(f"    {', '.join(group['symbols'])}")
         print(f"    -> {group['action']}\n")
+
+
+def _publish(argv):
+    """Build the public static site. Contains no order code and no broker."""
+    import os
+
+    from assistant.core.config import load_config
+    from assistant.publish import export
+
+    out_dir = os.path.join(PROJECT_ROOT, "public")
+    for i, a in enumerate(argv):
+        if a == "--out" and i + 1 < len(argv):
+            out_dir = argv[i + 1]
+    include_positions = "--positions" in argv
+
+    result = export.write(out_dir, load_config(), include_positions=include_positions)
+    data = result["data"]
+    print(f"Wrote {result['html']}")
+    print(f"      {result['json']}")
+    if data.get("started"):
+        s = data["summary"]
+        print(f"\n  equity {s['equity']:,.2f} {s['base_currency']} "
+              f"({s['return_pct']:+.2f}%) · {s['open_positions']} open · "
+              f"{data['totals']['closed']} closed")
+    print("\nStatic files only — nothing in them can place an order or reach a broker.")
+    if include_positions:
+        print("NOTE: --positions publishes your live holdings. Anyone reading the page")
+        print("      learns what you are in before you are out of it.")
 
 
 def _intraday(argv):
@@ -667,6 +697,9 @@ def main():
 
     elif cmd == "intraday":
         _intraday(args[1:])
+
+    elif cmd == "publish":
+        _publish(args[1:])
 
     elif cmd == "journal":
         from assistant import journal

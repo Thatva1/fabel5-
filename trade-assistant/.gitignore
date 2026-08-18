@@ -39,3 +39,6 @@ data/last_scan.json
 # Closed trades, moved out of the book so it describes only what is held.
 # Append-only history; the book keeps a short tail that is a copy of these rows.
 data/closed_trades.jsonl
+
+# Generated public site. Rebuilt by `run.py publish` and after every scheduled run.
+public/
