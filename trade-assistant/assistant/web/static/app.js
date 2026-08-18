@@ -392,6 +392,11 @@ function viewToday() {
         })()}
       </div>
 
+      <div class="card" id="scheduleCard">
+        <div class="label">Automatic runs</div>
+        <div class="prov" style="margin-top:8px">Loading…</div>
+      </div>
+
       <div class="card">
         <div class="label">Thesis accuracy</div>
         <div class="stat-v" style="margin-top:10px">${S.stats?.win_rate_pct === null || S.stats?.win_rate_pct === undefined ? "—" : S.stats.win_rate_pct + "%"}</div>
@@ -1060,6 +1065,7 @@ function render() {
   // The notice leads the view: a page that has deliberately stopped updating
   // must say so, or it is indistinguishable from one that has broken.
   $("#viewRoot").innerHTML = marketClosedNotice() + html;
+  if (view === "today") refreshSchedule();
   bindView();
 }
 
@@ -1289,6 +1295,62 @@ fetchState();
    The rules trading forward with nobody intervening — separate from the
    journal, which records ideas a human decided on. Kept apart deliberately:
    mixed together you could no longer tell a good month from good judgement. */
+
+/* ---------- the automatic trading day ----------
+   Scheduling lives in the dashboard PROCESS because macOS refuses cron and
+   launchd any access to ~/Desktop. That trade-off has to be visible: this
+   only runs while the dashboard is running, and a panel that quietly says
+   nothing would hide exactly that. */
+
+async function refreshSchedule() {
+  const host = document.getElementById("scheduleCard");
+  if (!host) return;
+  let d;
+  try { d = await (await fetch("/api/schedule")).json(); }
+  catch (e) { host.innerHTML = '<div class="label">Automatic runs</div><div class="prov">Unavailable.</div>'; return; }
+
+  const when = iso => {
+    if (!iso) return "—";
+    const t = new Date(iso);
+    return t.toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  };
+  const jobs = (d.jobs || []).slice().sort((a, b) => a.next_fire < b.next_fire ? -1 : 1);
+  const next = jobs[0];
+
+  host.innerHTML = `
+    <div class="label">Automatic runs</div>
+    ${d.running
+      ? `<div class="callout warn" style="margin-top:8px"><b>${GLYPH.running} Running now — ${esc(d.running)}</b>
+           <div class="prov" style="margin-top:4px">A full session walks every holding, so this takes a while.</div></div>`
+      : `<div style="margin-top:8px;font-size:13px">Next: <b>${esc(next ? next.mode : "—")}</b>
+           at ${esc(when(next && next.next_fire))}
+           <div class="prov">${esc(next ? next.why : "")}</div></div>`}
+    <div style="margin-top:10px">
+      ${jobs.map(j => `<div class="prov">${esc(j.at)} · ${esc(j.mode)} — ${esc(when(j.next_fire))}</div>`).join("")}
+    </div>
+    ${(d.last || []).length ? `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:8px">
+      <div class="label" style="margin-bottom:4px">Recent</div>
+      ${d.last.slice(0, 3).map(r => `<div class="prov">
+        <span class="${r.ok ? "ok" : "bad"}">${r.ok ? GLYPH.ok : GLYPH.fail}</span>
+        ${esc(r.mode)} · ${esc(when(r.finished_at))} · ${r.seconds}s
+        <div style="opacity:.75">${esc((r.detail || "").slice(0, 110))}</div>
+      </div>`).join("")}
+    </div>` : ""}
+    <button class="btn btn-sm" style="margin-top:10px;width:100%"
+      onclick="runScheduledNow('both')" ${d.running ? "disabled" : ""}>Run now</button>
+    <div class="prov" style="margin-top:8px">Runs only while this dashboard is open —
+      macOS blocks cron and launchd from reaching this folder.</div>`;
+}
+
+async function runScheduledNow(mode) {
+  try {
+    await fetch("/api/schedule/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+  } catch (e) { /* status panel reports the outcome */ }
+  setTimeout(refreshSchedule, 800);
+}
 
 /* ---------- daily P&L and the trade journal ----------
    Two questions the book could not answer: what did today make, and why did

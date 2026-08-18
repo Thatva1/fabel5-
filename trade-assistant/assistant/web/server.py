@@ -939,10 +939,38 @@ def api_cancel_order(ticket_id):
         return jsonify({"error": str(exc)}), 409
 
 
+@app.get("/api/schedule")
+def api_schedule():
+    """When the trading day next runs, and how the last runs went."""
+    from . import scheduler
+    return jsonify(scheduler.status())
+
+
+@app.post("/api/schedule/run")
+def api_schedule_run():
+    """Run a scheduled job now. Places no orders."""
+    from . import scheduler
+
+    mode = (request.get_json(silent=True) or {}).get("mode", "both")
+    if mode not in ("session", "scan", "both"):
+        return jsonify({"error": "mode must be session, scan, or both"}), 400
+
+    # Started on a thread so the request returns immediately: a full session
+    # can take half an hour, which no browser will wait for.
+    threading.Thread(target=scheduler.run_job, args=(mode,), daemon=True).start()
+    return jsonify({"status": "started", "mode": mode})
+
+
 def main(port=None):
     if port is None:
         port = load_config().get("server", {}).get("port", 5002)
-    app.run(host="127.0.0.1", port=port, debug=False)
+
+    # Scheduling runs in this process because macOS refuses cron and launchd
+    # any access to ~/Desktop, where the project lives. See scheduler.py.
+    from . import scheduler
+    scheduler.start()
+
+    app.run(host="127.0.0.1", port=port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":
