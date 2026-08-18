@@ -46,10 +46,20 @@ def _sessions(frame):
     Every strategy here is flat overnight, so the session is the natural unit:
     a gap between two days is not a price move any of these rules could have
     traded through.
+
+    Yields (day, rows, prev_close). The previous close is carried because the
+    two strongest rules in the library are defined against it — Gao et al.'s
+    intraday momentum measures the first half hour from the PREVIOUS close, and
+    a gap is by definition the distance from it. Without it neither can be
+    expressed at all, only approximated with the session's own open, which is a
+    different and much weaker signal.
     """
+    prev_close = None
     for day, rows in frame.groupby(frame.index.date):
         if len(rows) >= 6:          # too few bars to form an opening range
-            yield str(day), rows
+            yield str(day), rows, prev_close
+        if len(rows):
+            prev_close = float(rows["Close"].iloc[-1])
 
 
 # --- strategies -----------------------------------------------------------
@@ -58,7 +68,7 @@ def _sessions(frame):
 # Gross only. Costs are applied afterwards, in one place, so a strategy cannot
 # quietly assume a friendlier fill than its neighbour.
 
-def opening_range_break(rows, *, range_bars=6):
+def opening_range_break(rows, prev_close=None, *, range_bars=6):
     """Buy a break above the first N bars' high; sell a break below the low.
 
     The classic intraday momentum test. If intraday trends exist at all, this
@@ -85,7 +95,7 @@ def opening_range_break(rows, *, range_bars=6):
     return []
 
 
-def vwap_reversion(rows, *, threshold_pct=0.4):
+def vwap_reversion(rows, prev_close=None, *, threshold_pct=0.4):
     """Fade a stretch away from the session VWAP, exit when it returns.
 
     The mean-reversion counterpart to the breakout above. Between them they
@@ -120,7 +130,7 @@ def vwap_reversion(rows, *, threshold_pct=0.4):
     return trades
 
 
-def first_hour_continuation(rows, *, hour_bars=12):
+def first_hour_continuation(rows, prev_close=None, *, hour_bars=12):
     """If the first hour was up, hold long to the close; if down, hold short.
 
     Tests whether the day's early direction predicts the rest of it — one
@@ -141,11 +151,129 @@ def first_hour_continuation(rows, *, hour_bars=12):
              "exit_time": str(rest.index[-1])}]
 
 
+def market_intraday_momentum(rows, prev_close=None, *, open_bars=6, close_bars=6):
+    """Gao, Han, Li & Zhou (2018) — the first half hour predicts the last.
+
+    The one T1 result in the library: on SPY/ES the return from the previous
+    close to roughly 10:00 predicts the return over the final half hour, and
+    the position is taken only into that last window. One decision a day, one
+    trade, both ends liquid — which is the only shape where "intraday" and
+    "survives retail costs" genuinely overlap.
+
+    Measured from the PREVIOUS CLOSE, not the open. Using the open instead
+    silently discards the overnight gap, which is a large part of what the
+    published signal is reading.
+    """
+    if prev_close is None or len(rows) < open_bars + close_bars + 1:
+        return []
+    first = float(rows["Close"].iloc[open_bars - 1])
+    signal = first / prev_close - 1
+    if signal == 0:
+        return []
+    tail = rows.iloc[-close_bars:]
+    return [{"direction": "long" if signal > 0 else "short",
+             "entry": float(tail["Open"].iloc[0]),
+             "entry_time": str(tail.index[0]),
+             "exit": float(tail["Close"].iloc[-1]),
+             "exit_time": str(tail.index[-1])}]
+
+
+def gap_fade(rows, prev_close=None, *, min_gap_pct=0.5):
+    """Fade a large opening gap back toward the previous close.
+
+    Deliberately crude and tiered T3 in the library, because the rule cannot
+    tell a gap that is noise from one carrying news — and fading the second is
+    how an intraday book takes its worst single losses. A positive result here
+    should be read as "worth investigating with a news filter", never as a
+    finished strategy.
+    """
+    if prev_close is None or len(rows) < 4:
+        return []
+    open_price = float(rows["Open"].iloc[0])
+    gap = (open_price / prev_close - 1) * 100
+    if abs(gap) < min_gap_pct:
+        return []
+    return [{"direction": "short" if gap > 0 else "long",
+             "entry": open_price,
+             "entry_time": str(rows.index[0]),
+             "exit": float(rows["Close"].iloc[-1]),
+             "exit_time": str(rows.index[-1])}]
+
+
+def intraday_mean_reversion(rows, prev_close=None, *, lookback=14, band=2.0):
+    """Fade a Bollinger extreme inside the session, exit back at the mean.
+
+    Section B of the library: real but cost-sensitive. It trades far more often
+    than the once-a-day rules, which is exactly why its breakeven cost is the
+    number that matters rather than its hit rate.
+    """
+    if len(rows) < lookback + 3:
+        return []
+    closes = rows["Close"]
+    mean = closes.rolling(lookback).mean()
+    sd = closes.rolling(lookback).std()
+
+    trades, open_trade = [], None
+    for i in range(lookback, len(rows)):
+        price = float(closes.iloc[i])
+        mid, dev = float(mean.iloc[i]), float(sd.iloc[i])
+        if not dev or dev != dev:                 # nan guard
+            continue
+        upper, lower = mid + band * dev, mid - band * dev
+
+        if open_trade is None:
+            if price <= lower:
+                open_trade = {"direction": "long", "entry": price,
+                              "entry_time": str(rows.index[i])}
+            elif price >= upper:
+                open_trade = {"direction": "short", "entry": price,
+                              "entry_time": str(rows.index[i])}
+        else:
+            back = (price >= mid) if open_trade["direction"] == "long" else (price <= mid)
+            if back or i == len(rows) - 1:
+                open_trade.update({"exit": price, "exit_time": str(rows.index[i])})
+                trades.append(open_trade)
+                open_trade = None
+    return trades
+
+
+def last_hour_momentum(rows, prev_close=None, *, hour_bars=12):
+    """Carry the session's direction into the close.
+
+    The time-of-day overlay from the library, expressed as a rule rather than a
+    filter: intraday volatility is U-shaped, so the final window is where a
+    directional bet is most likely to be paid or punished quickly.
+    """
+    if len(rows) < hour_bars * 2:
+        return []
+    body = rows.iloc[:-hour_bars]
+    move = float(body["Close"].iloc[-1]) - float(body["Open"].iloc[0])
+    if move == 0:
+        return []
+    tail = rows.iloc[-hour_bars:]
+    return [{"direction": "long" if move > 0 else "short",
+             "entry": float(tail["Open"].iloc[0]),
+             "entry_time": str(tail.index[0]),
+             "exit": float(tail["Close"].iloc[-1]),
+             "exit_time": str(tail.index[-1])}]
+
+
 STRATEGIES = {
-    "opening_range_break": opening_range_break,
-    "vwap_reversion": vwap_reversion,
+    # Section A — once-a-day, the only place intraday and retail costs overlap.
+    "market_intraday_momentum": market_intraday_momentum,   # T1, Gao et al. 2018
+    "opening_range_break": opening_range_break,             # T2, Zarattini & Aziz
     "first_hour_continuation": first_hour_continuation,
+    "last_hour_momentum": last_hour_momentum,
+    "gap_fade": gap_fade,                                   # T3 — no news filter
+    # Section B — real but cost-sensitive; breakeven cost is the number to read.
+    "vwap_reversion": vwap_reversion,
+    "intraday_mean_reversion": intraday_mean_reversion,
 }
+
+# Section C of the library — order-book imbalance, latency arbitrage,
+# market-making, sub-second scalping — is deliberately absent. It needs
+# co-location and tick/L2 feeds, and implementing a retail imitation of it
+# would produce numbers that look real and are not.
 
 
 # --- evaluation -----------------------------------------------------------
@@ -223,10 +351,10 @@ def evaluate(frames, *, cost_bps=10.0, strategies=None):
     for ticker, frame in frames.items():
         if frame is None or len(frame) == 0:
             continue
-        for _day, rows in _sessions(frame):
+        for _day, rows, prev_close in _sessions(frame):
             sessions_seen += 1
             for name in chosen:
-                for trade in STRATEGIES[name](rows):
+                for trade in STRATEGIES[name](rows, prev_close):
                     trade["ticker"] = ticker
                     per_strategy[name].append(trade)
                     per_ticker[name][ticker].append(trade)

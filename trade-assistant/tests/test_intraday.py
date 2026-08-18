@@ -25,13 +25,73 @@ def trending_day(day, start=100.0, step=0.5, n=30):
 
 def test_sessions_split_by_calendar_day():
     frame = pd.concat([trending_day("2026-08-17"), trending_day("2026-08-18")])
-    assert len({d for d, _ in intraday._sessions(frame)} ) == 2
+    assert len({d for d, _, _ in intraday._sessions(frame)}) == 2
 
 
 def test_a_stub_session_is_skipped():
     """Too few bars to form an opening range is not a tradable day."""
     frame = session([100, 101, 102])
     assert list(intraday._sessions(frame)) == []
+
+
+def test_the_first_session_has_no_previous_close():
+    frame = pd.concat([trending_day("2026-08-17"), trending_day("2026-08-18")])
+    days = list(intraday._sessions(frame))
+    assert days[0][2] is None
+    assert days[1][2] is not None      # carried from the day before
+
+
+# -- the published once-a-day rules ----------------------------------------
+
+def test_market_intraday_momentum_reads_from_the_PREVIOUS_close():
+    """Gao et al. measure the first half hour from the prior close. Using the
+    session's own open instead discards the overnight gap, which is much of
+    what the published signal reads."""
+    rows = session([100.0] * 30)                  # flat session, no open-to-now move
+    up = intraday.market_intraday_momentum(rows, prev_close=95.0)
+    assert up and up[0]["direction"] == "long"    # gapped up vs prior close
+    down = intraday.market_intraday_momentum(rows, prev_close=105.0)
+    assert down and down[0]["direction"] == "short"
+
+
+def test_market_intraday_momentum_needs_a_previous_close():
+    assert intraday.market_intraday_momentum(trending_day("2026-08-17"), None) == []
+
+
+def test_market_intraday_momentum_takes_one_trade_into_the_close():
+    trades = intraday.market_intraday_momentum(trending_day("2026-08-17"), prev_close=99.0)
+    assert len(trades) == 1
+
+
+def test_gap_fade_sells_a_gap_up_and_buys_a_gap_down():
+    rows = session([105.0] * 20)
+    assert intraday.gap_fade(rows, prev_close=100.0)[0]["direction"] == "short"
+    assert intraday.gap_fade(rows, prev_close=110.0)[0]["direction"] == "long"
+
+
+def test_gap_fade_ignores_a_small_gap():
+    rows = session([100.1] * 20)
+    assert intraday.gap_fade(rows, prev_close=100.0, min_gap_pct=0.5) == []
+
+
+def test_intraday_mean_reversion_fades_a_band_break():
+    prices = [100.0] * 20 + [94.0] * 3 + [100.0] * 8
+    trades = intraday.intraday_mean_reversion(session(prices), lookback=14, band=2.0)
+    assert trades and trades[0]["direction"] == "long"
+
+
+def test_last_hour_momentum_carries_the_session_direction():
+    trades = intraday.last_hour_momentum(trending_day("2026-08-17", n=30))
+    assert trades and trades[0]["direction"] == "long"
+
+
+def test_every_registered_strategy_accepts_the_same_call():
+    """They are invoked uniformly by evaluate(); a signature drift would show
+    up as one strategy silently producing nothing."""
+    rows = trending_day("2026-08-17")
+    for name, fn in intraday.STRATEGIES.items():
+        result = fn(rows, 99.0)
+        assert isinstance(result, list), name
 
 
 # -- strategies ------------------------------------------------------------
