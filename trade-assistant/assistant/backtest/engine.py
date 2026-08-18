@@ -140,7 +140,20 @@ def resolve_entry(direction, planned_entry, bar, timing):
 
 
 def settings(config):
-    return {**DEFAULTS, **((config or {}).get("backtest") or {})}
+    """Backtest settings, with strategy_priority readable from the top level.
+
+    strategy_priority governs BOTH the backtest and the live paper book — it
+    decides which strategy claims a ticker when several fire on it — so burying
+    it inside `backtest:` made a setting that shapes the live book look like a
+    backtest-only knob. It is read from the top level first, falling back to
+    the backtest block and then the default, so an existing config keeps
+    working wherever it happens to define it.
+    """
+    config = config or {}
+    merged = {**DEFAULTS, **(config.get("backtest") or {})}
+    if config.get("strategy_priority"):
+        merged["strategy_priority"] = config["strategy_priority"]
+    return merged
 
 
 def _benchmark_upto(benchmark_closes, as_of):

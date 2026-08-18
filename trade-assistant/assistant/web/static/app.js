@@ -1502,14 +1502,22 @@ function journalCard(J) {
    books can actually be opened — an archive nobody can read is
    indistinguishable from a deletion. */
 
+// Kept OUTSIDE the DOM because loadPaper() rebuilds the whole view, and the
+// state lived on the element it rebuilds. Opening the panel worked, and then
+// the next poll — every 15s with a market open — recreated archiveRoot empty
+// and closed. From the outside that is a button that does nothing.
+let archivesOpen = false;
+
 async function toggleArchives() {
   const host = document.getElementById("archiveRoot");
   if (!host) return;
-  if (host.dataset.open === "1") {
+  if (archivesOpen) {
+    archivesOpen = false;
     host.dataset.open = "0";
     host.innerHTML = "";
     return;
   }
+  archivesOpen = true;
   host.dataset.open = "1";
   host.innerHTML = '<div class="card"><div class="label">Loading archived books…</div></div>';
   try {
@@ -1653,7 +1661,7 @@ function livePanel(L) {
   return `<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
       <div>
-        <div class="label">Live P&amp;L — today</div>
+        <div class="label">Since the last mark — not since entry</div>
         <div style="font-size:1.9rem;font-variant-numeric:tabular-nums" class="${sign(s.today_pnl)}">
           ${s.today_pnl > 0 ? "+" : ""}${money(s.today_pnl)}
           <span class="meta">${esc(s.base_currency || "")}</span>
@@ -1664,14 +1672,20 @@ function livePanel(L) {
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:16px 24px;margin-top:16px">
       <div><div class="label">Equity now</div><b>${money(s.equity)}</b></div>
-      <div><div class="label">Open P&amp;L</div>
+      <div><div class="label">Open P&amp;L — since entry</div>
         <b class="${sign(s.open_pnl)}">${s.open_pnl > 0 ? "+" : ""}${money(s.open_pnl)}</b></div>
       <div><div class="label">Cash</div><b>${money(s.cash)}</b></div>
       <div><div class="label">Gross notional</div><b>${money(s.gross_exposure)}</b></div>
       <div><div class="label">Priced live</div><b>${L.priced}/${L.priced + L.unpriced}</b></div>
     </div>
     ${breach}
-    <div class="prov" style="margin-top:12px">${esc(L.delay_note || "")}
+    <div class="prov" style="margin-top:10px">
+      These two answer different questions and routinely disagree. The figure above
+      is how far the book has moved <b>since its last session mark</b>; open P&amp;L is
+      what every position is up or down <b>since it was opened</b>. A morning can be
+      green while the book is still underwater on the week.
+    </div>
+    <div class="prov" style="margin-top:8px">${esc(L.delay_note || "")}
       Updated ${esc((L.as_of || "").replace("T", " ").replace("+00:00", " UTC"))}.</div>
   </div>`;
 }
@@ -1950,6 +1964,13 @@ async function loadPaper() {
 
   const badge = document.getElementById('nb-paper');
   if (badge) badge.textContent = s.open_positions || '';
+
+  // Restore the archive panel if the reader had it open; the view above was
+  // just rebuilt from scratch.
+  if (archivesOpen) {
+    const host = document.getElementById("archiveRoot");
+    if (host && !host.innerHTML) { archivesOpen = false; toggleArchives(); }
+  }
 
   // Painted after the table exists, then kept warm on a timer while a market is
   // trading. With everything closed the live panel would repeat the closing

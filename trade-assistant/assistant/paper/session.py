@@ -196,6 +196,50 @@ def _carried_equity(config, book_path=None):
     return None
 
 
+def _starved_strategies(config, bars_available):
+    """Strategies whose lookback does not fit the history that was fetched.
+
+    Checked and reported rather than assumed. long_reversal needed 1,008 bars
+    against the 504 that `history_period: 2y` supplies, produced nothing in
+    every session ever run, and nothing anywhere said so.
+    """
+    out = []
+    for name, params in _strategy_lookbacks(config).items():
+        need = params
+        if bars_available and need > bars_available:
+            out.append((name, need))
+    return sorted(out, key=lambda x: -x[1])
+
+
+def _strategy_lookbacks(config):
+    """{strategy: bars of history it needs} from the live settings."""
+    import importlib
+    import pkgutil
+
+    from .. import strategies as pkg
+
+    needs = {}
+    overrides = (config or {}).get("strategies") or {}
+    for module in pkgutil.iter_modules(pkg.__path__):
+        try:
+            mod = importlib.import_module("assistant.strategies." + module.name)
+        except Exception:
+            continue
+        for attr in dir(mod):
+            obj = getattr(mod, attr)
+            # The attribute is `defaults`, lower case, on the Strategy class.
+            defaults = getattr(obj, "defaults", None)
+            name = getattr(obj, "name", None)
+            if not isinstance(defaults, dict) or not name:
+                continue
+            settings = {**defaults, **(overrides.get(name) or {})}
+            lookback = settings.get("lookback_bars")
+            if not lookback:
+                continue
+            needs[name] = int(lookback) + int(settings.get("skip_bars", 0) or 0)
+    return needs
+
+
 def _today():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -395,6 +439,18 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
         book.save(book_path) if book_path else book.save()
         out.update({"equity": row["equity"], "summary": book.summary()})
         return out
+
+    # A strategy whose lookback does not fit the history fetched is silent,
+    # and silence is indistinguishable from "found nothing". Say it instead.
+    bars = max((len(f) for f in universe_frames.values()), default=0)
+    starved = _starved_strategies(config, bars)
+    if starved:
+        out.setdefault("notes", []).append(
+            f"{len(starved)} strategy/strategies cannot fire on {bars} bars of "
+            f"history and were silent, not unsuccessful: "
+            + ", ".join(f"{n} needs {need}" for n, need in starved)
+            + ". Raise paper.history_period.")
+        out["starved_strategies"] = starved
 
     cross = CrossSection.from_frames(universe_frames)
     benchmark = _benchmark(router, config)

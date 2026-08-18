@@ -324,9 +324,34 @@ paper:
   # ranking. Keyed on the exact symbol set, so re-screening invalidates it.
   # Set to 0 to always re-fetch.
   universe_history_cache_hours: 8
-  max_holding_bars: 10        # ~2 weeks, not ~2 months
+  # MUST match backtest.max_holding_bars (40). It was 10, and that single
+  # number is why nothing ever reached a target.
+  #
+  # The stops and targets these strategies set are wide by construction — a
+  # multiple of ATR, giving a median target +23% from entry and a median stop
+  # -8%. The backtest that validated them lets a position run 40 bars, and its
+  # own comment says the time exit is "the dominant exit for a factor library
+  # ... lowering it turns a monthly strategy into something the research it
+  # cites does not describe."
+  #
+  # At 10 bars the book was doing exactly that: closing every position after
+  # two weeks at whatever price it happened to be, a quarter of the way into
+  # the horizon the edge was measured over. Every trade became a coin flip on
+  # two weeks of noise, and neither the stop nor the target had a realistic
+  # chance of being the reason it closed.
+  max_holding_bars: 40
   slippage_bps: 5.0           # charged against you on entry AND exit
-  history_period: 2y          # 12-month signal + 200-day average needs ~1.5y
+  # Must cover the LONGEST lookback any strategy uses, not the typical one.
+  #
+  # At 2y (~504 bars) long_reversal could never fire: it needs 756 bars of
+  # lookback plus a 252-bar skip — about 1,008 bars, four years. It produced
+  # zero candidates in every session ever run, silently, and it is the
+  # strongest strategy in the study (Calmar 0.89 against ts_momentum's 0.57).
+  #
+  # This is the same failure DISCUSSION.md §4.2 records for FX and futures: a
+  # strategy that is structurally incapable of selecting anything looks
+  # identical to one that was tested and found wanting.
+  history_period: 5y
   screen:
     # "us_all" is every symbol in the cached Finnhub US listing (~28,000).
     # "watchlist" restricts to config.watchlist. A list of symbols also works.
@@ -402,6 +427,43 @@ blend:
 # --- Backtesting -------------------------------------------------------------
 # Replays the strategies over history so you can see whether a rule set has an
 # edge without waiting months. Assumptions are deliberately pessimistic: a
+# Which strategy claims a ticker when several fire on it.
+#
+# This decides the whole character of the book and was not being chosen on
+# evidence. The order below used to be, effectively, the order the strategies
+# were written — which put xs_momentum (measured Calmar 0.22, the
+# second-weakest of the twelve) FIRST and long_reversal (Calmar 0.89, the
+# strongest by a wide margin) NINTH.
+#
+# Contention is per ticker: the highest-priority strategy that fires on an
+# instrument takes it and the rest get nothing. ts_momentum sits high and fires
+# on almost anything in a rising market, so it claimed 43 of 46 positions and
+# the eleven other strategies were, in practice, switched off.
+#
+# Ordered by measured Calmar from reports/share/results-1m.csv — return per
+# unit of worst drawdown, over 8.94 years and 528 instruments:
+#
+#   long_reversal 0.89 · ts_momentum 0.57 · dual_momentum 0.49 · low_beta 0.47
+#   turn_of_month 0.39 · short_reversal 0.36 · sector_momentum 0.34
+#   high_52w 0.30 · low_volatility 0.30 · xs_momentum 0.22
+#   band_reversion 0.16 · halloween 0.11
+#
+# This does NOT guarantee a mixed book on its own — a strategy still has to
+# fire — but it stops the weakest measured signals outranking the strongest.
+strategy_priority:
+  - long_reversal
+  - ts_momentum
+  - dual_momentum
+  - low_beta
+  - turn_of_month
+  - short_reversal
+  - sector_momentum
+  - high_52w
+  - low_volatility
+  - xs_momentum
+  - band_reversion
+  - halloween
+
 # backtest that flatters itself is worse than none at all.
 backtest:
   warmup_bars: 260            # no signals until the 200-day average is real
