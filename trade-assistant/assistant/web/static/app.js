@@ -18,7 +18,34 @@ const VERDICT = {
 };
 
 let S = {};                 // last /api/state payload
-let view = "today";
+// Restored from the last visit. `view` was a plain variable, so every reload
+// and every automatic re-render put the reader back wherever the default was
+// rather than where they were working.
+let view = (() => {
+  try {
+    const saved = localStorage.getItem("ta-view");
+    // "detail" is never restored: it needs an openIdeaId, which is not
+    // persisted, so restoring it would land the reader on "Idea not found".
+    return (saved && saved !== "detail") ? saved : "today";
+  } catch (_) { return "today"; }
+})();
+
+/* A thrown error used to kill every button on the page with no visible sign —
+   the dashboard still rendered, so it looked like a working page whose
+   controls did nothing. That is indistinguishable from "the feature is
+   broken", and it is why one browser can work while another appears dead. */
+window.addEventListener("error", e => {
+  const bar = document.getElementById("jsErrorBar") || (() => {
+    const el = document.createElement("div");
+    el.id = "jsErrorBar";
+    el.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:9999;"
+      + "background:#a3372a;color:#fff;padding:8px 14px;font:12px system-ui";
+    document.body.appendChild(el);
+    return el;
+  })();
+  bar.textContent = `Dashboard script error — controls may not respond: ${e.message}`
+    + ` (${(e.filename || "").split("/").pop()}:${e.lineno}). Hard-refresh with Cmd+Shift+R.`;
+});
 let openIdeaId = null;
 let poll = null;
 
@@ -1038,7 +1065,12 @@ function legalDialog() {
 /* ---------- render + events ---------- */
 const TITLES = { today: "Today", watchlist: "Watchlist", ideas: "Ideas", journal: "Journal", detail: "Idea" , paper: "Book" };
 
-function go(v) { view = v; render(); window.scrollTo(0, 0); }
+function go(v) {
+  view = v;
+  try { localStorage.setItem("ta-view", v); } catch (_) { }
+  render();
+  window.scrollTo(0, 0);
+}
 
 function render() {
   if (S.config_error) {
@@ -1064,7 +1096,13 @@ function render() {
   const html = { today: viewToday, watchlist: viewWatchlist, ideas: viewIdeas, journal: viewJournal, detail: viewDetail }[view]();
   // The notice leads the view: a page that has deliberately stopped updating
   // must say so, or it is indistinguishable from one that has broken.
+  //
+  // Scroll is captured and restored because innerHTML replaces the entire view:
+  // an automatic refresh threw the reader back to the top of the page mid-read,
+  // every time, which is what "it keeps going back to the book" describes.
+  const scrollY = window.scrollY;
   $("#viewRoot").innerHTML = marketClosedNotice() + html;
+  if (scrollY) window.scrollTo(0, scrollY);
   if (view === "today") refreshSchedule();
   bindView();
 }

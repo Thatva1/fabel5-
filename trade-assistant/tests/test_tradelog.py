@@ -1,6 +1,22 @@
 """Daily P&L and the trade journal — why each trade did what it did."""
-from assistant.paper import tradelog
+import pytest
+
+from assistant.paper import closed_archive, tradelog
 from assistant.paper.book import Book
+
+
+@pytest.fixture(autouse=True)
+def isolated_archive(tmp_path, monkeypatch):
+    """Point the closed-trade archive at a temp file for every test here.
+
+    Book.summary() and tradelog.report() read the archive so that history
+    cannot be truncated by trades scrolling out of the book — which means they
+    read the REAL one unless redirected. The moment the live book closed its
+    first trades, a test asserting "a fresh book has closed nothing" started
+    seeing them and failed. The tests were coupled to live trading state.
+    """
+    monkeypatch.setattr(closed_archive, "ARCHIVE_PATH",
+                        str(tmp_path / "closed_trades.jsonl"))
 
 
 def started_book(equity=1_000_000.0):

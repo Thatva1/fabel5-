@@ -115,7 +115,15 @@ def _run_scan_background():
 
 @app.get("/")
 def index():
-    return render_template("dashboard.html", disclaimer=DISCLAIMER)
+    # The build stamp is printed in the footer so "which version are you
+    # looking at" is answerable. Two browsers disagreeing about the same server
+    # is almost always one of them holding a cached script, and without a
+    # visible version there is no way for the reader to tell me which.
+    try:
+        stamp = int(os.path.getmtime(os.path.join(app.static_folder or "", "app.js")))
+    except OSError:
+        stamp = 0
+    return render_template("dashboard.html", disclaimer=DISCLAIMER, build_stamp=stamp)
 
 
 STALE_AFTER_HOURS = 24

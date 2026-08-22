@@ -1,0 +1,705 @@
+{
+  "split_at": "2024-02-17",
+  "instruments": 250,
+  "results": {
+    "dual_momentum": {
+      "strategy": "dual_momentum",
+      "split_at": "2024-02-17",
+      "configurations": 4,
+      "instruments_in": 241,
+      "instruments_out": 250,
+      "results": [
+        {
+          "config": {
+            "lookback_bars": 60
+          },
+          "in_sample": {
+            "trades": 124,
+            "mean_r": 0.4493,
+            "total_r": 55.71,
+            "win_rate_pct": 51.6,
+            "sd_r": 1.577,
+            "t_stat": 3.17
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 120
+          },
+          "in_sample": {
+            "trades": 105,
+            "mean_r": 0.3859,
+            "total_r": 40.52,
+            "win_rate_pct": 51.4,
+            "sd_r": 1.4922,
+            "t_stat": 2.65
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 252
+          },
+          "in_sample": {
+            "trades": 20,
+            "mean_r": 0.1915,
+            "total_r": 3.83,
+            "win_rate_pct": 45.0,
+            "sd_r": 1.3366,
+            "t_stat": 0.64
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 20
+          },
+          "in_sample": {
+            "trades": 156,
+            "mean_r": 0.138,
+            "total_r": 21.53,
+            "win_rate_pct": 41.7,
+            "sd_r": 1.4905,
+            "t_stat": 1.16
+          }
+        }
+      ],
+      "winner": {
+        "config": {
+          "lookback_bars": 60
+        },
+        "in_sample": {
+          "trades": 124,
+          "mean_r": 0.4493,
+          "total_r": 55.71,
+          "win_rate_pct": 51.6,
+          "sd_r": 1.577,
+          "t_stat": 3.17
+        }
+      },
+      "out_of_sample": {
+        "trades": 95,
+        "mean_r": 0.0625,
+        "total_r": 5.94,
+        "win_rate_pct": 40.0,
+        "sd_r": 1.3561,
+        "t_stat": 0.45
+      },
+      "verdict": "WEAK. Kept 14% of its in-sample edge (+0.449R \u2192 +0.062R) but t=0.45 out-of-sample, so the average is not distinguishable from zero. Searched 4 configurations, so the best in-sample score is inflated by the search itself \u2014 with that many tries, something always looks good."
+    },
+    "halloween": {
+      "strategy": "halloween",
+      "split_at": "2024-02-17",
+      "configurations": 4,
+      "instruments_in": 241,
+      "instruments_out": 250,
+      "results": [
+        {
+          "config": {
+            "lookback_bars": 120
+          },
+          "in_sample": {
+            "trades": 94,
+            "mean_r": 0.4367,
+            "total_r": 41.05,
+            "win_rate_pct": 61.7,
+            "sd_r": 1.2939,
+            "t_stat": 3.27
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 20
+          },
+          "in_sample": {
+            "trades": 196,
+            "mean_r": 0.1954,
+            "total_r": 38.3,
+            "win_rate_pct": 48.5,
+            "sd_r": 1.2885,
+            "t_stat": 2.12
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 252
+          },
+          "in_sample": {
+            "trades": 17,
+            "mean_r": 0.18,
+            "total_r": 3.06,
+            "win_rate_pct": 47.1,
+            "sd_r": 1.4044,
+            "t_stat": 0.53
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 60
+          },
+          "in_sample": {
+            "trades": 138,
+            "mean_r": 0.0909,
+            "total_r": 12.54,
+            "win_rate_pct": 46.4,
+            "sd_r": 1.1745,
+            "t_stat": 0.91
+          }
+        }
+      ],
+      "winner": {
+        "config": {
+          "lookback_bars": 120
+        },
+        "in_sample": {
+          "trades": 94,
+          "mean_r": 0.4367,
+          "total_r": 41.05,
+          "win_rate_pct": 61.7,
+          "sd_r": 1.2939,
+          "t_stat": 3.27
+        }
+      },
+      "out_of_sample": {
+        "trades": 43,
+        "mean_r": 0.316,
+        "total_r": 13.59,
+        "win_rate_pct": 39.5,
+        "sd_r": 1.8443,
+        "t_stat": 1.12
+      },
+      "verdict": "WEAK. Kept 72% of its in-sample edge (+0.437R \u2192 +0.316R) but t=1.12 out-of-sample, so the average is not distinguishable from zero. Searched 4 configurations, so the best in-sample score is inflated by the search itself \u2014 with that many tries, something always looks good."
+    },
+    "high_52w": {
+      "strategy": "high_52w",
+      "split_at": "2024-02-17",
+      "configurations": 4,
+      "instruments_in": 241,
+      "instruments_out": 250,
+      "results": [
+        {
+          "config": {
+            "lookback_bars": 252
+          },
+          "in_sample": {
+            "trades": 435,
+            "mean_r": 0.3795,
+            "total_r": 165.09,
+            "win_rate_pct": 52.4,
+            "sd_r": 1.5853,
+            "t_stat": 4.99
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 120
+          },
+          "in_sample": {
+            "trades": 657,
+            "mean_r": 0.2419,
+            "total_r": 158.96,
+            "win_rate_pct": 48.6,
+            "sd_r": 1.503,
+            "t_stat": 4.13
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 60
+          },
+          "in_sample": {
+            "trades": 823,
+            "mean_r": 0.217,
+            "total_r": 178.57,
+            "win_rate_pct": 47.5,
+            "sd_r": 1.484,
+            "t_stat": 4.19
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 20
+          },
+          "in_sample": {
+            "trades": 1084,
+            "mean_r": 0.1951,
+            "total_r": 211.54,
+            "win_rate_pct": 49.1,
+            "sd_r": 1.3734,
+            "t_stat": 4.68
+          }
+        }
+      ],
+      "winner": {
+        "config": {
+          "lookback_bars": 252
+        },
+        "in_sample": {
+          "trades": 435,
+          "mean_r": 0.3795,
+          "total_r": 165.09,
+          "win_rate_pct": 52.4,
+          "sd_r": 1.5853,
+          "t_stat": 4.99
+        }
+      },
+      "out_of_sample": {
+        "trades": 617,
+        "mean_r": 0.2851,
+        "total_r": 175.88,
+        "win_rate_pct": 50.7,
+        "sd_r": 1.3898,
+        "t_stat": 5.09
+      },
+      "verdict": "SURVIVED. Kept 75% of its in-sample edge (+0.380R \u2192 +0.285R) with t=5.09 out-of-sample. Worth testing forward on paper before trusting. Searched 4 configurations, so the best in-sample score is inflated by the search itself \u2014 with that many tries, something always looks good."
+    },
+    "long_reversal": {
+      "strategy": "long_reversal",
+      "split_at": "2024-02-17",
+      "configurations": 4,
+      "instruments_in": 241,
+      "instruments_out": 250,
+      "results": [
+        {
+          "config": {
+            "lookback_bars": 126
+          },
+          "in_sample": {
+            "trades": 99,
+            "mean_r": 0.684,
+            "total_r": 67.72,
+            "win_rate_pct": 53.5,
+            "sd_r": 1.8661,
+            "t_stat": 3.65
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 252
+          },
+          "in_sample": {
+            "trades": 34,
+            "mean_r": 0.5282,
+            "total_r": 17.96,
+            "win_rate_pct": 47.1,
+            "sd_r": 1.8257,
+            "t_stat": 1.69
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 504
+          },
+          "in_sample": {
+            "trades": 0,
+            "mean_r": null,
+            "t_stat": null,
+            "total_r": 0.0,
+            "win_rate_pct": null
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 756
+          },
+          "in_sample": {
+            "trades": 0,
+            "mean_r": null,
+            "t_stat": null,
+            "total_r": 0.0,
+            "win_rate_pct": null
+          }
+        }
+      ],
+      "winner": {
+        "config": {
+          "lookback_bars": 126
+        },
+        "in_sample": {
+          "trades": 99,
+          "mean_r": 0.684,
+          "total_r": 67.72,
+          "win_rate_pct": 53.5,
+          "sd_r": 1.8661,
+          "t_stat": 3.65
+        }
+      },
+      "out_of_sample": {
+        "trades": 125,
+        "mean_r": 0.5301,
+        "total_r": 66.26,
+        "win_rate_pct": 50.4,
+        "sd_r": 1.7822,
+        "t_stat": 3.33
+      },
+      "verdict": "SURVIVED. Kept 77% of its in-sample edge (+0.684R \u2192 +0.530R) with t=3.33 out-of-sample. Worth testing forward on paper before trusting. Searched 4 configurations, so the best in-sample score is inflated by the search itself \u2014 with that many tries, something always looks good."
+    },
+    "sector_momentum": {
+      "strategy": "sector_momentum",
+      "split_at": "2024-02-17",
+      "configurations": 4,
+      "instruments_in": 241,
+      "instruments_out": 250,
+      "results": [
+        {
+          "config": {
+            "lookback_bars": 20
+          },
+          "in_sample": {
+            "trades": 0,
+            "mean_r": null,
+            "t_stat": null,
+            "total_r": 0.0,
+            "win_rate_pct": null
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 60
+          },
+          "in_sample": {
+            "trades": 0,
+            "mean_r": null,
+            "t_stat": null,
+            "total_r": 0.0,
+            "win_rate_pct": null
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 120
+          },
+          "in_sample": {
+            "trades": 0,
+            "mean_r": null,
+            "t_stat": null,
+            "total_r": 0.0,
+            "win_rate_pct": null
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 252
+          },
+          "in_sample": {
+            "trades": 0,
+            "mean_r": null,
+            "t_stat": null,
+            "total_r": 0.0,
+            "win_rate_pct": null
+          }
+        }
+      ],
+      "winner": null,
+      "out_of_sample": null,
+      "verdict": "No configuration had a positive average trade even in-sample. Nothing here is worth carrying forward."
+    },
+    "short_reversal": {
+      "strategy": "short_reversal",
+      "split_at": "2024-02-17",
+      "configurations": 4,
+      "instruments_in": 241,
+      "instruments_out": 250,
+      "results": [
+        {
+          "config": {
+            "lookback_bars": 10
+          },
+          "in_sample": {
+            "trades": 186,
+            "mean_r": 0.1138,
+            "total_r": 21.17,
+            "win_rate_pct": 41.9,
+            "sd_r": 1.4601,
+            "t_stat": 1.06
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 5
+          },
+          "in_sample": {
+            "trades": 186,
+            "mean_r": 0.0296,
+            "total_r": 5.5,
+            "win_rate_pct": 37.1,
+            "sd_r": 1.463,
+            "t_stat": 0.28
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 21
+          },
+          "in_sample": {
+            "trades": 154,
+            "mean_r": 0.0295,
+            "total_r": 4.54,
+            "win_rate_pct": 39.0,
+            "sd_r": 1.4737,
+            "t_stat": 0.25
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 42
+          },
+          "in_sample": {
+            "trades": 182,
+            "mean_r": -0.0324,
+            "total_r": -5.9,
+            "win_rate_pct": 36.3,
+            "sd_r": 1.3811,
+            "t_stat": -0.32
+          }
+        }
+      ],
+      "winner": {
+        "config": {
+          "lookback_bars": 10
+        },
+        "in_sample": {
+          "trades": 186,
+          "mean_r": 0.1138,
+          "total_r": 21.17,
+          "win_rate_pct": 41.9,
+          "sd_r": 1.4601,
+          "t_stat": 1.06
+        }
+      },
+      "out_of_sample": {
+        "trades": 164,
+        "mean_r": 0.1252,
+        "total_r": 20.54,
+        "win_rate_pct": 43.9,
+        "sd_r": 1.3894,
+        "t_stat": 1.15
+      },
+      "verdict": "WEAK. Kept 110% of its in-sample edge (+0.114R \u2192 +0.125R) but t=1.15 out-of-sample, so the average is not distinguishable from zero. Searched 4 configurations, so the best in-sample score is inflated by the search itself \u2014 with that many tries, something always looks good."
+    },
+    "ts_momentum": {
+      "strategy": "ts_momentum",
+      "split_at": "2024-02-17",
+      "configurations": 4,
+      "instruments_in": 241,
+      "instruments_out": 250,
+      "results": [
+        {
+          "config": {
+            "lookback_bars": 252
+          },
+          "in_sample": {
+            "trades": 1205,
+            "mean_r": 0.3531,
+            "total_r": 425.47,
+            "win_rate_pct": 50.8,
+            "sd_r": 1.4769,
+            "t_stat": 8.3
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 20
+          },
+          "in_sample": {
+            "trades": 1335,
+            "mean_r": 0.2972,
+            "total_r": 396.7,
+            "win_rate_pct": 51.3,
+            "sd_r": 1.436,
+            "t_stat": 7.56
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 120
+          },
+          "in_sample": {
+            "trades": 1512,
+            "mean_r": 0.2828,
+            "total_r": 427.61,
+            "win_rate_pct": 49.7,
+            "sd_r": 1.4807,
+            "t_stat": 7.43
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 60
+          },
+          "in_sample": {
+            "trades": 1461,
+            "mean_r": 0.2639,
+            "total_r": 385.61,
+            "win_rate_pct": 49.4,
+            "sd_r": 1.4358,
+            "t_stat": 7.03
+          }
+        }
+      ],
+      "winner": {
+        "config": {
+          "lookback_bars": 252
+        },
+        "in_sample": {
+          "trades": 1205,
+          "mean_r": 0.3531,
+          "total_r": 425.47,
+          "win_rate_pct": 50.8,
+          "sd_r": 1.4769,
+          "t_stat": 8.3
+        }
+      },
+      "out_of_sample": {
+        "trades": 1613,
+        "mean_r": 0.36,
+        "total_r": 580.72,
+        "win_rate_pct": 52.0,
+        "sd_r": 1.4744,
+        "t_stat": 9.81
+      },
+      "verdict": "SURVIVED. Kept 102% of its in-sample edge (+0.353R \u2192 +0.360R) with t=9.81 out-of-sample. Worth testing forward on paper before trusting. Searched 4 configurations, so the best in-sample score is inflated by the search itself \u2014 with that many tries, something always looks good."
+    },
+    "turn_of_month": {
+      "strategy": "turn_of_month",
+      "split_at": "2024-02-17",
+      "configurations": 4,
+      "instruments_in": 241,
+      "instruments_out": 250,
+      "results": [
+        {
+          "config": {
+            "lookback_bars": 120
+          },
+          "in_sample": {
+            "trades": 827,
+            "mean_r": 0.3234,
+            "total_r": 267.48,
+            "win_rate_pct": 54.8,
+            "sd_r": 1.3265,
+            "t_stat": 7.01
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 20
+          },
+          "in_sample": {
+            "trades": 901,
+            "mean_r": 0.2794,
+            "total_r": 251.74,
+            "win_rate_pct": 53.8,
+            "sd_r": 1.2853,
+            "t_stat": 6.53
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 60
+          },
+          "in_sample": {
+            "trades": 798,
+            "mean_r": 0.2244,
+            "total_r": 179.04,
+            "win_rate_pct": 52.3,
+            "sd_r": 1.264,
+            "t_stat": 5.01
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 252
+          },
+          "in_sample": {
+            "trades": 789,
+            "mean_r": 0.2014,
+            "total_r": 158.94,
+            "win_rate_pct": 51.1,
+            "sd_r": 1.2672,
+            "t_stat": 4.47
+          }
+        }
+      ],
+      "winner": {
+        "config": {
+          "lookback_bars": 120
+        },
+        "in_sample": {
+          "trades": 827,
+          "mean_r": 0.3234,
+          "total_r": 267.48,
+          "win_rate_pct": 54.8,
+          "sd_r": 1.3265,
+          "t_stat": 7.01
+        }
+      },
+      "out_of_sample": {
+        "trades": 853,
+        "mean_r": 0.2129,
+        "total_r": 181.63,
+        "win_rate_pct": 50.3,
+        "sd_r": 1.3532,
+        "t_stat": 4.6
+      },
+      "verdict": "SURVIVED. Kept 66% of its in-sample edge (+0.323R \u2192 +0.213R) with t=4.6 out-of-sample. Worth testing forward on paper before trusting. Searched 4 configurations, so the best in-sample score is inflated by the search itself \u2014 with that many tries, something always looks good."
+    },
+    "xs_momentum": {
+      "strategy": "xs_momentum",
+      "split_at": "2024-02-17",
+      "configurations": 4,
+      "instruments_in": 241,
+      "instruments_out": 250,
+      "results": [
+        {
+          "config": {
+            "lookback_bars": 20
+          },
+          "in_sample": {
+            "trades": 0,
+            "mean_r": null,
+            "t_stat": null,
+            "total_r": 0.0,
+            "win_rate_pct": null
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 60
+          },
+          "in_sample": {
+            "trades": 0,
+            "mean_r": null,
+            "t_stat": null,
+            "total_r": 0.0,
+            "win_rate_pct": null
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 120
+          },
+          "in_sample": {
+            "trades": 0,
+            "mean_r": null,
+            "t_stat": null,
+            "total_r": 0.0,
+            "win_rate_pct": null
+          }
+        },
+        {
+          "config": {
+            "lookback_bars": 252
+          },
+          "in_sample": {
+            "trades": 0,
+            "mean_r": null,
+            "t_stat": null,
+            "total_r": 0.0,
+            "win_rate_pct": null
+          }
+        }
+      ],
+      "winner": null,
+      "out_of_sample": null,
+      "verdict": "No configuration had a positive average trade even in-sample. Nothing here is worth carrying forward."
+    }
+  }
+}
