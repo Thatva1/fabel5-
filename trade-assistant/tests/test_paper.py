@@ -678,3 +678,47 @@ def test_the_group_room_shrinks_as_an_exposure_fills_up(book_path):
     after = session._group_room(book, "6B=F", 1_000_000, limits)
     assert after < empty, "the sterling future must see less room once spot is held"
     assert session._group_room(book, "AAPL", 1_000_000, limits) is None
+
+
+# --- how old is a position, really -------------------------------------------
+#
+# The book runs several times a day. Ageing a position once per RUN instead of
+# once per BAR made a four-day-old position read as eight bars old, and since
+# `max_holding_bars` is read off that counter, it time-exited every position at
+# half its intended horizon — on a schedule that moved with the dashboard's
+# restarts rather than with the market.
+
+def test_a_position_ages_once_per_bar_not_once_per_run():
+    position = {"bars_held": 0, "bar_date": "2026-08-18"}
+
+    # Three runs on the same trading day: the rebalance windows plus the mark
+    # after the close. The market produced one bar, so the position is 0 old.
+    for _ in range(3):
+        session._age_by_one_bar(position, "2026-08-18")
+    assert position["bars_held"] == 0
+
+    session._age_by_one_bar(position, "2026-08-19")
+    session._age_by_one_bar(position, "2026-08-19")
+    assert position["bars_held"] == 1
+
+    session._age_by_one_bar(position, "2026-08-20")
+    assert position["bars_held"] == 2
+    assert position["bar_date"] == "2026-08-20"
+
+
+def test_a_weekend_of_reruns_does_not_age_a_position():
+    """Sessions run on Saturday and Sunday mark against Friday's bar. Nothing
+    traded, so nothing may age — otherwise a weekend costs two of the ten bars
+    a position is allowed to live."""
+    position = {"bars_held": 4, "bar_date": "2026-08-21"}
+    for _ in range(6):
+        session._age_by_one_bar(position, "2026-08-21")
+    assert position["bars_held"] == 4
+
+
+def test_a_position_marked_on_its_entry_bar_is_not_yet_a_bar_old():
+    """`open_position` records the entry bar's date, so the same day's later
+    session must find nothing new to count."""
+    position = {"bars_held": 0, "bar_date": "2026-08-21"}
+    session._age_by_one_bar(position, "2026-08-21")
+    assert position["bars_held"] == 0

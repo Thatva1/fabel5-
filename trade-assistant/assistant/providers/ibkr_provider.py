@@ -235,7 +235,7 @@ class IBKRDataProvider(DataProvider):
                         continue
                     last = bars[-1]
                     out[ticker] = {
-                        "price": float(last.close),
+                        "price": float(last.close) / self.minor_unit_divisor(ticker),
                         "bar_time": str(last.date),
                         "bar_size": bar_size,
                         "source": SOURCE,
@@ -291,7 +291,7 @@ class IBKRDataProvider(DataProvider):
                 "Open": b.open, "High": b.high, "Low": b.low,
                 "Close": b.close, "Volume": b.volume} for b in bars],
                 index=pd.to_datetime([b.date for b in bars]))
-            return frame.dropna(subset=["Close"])
+            return self.to_major_units(ticker, frame.dropna(subset=["Close"]))
         finally:
             ib.disconnect()
 
@@ -337,7 +337,7 @@ class IBKRDataProvider(DataProvider):
                 "Open": b.open, "High": b.high, "Low": b.low,
                 "Close": b.close, "Volume": b.volume} for b in bars],
                 index=pd.to_datetime([b.date for b in bars]))
-            return frame.dropna(subset=["Close"])
+            return self.to_major_units(ticker, frame.dropna(subset=["Close"]))
         finally:
             ib.disconnect()
 
@@ -477,6 +477,49 @@ class IBKRDataProvider(DataProvider):
         ".PA": ("SBF", "EUR"), ".SW": ("EBS", "CHF"), ".MI": ("BVME", "EUR"),
         ".MC": ("BM", "EUR"), ".BR": ("ENEXT.BE", "EUR"), ".ST": ("SFB", "SEK"),
     }
+
+    # Exchanges that quote in a currency's MINOR unit.
+    #
+    # IB reports an LSE share's currency as "GBP" and then quotes it in PENCE.
+    # AZN.L comes back as 11840.0, meaning £118.40; BP.L as 535.0, meaning
+    # £5.35. Nothing downstream can detect this, because the currency string
+    # says pounds: the sizing maths divides one pence figure by another and
+    # gets the right share count, then `committed = shares * entry_price` lands
+    # a hundred times too large in a cash balance held in major units, and the
+    # GBP->USD conversion multiplies that same error again. A London position
+    # therefore either eats the whole book or is refused by the position cap for
+    # a reason that has nothing to do with the setup.
+    #
+    # yfinance_provider already divides at its own boundary (MINOR_UNITS there,
+    # keyed on Yahoo's case-sensitive "GBp"). IB gives no such signal, so the
+    # venue is the only thing left to key on — and since _contract_for always
+    # asks LSE for GBP, the suffix and the venue are the same statement.
+    #
+    # Converted here, once, at the data boundary: every price leaving this
+    # provider is in whole currency units, which is what the rest of the
+    # project already assumes.
+    MINOR_UNIT_EXCHANGES = {"LSE": 100.0}
+
+    @classmethod
+    def minor_unit_divisor(cls, ticker):
+        """100.0 when this venue quotes in a minor unit, else 1.0."""
+        symbol = str(ticker or "").upper()
+        for suffix, (exchange, _currency) in cls.EXCHANGE_SUFFIX.items():
+            if symbol.endswith(suffix):
+                return cls.MINOR_UNIT_EXCHANGES.get(exchange, 1.0)
+        return 1.0
+
+    @classmethod
+    def to_major_units(cls, ticker, frame):
+        """Divide an OHLC frame down to major units. Volume is left alone."""
+        divisor = cls.minor_unit_divisor(ticker)
+        if divisor == 1.0:
+            return frame
+        frame = frame.copy()
+        for column in ("Open", "High", "Low", "Close", "Adj Close"):
+            if column in frame.columns:
+                frame[column] = frame[column] / divisor
+        return frame
 
     @classmethod
     def _contract_for(cls, ticker):

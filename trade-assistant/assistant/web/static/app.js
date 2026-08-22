@@ -1848,6 +1848,13 @@ async function refreshCoverage() {
 
 async function loadPaper() {
   const root = document.getElementById('viewRoot');
+  // The book is rebuilt from scratch on every refresh, and replacing innerHTML
+  // collapses the page to nothing for an instant — which throws the reader back
+  // to the top mid-read, every fifteen seconds, while a market is open. The
+  // other views already capture and restore this in render(); this one is
+  // painted from its own endpoint and was missed.
+  const scrollY = window.scrollY;
+  const restore = () => { if (scrollY) window.scrollTo(0, scrollY); };
   root.innerHTML = '<div class="card"><div class="label">Loading the book…</div></div>';
   let d, V = {}, COV = null;
   try {
@@ -1877,6 +1884,7 @@ async function loadPaper() {
     </div>
     <div id="archiveRoot" data-open="0"></div>
     <div id="coverageRoot">${coverageCard(COV)}</div>`;
+    restore();
     return;
   }
 
@@ -1915,7 +1923,11 @@ async function loadPaper() {
         <div class="meta" style="font-size:11px">${p.target_pct == null ? '' : '+' + p.target_pct + '%'}</div></td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${p.bars_held}</td>
       <td>${v ? verdictPill(v) : '—'}</td>
-      <td><button class="btn btn-sm" onclick="showNews('${p.ticker}')">News</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-sm" onclick="showNews('${p.ticker}')">News</button>
+        <button class="btn btn-sm" onclick="confirmClose(['${p.ticker}'])"
+          title="Close this position now, at the best price available">Close</button>
+      </td>
     </tr>`;
   }).join('');
 
@@ -1931,6 +1943,7 @@ async function loadPaper() {
   root.innerHTML = `
     ${marketClosedNotice()}
     ${bookBanner(d)}
+    ${closeReceipt()}
     <div id="liveRoot"></div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
@@ -1944,6 +1957,8 @@ async function loadPaper() {
         <div style="display:flex;gap:8px">
           <button class="btn" onclick="runPaper(false)">Run session</button>
           <button class="btn btn-primary" onclick="runPaper(true)">Force rebalance</button>
+          <button class="btn" onclick="confirmClose(null)"
+            title="Close every open position now">Close all — go flat</button>
           <button class="btn" onclick="toggleArchives()">Archived books</button>
         </div>
       </div>
@@ -2004,6 +2019,7 @@ async function loadPaper() {
 
     <div id="archiveRoot" data-open="0"></div>
     <div id="coverageRoot">${coverageCard(COV)}</div>`;
+  restore();
 
   const badge = document.getElementById('nb-paper');
   if (badge) badge.textContent = s.open_positions || '';
@@ -2057,6 +2073,104 @@ async function runPaper(rebalance) {
   await loadPaper();
 }
 
+
+/* ---------- closing a position by hand ----------
+   The book's own exits are three numbers: the stop, the target, and the
+   holding clock. None of them can know that you have changed your mind, and
+   until this existed there was no way out of a position that had not crossed
+   one of them.
+
+   Deliberately two levels of friction. One position is a click and a
+   confirmation; closing the WHOLE book asks you to type FLAT, the same
+   friction order entry uses, because it is the one action here that cannot be
+   undone by waiting. */
+function confirmClose(tickers) {
+  const all = !tickers;
+  const names = all ? "every open position" : tickers.join(", ");
+  $("#modalRoot").innerHTML = `
+    <div class="scrim"></div>
+    <div class="modal-wrap" role="dialog" aria-modal="true" aria-labelledby="clTitle">
+      <div class="modal"><div class="topbar"></div><div class="inner">
+        <h2 id="clTitle" class="h" style="font-size:22px">Close ${all ? "the whole book" : esc(names)}?</h2>
+        <p class="prov" style="margin-top:8px">
+          Closes ${esc(names)} in the paper book at the best price available — the live
+          intraday mark if the feed answers, otherwise the last session close. Which one
+          was used is recorded on the trade.</p>
+        <p class="prov" style="margin-top:8px">
+          Slippage and commission are charged exactly as an automatic exit pays them, and
+          the trade is filed under <b>manual</b> so the journal can tell your decisions
+          apart from the rules'.</p>
+        <div class="callout warn" style="margin:var(--s4) 0">
+          ${GLYPH.advisory} This cannot be undone. A closed position is not reopened by
+          the next session — it has to be found by the strategy again.</div>
+        <div style="display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center">
+          ${all ? `<label class="sr-only" for="clInput">Type FLAT to confirm</label>
+                   <input id="clInput" placeholder="type FLAT" size="10" autocomplete="off">` : ""}
+          <button class="btn btn-primary" id="clGo">${all ? "Go flat" : "Close it"}</button>
+          <button class="btn" id="clCancel">Cancel</button>
+        </div>
+        <div class="prov" style="margin-top:10px" id="clMsg"></div>
+      </div></div></div>`;
+  $("#clCancel").addEventListener("click", closeModal);
+  $(".scrim").addEventListener("click", closeModal);
+  $("#clInput")?.focus();
+
+  $("#clGo").addEventListener("click", async () => {
+    const msg = $("#clMsg");
+    if (all && ($("#clInput").value || "").trim().toUpperCase() !== "FLAT") {
+      msg.innerHTML = `<span class="bad">${GLYPH.fail} Type FLAT to confirm.</span>`;
+      return;
+    }
+    $("#clGo").disabled = true;
+    msg.textContent = "Closing… fetching a price for each position.";
+    const r = await post("/api/paper/close", all ? { all: true } : { tickers });
+    if (!r.ok) {
+      $("#clGo").disabled = false;
+      msg.innerHTML = `<span class="bad">${GLYPH.fail} ${esc(r.data.error || "Could not close.")}</span>`;
+      return;
+    }
+    closeModal();
+    lastCloseResult = r.data;
+    await loadPaper();
+  });
+}
+
+/* Held so the result survives the book reloading underneath it. A confirmation
+   that vanishes with the dialog leaves no record of what price you actually
+   got, which is the one thing worth seeing after a manual exit. */
+let lastCloseResult = null;
+
+function closeReceipt() {
+  if (!lastCloseResult) return "";
+  const d = lastCloseResult;
+  const rows = (d.closed || []).map(c => `<tr>
+    <td><b>${esc(c.ticker)}</b></td>
+    <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${Number(c.exit_price).toFixed(2)}</td>
+    <td class="meta">${esc(c.price_source)}${c.priced_at ? " · " + esc(String(c.priced_at)) : ""}</td>
+    <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${c.pnl == null ? "—" : Number(c.pnl).toFixed(2)}</td>
+    <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${c.r == null ? "—" : c.r + "R"}</td>
+  </tr>`).join("");
+  const stale = (d.closed || []).filter(c => c.price_source !== "live").length;
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+      <div class="label">Closed by hand — ${(d.closed || []).length} position(s)</div>
+      <button class="btn btn-sm" onclick="lastCloseResult=null;loadPaper()">Dismiss</button>
+    </div>
+    ${stale ? `<div class="callout warn" style="margin:10px 0">${GLYPH.advisory}
+      ${stale} of these filled at the last <b>session close</b>, not a live price — the
+      feed did not answer for them. The recorded P&amp;L is only as current as that mark.</div>` : ""}
+    ${d.note ? `<div class="prov" style="margin:8px 0">${esc(d.note)}</div>` : ""}
+    <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left;opacity:.6"><th>Instrument</th>
+        <th class="num" style="text-align:right">Exit</th><th>Priced from</th>
+        <th class="num" style="text-align:right">P&amp;L</th>
+        <th class="num" style="text-align:right">R</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    <div class="prov" style="margin-top:10px">Realised ${Number(d.realised).toFixed(2)}
+      · costs ${Number(d.costs).toFixed(2)}
+      ${(d.missing || []).length ? " · not found: " + esc(d.missing.join(", ")) : ""}</div>
+  </div>`;
+}
 
 /* News, shown beside the position that holds it. Context for a human reading
    the book — no strategy consumes it and no position is sized by it. */

@@ -252,6 +252,29 @@ def _slipped(price, direction, bps, opening):
     return price - drift if direction == "long" else price + drift
 
 
+def _age_by_one_bar(position, bar_date):
+    """Advance a position's age only when the market has produced a new bar.
+
+    Count BARS, not RUNS. The book runs several times a day — every rebalance
+    window under `half_day`, plus the mark after the US close — and each run
+    used to add a bar to every position's age. Measured on the live book:
+    positions opened on 2026-08-18 read 8 bars held by the 21st, four trading
+    days later.
+
+    This is not a cosmetic counter. `max_holding_bars` is read off it, so every
+    position was time-exited at roughly half its intended horizon, on a
+    schedule that moved whenever the dashboard was restarted or a rebalance was
+    forced by hand. A position's age has to come from the market's calendar,
+    and the bar's own date is the only thing here that carries it.
+
+    Mutates and returns the position, so the caller reads as one statement.
+    """
+    if bar_date != position.get("bar_date"):
+        position["bars_held"] = int(position.get("bars_held") or 0) + 1
+    position["bar_date"] = bar_date
+    return position
+
+
 def _exit_reason(position, bar):
     """Stop before target when a single bar covers both — no intrabar data
     means the order is unknowable, and assuming the target turns every
@@ -378,9 +401,8 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
             continue
         bar = df.iloc[-1]
         position["last_price"] = float(bar["Close"])
-        position["bars_held"] += 1
+        _age_by_one_bar(position, str(df.index[-1])[:10])
         position["price_source"] = mark_source
-        position["bar_date"] = str(df.index[-1])[:10]
         position["priced_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         position["mark_failed"] = False
 

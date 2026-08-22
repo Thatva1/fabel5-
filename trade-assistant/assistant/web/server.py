@@ -84,7 +84,11 @@ def _reject_foreign_host_headers():
                      "trying to reach your dashboard."}), 403
 
 _state = {"scan": None, "scanning": False, "error": None,
-          "progress": None, "cancel": False}
+          # A session run started from THIS process's /api/paper/run. The
+          # scheduler keeps its own flag for the runs it starts; a manual exit
+          # has to respect both, because either one holds the book in memory
+          # and saves it whole at the end.
+          "progress": None, "cancel": False, "paper_running": False}
 _lock = threading.Lock()
 
 
@@ -548,13 +552,81 @@ def api_paper_run():
     from ..paper import session as paper_session
 
     force = bool((request.get_json(silent=True) or {}).get("rebalance"))
+    with _lock:
+        if _state["paper_running"]:
+            return jsonify({"error": "A session is already running."}), 409
+        _state["paper_running"] = True
     try:
         result = paper_session.run(rebalance_override=True if force else None)
     except Exception as exc:
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+    finally:
+        with _lock:
+            _state["paper_running"] = False
     return jsonify({k: result.get(k) for k in
                     ("date", "rebalanced", "opened", "closed", "skipped",
                      "notes", "universe", "price_source", "summary")})
+
+
+@app.post("/api/paper/close")
+def api_paper_close():
+    """Close positions by hand — the exit the rules cannot decide for you.
+
+    Two shapes, one endpoint:
+
+        {"tickers": ["GE", "RTX"]}   close these
+        {"all": true}                go flat
+
+    `all` is required to be explicit rather than inferred from an empty ticker
+    list, because "close everything" and "the UI sent me nothing" must never be
+    the same request.
+
+    Refused while a session is running. A session holds the book in memory and
+    saves it at the end, so a manual close landing mid-run would be silently
+    overwritten by the session's own save — the position would reappear, closed
+    trade and all, with no error anywhere.
+    """
+    from ..paper import manual
+    from ..paper.book import Book
+
+    payload = request.get_json(silent=True) or {}
+    tickers = payload.get("tickers") or []
+    close_everything = bool(payload.get("all"))
+
+    if not tickers and not close_everything:
+        return jsonify({"error": "Name at least one ticker, or pass all: true."}), 400
+
+    from . import scheduler
+
+    with _lock:
+        busy = _state["paper_running"]
+    busy = busy or scheduler.status().get("running")
+    if busy:
+        return jsonify({"error": "A session is running. Closing a position now "
+                                 "would be overwritten when it saves the book. "
+                                 "Try again in a moment."}), 409
+
+    book = Book.load()
+    if not book.started:
+        return jsonify({"error": "There is no paper book to close anything in."}), 400
+    if not book.positions:
+        return jsonify({"error": "The book holds no open positions."}), 400
+
+    try:
+        result = (manual.close_all(book, load_config()) if close_everything
+                  else manual.close_positions(book, tickers, load_config()))
+    except Exception as exc:
+        # Nothing is saved on the way out, so a failure leaves the book exactly
+        # as it was rather than half-closed.
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+
+    if not result["closed"]:
+        return jsonify({"error": "Nothing matched: "
+                                 + ", ".join(result["missing"] or tickers)}), 404
+
+    book.save()
+    result["summary"] = book.summary()
+    return jsonify(result)
 
 
 @app.get("/api/news/<path:ticker>")

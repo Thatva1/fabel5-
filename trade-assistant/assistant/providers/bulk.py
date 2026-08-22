@@ -292,7 +292,12 @@ def ohlcv_history_ibkr(symbols, period="2y", config=None, progress_cb=None):
                         index=pd.to_datetime([b.date for b in bars]))
                     frame = frame.dropna(subset=["Close"])
                     if len(frame):
-                        out[symbol] = frame
+                        # LSE bars arrive from IB in pence under a "GBP" label.
+                        # This is the path that builds the tradable universe, so
+                        # leaving it unscaled put every London name into the
+                        # ranking, the sizing and the book a hundred times too
+                        # large — see IBKRDataProvider.MINOR_UNIT_EXCHANGES.
+                        out[symbol] = IBKRDataProvider.to_major_units(symbol, frame)
                     else:
                         missing.append(symbol)
                 else:

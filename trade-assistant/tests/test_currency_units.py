@@ -187,3 +187,49 @@ def test_missing_short_interest_stays_none(monkeypatch):
     monkeypatch.setattr(yfp.yf, "Ticker", lambda t: _FakeTicker(US_INFO, close=311.0))
     assert _v(YFinanceProvider().get_fundamentals("AAPL"),
               "short_percent_of_float") is None
+
+
+# --- the licensed feed has the same problem, with no signal to detect it -----
+#
+# IB reports an LSE share's currency as "GBP" and quotes it in PENCE anyway.
+# Measured against the account's own coverage file: AZN.L 11840.0 (£118.40),
+# BP.L 535.0 (£5.35), RIO.L 7106.0 (£71.06). Unlike Yahoo there is no "GBp"
+# string to key on, so the venue is the signal — and the book prices from this
+# feed, which makes it the copy of the bug that actually costs money.
+
+def test_ibkr_lse_bars_are_divided_to_pounds():
+    from assistant.providers.ibkr_provider import IBKRDataProvider
+
+    pence = pd.DataFrame(
+        {"Open": [11800.0], "High": [11900.0], "Low": [11750.0],
+         "Close": [11840.0], "Volume": [1_000_000]},
+        index=pd.to_datetime(["2026-08-18"]))
+
+    pounds = IBKRDataProvider.to_major_units("AZN.L", pence)
+    assert pounds["Close"].iloc[0] == pytest.approx(118.40)
+    assert pounds["High"].iloc[0] == pytest.approx(119.00)
+    # Volume is a share count, not a price. Dividing it would understate
+    # liquidity by 100 and drop London out of every liquidity screen.
+    assert pounds["Volume"].iloc[0] == 1_000_000
+    # The caller's frame must not be rewritten underneath it.
+    assert pence["Close"].iloc[0] == 11840.0
+
+
+def test_ibkr_non_lse_bars_are_untouched():
+    from assistant.providers.ibkr_provider import IBKRDataProvider
+
+    for ticker in ("AAPL", "SAP.DE", "AIR.PA", "ES=F", "EURUSD=X"):
+        assert IBKRDataProvider.minor_unit_divisor(ticker) == 1.0
+
+    dollars = pd.DataFrame(
+        {"Open": [200.0], "High": [201.0], "Low": [199.0],
+         "Close": [200.5], "Volume": [10]},
+        index=pd.to_datetime(["2026-08-18"]))
+    assert IBKRDataProvider.to_major_units("AAPL", dollars) is dollars
+
+
+def test_ibkr_lse_divisor_is_venue_not_suffix_spelling():
+    from assistant.providers.ibkr_provider import IBKRDataProvider
+
+    assert IBKRDataProvider.minor_unit_divisor("TSCO.L") == 100.0
+    assert IBKRDataProvider.minor_unit_divisor("tsco.l") == 100.0
