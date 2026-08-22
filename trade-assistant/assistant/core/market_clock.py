@@ -116,6 +116,113 @@ def next_open(venue, now=None):
     return datetime.combine(day, spec["open"], tzinfo=tz).astimezone(timezone.utc)
 
 
+# --- intraday session windows -----------------------------------------------
+#
+# An intraday book has three states inside one session, not two. There is a
+# stretch near the close where a NEW position can no longer be justified — it
+# has no time left to work, and it will be liquidated in minutes regardless —
+# and a shorter stretch where everything still open must be got out of.
+#
+# Expressed as MINUTES BEFORE THE CLOSE rather than wall-clock times, and that
+# is a deliberate choice rather than a stylistic one. Thatva asked for "no
+# positions at 20:30, flat by 20:55, local British". Those are the right times
+# today and the wrong ones in November: the US close is 21:00 in London under
+# BST and 21:00 becomes 21:00 GMT only because New York and London shift on
+# different dates, so for two weeks each spring and autumn a hard-coded London
+# time points at the wrong part of the American session. Thirty minutes before
+# the close is the same instruction, said in a way that cannot drift — and it
+# is also the only form that means anything for London's own 16:30 close.
+
+PHASE_CLOSED = "closed"
+PHASE_OPEN = "open"
+PHASE_NO_NEW_ENTRIES = "no_new_entries"
+PHASE_LIQUIDATE = "liquidate"
+
+
+def close_moment(venue, day=None, now=None):
+    """When this venue's session ends, as a UTC datetime.
+
+    `day` is a date in the VENUE's own calendar; omitted, it means the session
+    the given instant falls in.
+    """
+    spec = _venue(venue)
+    tz = ZoneInfo(spec["tz"])
+    day = day or _local_now(venue, now).date()
+    if isinstance(day, str):
+        day = datetime.strptime(day[:10], "%Y-%m-%d").date()
+    return datetime.combine(day, spec["close"], tzinfo=tz).astimezone(timezone.utc)
+
+
+def open_moment(venue, day=None, now=None):
+    """When this venue's session begins, as a UTC datetime."""
+    spec = _venue(venue)
+    tz = ZoneInfo(spec["tz"])
+    day = day or _local_now(venue, now).date()
+    if isinstance(day, str):
+        day = datetime.strptime(day[:10], "%Y-%m-%d").date()
+    return datetime.combine(day, spec["open"], tzinfo=tz).astimezone(timezone.utc)
+
+
+def entry_deadline(venue, minutes_before_close, day=None, now=None):
+    """After this instant, no new intraday position may be opened."""
+    return close_moment(venue, day, now) - timedelta(minutes=minutes_before_close)
+
+
+def flat_deadline(venue, minutes_before_close, day=None, now=None):
+    """By this instant, every intraday position must be closed."""
+    return close_moment(venue, day, now) - timedelta(minutes=minutes_before_close)
+
+
+def session_phase(venue, now=None, *, entry_cutoff_minutes=30,
+                  flat_minutes=5):
+    """Which of the four states this venue's session is in right now.
+
+    The runner asks this and nothing else. Keeping the decision here rather
+    than in the runner means the daily engine, the intraday engine and the
+    dashboard cannot disagree about when the day ends — and it is the one rule
+    in an intraday book that must never be approximate, because being wrong
+    about it is how an intraday strategy silently becomes an overnight one.
+
+    Ordered so the tighter window wins: inside the last `flat_minutes` the
+    answer is LIQUIDATE even though `no_new_entries` is also true.
+    """
+    if flat_minutes > entry_cutoff_minutes:
+        raise ValueError(
+            f"flat_minutes ({flat_minutes}) is further from the close than "
+            f"entry_cutoff_minutes ({entry_cutoff_minutes}) — that would order "
+            f"positions closed while new ones were still being opened")
+
+    if not is_open(venue, now):
+        return PHASE_CLOSED
+
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    closes = close_moment(venue, now=moment)
+
+    if moment >= closes - timedelta(minutes=flat_minutes):
+        return PHASE_LIQUIDATE
+    if moment >= closes - timedelta(minutes=entry_cutoff_minutes):
+        return PHASE_NO_NEW_ENTRIES
+    return PHASE_OPEN
+
+
+def minutes_to_close(venue, now=None):
+    """How long this session has left, in minutes. None when it is not open.
+
+    An intraday strategy has to size its own horizon against this: a rule that
+    expects to be given an hour cannot be started with twenty minutes left, and
+    a position opened without asking is one that will be liquidated by the
+    clock rather than closed by the rule that opened it.
+    """
+    if not is_open(venue, now):
+        return None
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return (close_moment(venue, now=moment) - moment).total_seconds() / 60.0
+
+
 def venue_for(ticker):
     """Which venue's calendar governs this instrument.
 

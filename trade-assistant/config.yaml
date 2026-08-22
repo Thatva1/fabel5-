@@ -261,6 +261,116 @@ strategies:
     stop_atr: 2.5
     reward_multiple: 2.5
 
+# --- Intraday engine ---------------------------------------------------------
+# The PRIMARY engine, by decision on 2026-08-22. The daily/monthly library below
+# stays as the secondary one; it is not being removed.
+#
+# WHY THE PIVOT. The daily engine aims at 3:1 reward:risk on ATR-wide daily
+# stops. That is achievable and it takes months to pay, so a daily book cannot
+# show realised profit day to day — which is a structural property of the
+# horizon, not a parameter to tune. An intraday rule banks a much smaller
+# multiple far more often, and the arithmetic that makes that work is hit rate
+# rather than reward. Reward multiples here are around 1.0 on purpose.
+#
+# WHAT THIS ACCOUNT CAN AND CANNOT DO, STATED PLAINLY. There is no streaming
+# market-data subscription: reqMktData returns NaN. Historical intraday bars sit
+# under different entitlements and DO work, arriving roughly 10-15 minutes late.
+# So everything here runs on historical intraday bars, in research and paper
+# mode, and nothing may present itself as live until a subscription exists. A
+# feed bought before the edge is demonstrated is a bet on an untested
+# hypothesis; see research/intraday.py, which measures the BREAKEVEN COST — the
+# round trip at which a rule stops earning — because that number, not the
+# return, is what decides whether any of this is tradable.
+intraday:
+  enabled: true
+  # Which bar the rules run on. Larger bars pay the spread less often and see
+  # less; IB caps how far back small bars go (5 mins -> 1 month, 15 mins -> 2).
+  bar_size: "5 mins"
+
+  # --- flat by close -------------------------------------------------------
+  # Stated as MINUTES BEFORE THE CLOSE, not as wall-clock times, and that is
+  # deliberate. "No positions at 20:30, flat by 20:55, local British" is right
+  # today and wrong for two weeks each spring and autumn: New York and London
+  # change clocks on different dates, so a hard-coded London time drifts an hour
+  # into the wrong part of the American session. Thirty minutes before the close
+  # is the same instruction said in a way that cannot drift — and it is the only
+  # form that also means anything for London's own 16:30 bell.
+  #
+  # With the US close at 21:00 London under BST these produce exactly 20:30 and
+  # 20:55, which is what was asked for.
+  no_new_entries_minutes_before_close: 30
+  flat_by_minutes_before_close: 5
+  # Refuse to run at all if a position is somehow still open after the flat
+  # deadline. Carrying an intraday position overnight is the one failure this
+  # whole engine exists to prevent, so it is an error rather than a warning.
+  overnight_is_an_error: true
+
+  # --- risk ----------------------------------------------------------------
+  # Tighter than the daily book on every axis. An intraday position turns over
+  # many times a day, so the same per-trade risk compounds into far more
+  # exposure per unit of time.
+  risk_per_trade_pct: 0.25
+  max_position_pct: 5.0
+  max_gross_exposure_pct: 60.0
+  max_open_positions: 8
+  # A hard stop on the day, checked before every entry. An intraday book can
+  # lose a month in an afternoon, and the only reliable defence is to stop.
+  max_daily_loss_pct: 2.0
+  max_trades_per_day: 40
+
+  # --- costs ---------------------------------------------------------------
+  # The number that decides everything. A per-trade edge that looks respectable
+  # at 5bp is a losing system at 10bp, and an intraday book pays this many times
+  # a day rather than a few times a month.
+  costs:
+    # Round trip, charged as a fraction of notional on BOTH sides — which is how
+    # a spread actually behaves. Halving it to "one side" is the single most
+    # common way an intraday backtest flatters itself.
+    spread_bps: 4.0
+    slippage_bps: 2.0
+    commission_per_trade: 1.0
+
+  strategies:
+    # Break of the first half hour's range — Zarattini & Aziz (2023). The most
+    # replicated intraday result there is, and the stop is the far side of the
+    # range rather than an ATR multiple because the range IS what is being bet
+    # against.
+    opening_range_break:
+      enabled: true
+      range_minutes: 30
+      reward_multiple: 1.0
+      min_range_pct: 0.15
+      max_range_pct: 3.0
+    # Fade a stretch from the session VWAP, targeting the VWAP itself. The
+    # mean-reversion counterpart to the breakout, so a session where neither
+    # fires is informative rather than a gap in coverage.
+    vwap_reversion:
+      enabled: true
+      stretch_pct: 0.4
+      stop_atr: 1.5
+      atr_minutes: 30
+      warmup_minutes: 45
+    # Gao, Han, Li & Zhou (2018) — the first half hour predicts the last. Best
+    # evidenced rule here, and the only one whose horizon is fixed by the
+    # research rather than chosen. Opened near the close and held to the bell,
+    # which is what the flat-by-close liquidation does anyway.
+    intraday_momentum:
+      enabled: true
+      signal_minutes: 30
+      entry_minutes_before_close: 35
+      min_move_pct: 0.1
+      stop_atr: 2.0
+      reward_multiple: 1.0
+    # The weakest by evidence, and honest about it: a gap has a CAUSE and this
+    # cannot read it. An earnings gap and a sympathy gap look identical in
+    # price. The size band is the only filter, so keep max_gap_pct low.
+    gap_fade:
+      enabled: false
+      min_gap_pct: 0.5
+      max_gap_pct: 4.0
+      settle_minutes: 15
+      fill_fraction: 0.5
+
 # --- Paper trading -----------------------------------------------------------
 # The rules trading forward with nobody intervening. `python run.py paper` runs
 # one session: marks open positions, takes exits, and rebalances when a calendar
