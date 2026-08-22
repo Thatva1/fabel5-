@@ -1904,7 +1904,9 @@ async function loadPaper() {
     return `
     <tr style="border-bottom:1px solid rgba(128,128,128,.18)">
       <td><b>${p.ticker}</b><div class="meta">${p.segment}</div></td>
-      <td>${p.strategy}</td>
+      <td>${p.strategy}
+        ${p.headline ? `<div class="meta" style="font-size:11px;max-width:22ch;white-space:normal"
+          title="${esc(p.headline)}">${esc(p.headline)}</div>` : ''}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${money(p.shares)}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${Number(p.entry_price).toFixed(2)}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums" title="${priceTitle}">
@@ -1933,7 +1935,10 @@ async function loadPaper() {
 
   const closed = (d.closed || []).map(c => `
     <tr style="border-bottom:1px solid rgba(128,128,128,.18)">
-      <td><b>${c.ticker}</b></td><td>${c.strategy || ''}</td>
+      <td><b>${c.ticker}</b></td>
+      <td>${c.strategy || ''}
+        ${c.headline ? `<div class="meta" style="font-size:11px;max-width:22ch;white-space:normal"
+          title="${esc(c.headline)}">${esc(c.headline)}</div>` : ''}</td>
       <td>${c.exit_reason || ''}</td>
       <td class="num ${cls(c.pnl)}" style="text-align:right;font-variant-numeric:tabular-nums">${money(c.pnl)}</td>
       <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${c.r_multiple == null ? '—' : c.r_multiple + 'R'}</td>
