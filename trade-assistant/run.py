@@ -17,6 +17,9 @@
                                  unlock the rest (--universe for the full screen)
   python run.py intraday         does an edge exist on 5/15/30/60-minute bars?
                                  (--bars 15m, --cost-bps 10, then tickers)
+                                 --engine runs the REAL intraday rules instead:
+                                 stops, targets, no entry in the last half hour,
+                                 flat before the bell, costs from config.yaml
   python run.py sweep --all      sweep EVERY strategy's lookback on one split
   python run.py sweep STRATEGY   does a SHORTER lookback still work? Ranks
                                  settings on the first half of history and
@@ -482,6 +485,16 @@ def _intraday(argv):
                    "30m": "30 mins", "1h": "1 hour", "60m": "1 hour",
                    "2h": "2 hours"}
     bar_size, cost_bps, symbols = "5 mins", 10.0, []
+    # Two different questions, two different modes.
+    #
+    #   default    — RESEARCH. Does an edge exist at this horizon at all? Runs
+    #                the simple probes in research/intraday.py and reports the
+    #                breakeven cost. Says nothing about what a book would make.
+    #   --engine   — THE ACTUAL RULES. Walks each session bar by bar through the
+    #                intraday strategy library, with real stops and targets, the
+    #                flat-by-close discipline, the entry cutoff, and the costs
+    #                from config.yaml. This is what the book would have done.
+    use_engine = "--engine" in argv
     i = 0
     while i < len(argv):
         arg = argv[i]
@@ -524,6 +537,10 @@ def _intraday(argv):
     for ticker, frame in list(got.items())[:3]:
         print(f"  {ticker}: {len(frame)} bars, {frame.index[0]} -> {frame.index[-1]}")
 
+    if use_engine:
+        _intraday_engine(got, config, bar_size)
+        return
+
     out = intraday.evaluate(got, cost_bps=cost_bps, bar_size=bar_size)
     print(f"\n{out['sessions']} sessions across {out['instruments']} instruments, "
           f"assuming {cost_bps} bps round-trip cost.\n")
@@ -543,6 +560,63 @@ def _intraday(argv):
 
     v = out["verdict"]
     print(f"\n{'EDGE FOUND' if v['edge_found'] else 'NO EDGE'} — {v['message']}")
+    print(f"\n{DISCLAIMER}")
+
+
+def _intraday_engine(frames, config, bar_size):
+    """What the intraday rules would actually have done, session by session.
+
+    Different from the research mode above in every way that matters: real
+    stops and targets rather than hold-to-close, one position at a time, no new
+    entry inside the last half hour, everything liquidated before the bell, and
+    the round trip charged on both sides at the rate config.yaml says this
+    account pays.
+    """
+    from assistant.backtest import intraday_engine
+
+    settings = dict(config.get("intraday") or {})
+    settings["bar_size"] = bar_size
+    out = intraday_engine.run(frames, config={**config, "intraday": settings})
+
+    overall = out["overall"]
+    if not overall.get("trades"):
+        print("\nNo trade fired. Either the rules are switched off in "
+              "config.yaml, or these sessions produced no setup — which is "
+              "itself a finding, not a failure.")
+        return
+
+    charged = overall["charged_bps"]
+    print(f"\n{overall['trades']} trades on {bar_size} bars, "
+          f"charging {charged:.1f}bp a round trip.\n")
+
+    print(f"{'strategy':<24}{'trades':>7}{'win%':>7}{'net/trade':>11}"
+          f"{'mean R':>8}{'held':>7}{'breakeven':>11}{'t':>7}")
+    for name, r in sorted(out["by_strategy"].items()):
+        print(f"{name:<24}{r['trades']:>7}{r['win_rate_pct']:>7}"
+              f"{r['mean_net_pct']:>10.4f}%{r['mean_r']:>8.2f}"
+              f"{r['mean_held_minutes']:>6.0f}m{r['breakeven_bps']:>10.1f}b"
+              f"{(r['t_stat'] if r['t_stat'] is not None else 0):>7.2f}")
+
+    print(f"\n{'TOTAL':<24}{overall['trades']:>7}{overall['win_rate_pct']:>7}"
+          f"{overall['mean_net_pct']:>10.4f}%{overall['mean_r']:>8.2f}"
+          f"{overall['mean_held_minutes']:>6.0f}m{overall['breakeven_bps']:>10.1f}b"
+          f"{(overall['t_stat'] if overall['t_stat'] is not None else 0):>7.2f}")
+    print("\nt is the net return's distance from zero in standard errors. "
+          "Below 2 the rest of the row is noise.")
+
+    # How each trade ended is the fastest read on whether the rules are doing
+    # what they claim. A book that exits mostly on flat_by_close is one whose
+    # targets are too far away to be reached inside a session.
+    print("\nHow trades ended:")
+    for reason, row in sorted(overall["by_exit_reason"].items(),
+                              key=lambda kv: -kv[1]["trades"]):
+        share = row["trades"] / overall["trades"] * 100
+        print(f"  {reason:<16}{row['trades']:>5}  ({share:4.1f}%)  "
+              f"{row['net_pct']:+.3f}% total")
+
+    print(f"\n{out['verdict']}")
+    print("\nHistorical bars, 10-15 minutes delayed on this account. Nothing "
+          "here has traded and nothing here is live.")
     print(f"\n{DISCLAIMER}")
 
 
