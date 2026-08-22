@@ -36,6 +36,16 @@ RETRY_BACKOFF_SECONDS = 5
 # in the first place, which is far cheaper than recovering from it.
 CHUNK_PAUSE_SECONDS = 0.4
 
+# Adaptive pacing for IBKR intraday history. Not a documented limit turned into
+# a constant — a starting guess that moves. It doubles the moment IB reports a
+# pacing violation and decays back down while it does not, so a small batch runs
+# at full speed and a universe-wide pull settles at whatever the account
+# actually allows rather than at whatever was true when this was written.
+PACING_START_SECONDS = 0.25
+PACING_MIN_SECONDS = 0.0
+PACING_MAX_SECONDS = 12.0
+PACING_DECAY = 0.9
+
 
 class ThrottleSuspected(Exception):
     """Raised when a wide pull yields so little that the data cannot be trusted.
@@ -309,3 +319,125 @@ def ohlcv_history_ibkr(symbols, period="2y", config=None, progress_cb=None):
     finally:
         ib.disconnect()
     return out, missing
+
+
+def intraday_history_ibkr(symbols, bar_size="5 mins", duration=None, config=None,
+                          progress_cb=None, pace=None):
+    """{symbol: intraday OHLCV} from IBKR over ONE held-open connection.
+
+    The sibling of `ohlcv_history_ibkr`, and it exists for the same reason: the
+    provider opens a socket per call, which is right for eight lookups and
+    wrong for fifteen hundred. `research/intraday.fetch` claimed in its own
+    docstring to hold one connection and did not — it called the per-ticker
+    provider in a loop, so a universe-wide intraday pull paid 1,568 TCP
+    handshakes and 1,568 client-id negotiations on top of the data.
+
+    PACING IS DIFFERENT HERE, and that is the real reason this is separate.
+    IB treats small-bar history as a much heavier request class than daily
+    bars: the daily path measures 1.44 seconds an instrument and is never
+    throttled, while intraday requests trip a pacing violation (error 162, and
+    165/420 for the same family) that IB answers by returning NOTHING. An empty
+    result is indistinguishable from an instrument the account cannot see, so
+    without detecting the error a throttled universe pull looks exactly like a
+    universe of untradeable names — the same silent failure ThrottleSuspected
+    exists to prevent on the Yahoo path.
+
+    So the errors are watched rather than guessed at, and the gap between
+    requests adapts: it grows when IB complains and decays back down when it
+    stops. Starting from a fixed sleep would either be far too slow for a small
+    batch or far too fast for a large one, and the limit is not documented in a
+    form worth hard-coding.
+    """
+    import pandas as pd
+
+    from .ibkr_provider import IBKRDataProvider
+
+    provider = IBKRDataProvider(config)
+    if not provider.is_available():
+        raise ProviderUnavailable(
+            "IBKR is not reachable, so intraday bars cannot be fetched. Start IB "
+            "Gateway or TWS and log in.")
+
+    bar_size = (bar_size if bar_size in provider.INTRADAY_MAX_DURATION
+                else "5 mins")
+    duration = duration or provider.INTRADAY_MAX_DURATION[bar_size]
+
+    gap = PACING_START_SECONDS if pace is None else float(pace)
+    paced = {"hits": 0}
+
+    ib = provider._connect()
+
+    def on_error(_req_id, code, message, _contract=None):
+        # 162: historical data request pacing violation (and the generic
+        # "HMDS query returned no data" shares it). 165 and 420 are the
+        # market-data-farm variants of the same complaint.
+        if code in (162, 165, 420) and "pacing" in str(message).lower():
+            paced["hits"] += 1
+
+    try:
+        ib.errorEvent += on_error
+    except Exception:
+        pass        # older client without the event; adaptive pacing degrades off
+
+    out, missing, throttled = {}, [], 0
+    try:
+        for index, symbol in enumerate(dict.fromkeys(symbols), start=1):
+            before = paced["hits"]
+            try:
+                contract = provider._contract_for(symbol)
+                if str(symbol).upper().endswith("=F"):
+                    contract = provider._resolve_future(ib, contract) or contract
+                bars = ib.reqHistoricalData(
+                    contract, endDateTime="", durationStr=duration,
+                    barSizeSetting=bar_size, whatToShow="TRADES", useRTH=True,
+                    formatDate=1)
+                # The same trailing-dot retry the daily path needs: IB writes
+                # some LSE lines as `BP.` and `BT.A`, and without this they drop
+                # out of the universe silently.
+                if not bars:
+                    for variant in provider._symbol_variants(symbol):
+                        probe = provider._contract_for(symbol)
+                        probe.symbol = variant
+                        bars = ib.reqHistoricalData(
+                            probe, endDateTime="", durationStr=duration,
+                            barSizeSetting=bar_size, whatToShow="TRADES",
+                            useRTH=True, formatDate=1)
+                        if bars:
+                            break
+                if bars:
+                    frame = pd.DataFrame([{
+                        "Open": b.open, "High": b.high, "Low": b.low,
+                        "Close": b.close, "Volume": b.volume} for b in bars],
+                        index=pd.to_datetime([b.date for b in bars]))
+                    frame = frame.dropna(subset=["Close"])
+                    if len(frame):
+                        # London arrives in pence under a "GBP" label on this
+                        # path exactly as it does on the daily one.
+                        out[symbol] = IBKRDataProvider.to_major_units(symbol, frame)
+                    else:
+                        missing.append(symbol)
+                else:
+                    missing.append(symbol)
+            except Exception:
+                missing.append(symbol)
+
+            if paced["hits"] > before:
+                throttled += 1
+                gap = min(PACING_MAX_SECONDS, max(gap, PACING_START_SECONDS) * 2)
+            else:
+                gap = max(PACING_MIN_SECONDS, gap * PACING_DECAY)
+
+            if progress_cb:
+                progress_cb(index, len(symbols), len(out), round(gap, 2))
+            if gap:
+                time.sleep(gap)
+    finally:
+        try:
+            ib.errorEvent -= on_error
+        except Exception:
+            pass
+        ib.disconnect()
+
+    return out, missing, {"pacing_violations": paced["hits"],
+                          "throttled_symbols": throttled,
+                          "final_gap_seconds": round(gap, 2)}

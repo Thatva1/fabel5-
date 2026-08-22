@@ -39,12 +39,28 @@ from zoneinfo import ZoneInfo
 
 from ..core import market_clock
 from ..strategies import intraday as intraday_lib
+from . import spread
 
 DEFAULTS = {
     "no_new_entries_minutes_before_close": 30,
     "flat_by_minutes_before_close": 5,
     "bar_size": "5 mins",
     "costs": {"spread_bps": 4.0, "slippage_bps": 2.0, "commission_per_trade": 1.0},
+    # Charge each instrument ITS OWN spread, measured from its own bars.
+    #
+    # This matters far more than it looks, and it matters more the wider the
+    # universe gets. The apparent reversion in an illiquid name is mostly bid-ask
+    # bounce — a print at the bid, then the offer, then the bid has "reverted"
+    # twice and moved not at all — so charging a mega-cap's 4bp across fifteen
+    # hundred names pays SPY's cost for a small-cap's illusion. The result is an
+    # edge that gets more convincing the more instruments you feed it and does
+    # not exist at any of them. See backtest/spread.py.
+    "estimate_spreads": True,
+    # Wider than this and the instrument is dropped rather than traded. Keeping
+    # it adds noise dressed as signal; dropping it silently would hide how much
+    # of the universe the study actually covers, so the names are reported.
+    "max_spread_bps": 40.0,
+    "min_spread_bps": 1.0,
 }
 
 BAR_MINUTES = {"1 min": 1, "5 mins": 5, "15 mins": 15, "30 mins": 30,
@@ -333,35 +349,94 @@ def run(frames, *, prev_closes=None, config=None):
     split on the bar's own date, and each session is handed the previous
     session's closing price — the two strongest rules in the library are defined
     against it and cannot be expressed without it.
+
+    Each instrument pays its OWN estimated spread unless that is switched off.
+    Running a wide universe on one flat cost is the single largest error a
+    study like this can make, and it is the error that invents an edge rather
+    than hiding one.
     """
     config = config or {}
     cfg = settings(config)
+
+    liquidity, spreads = None, {}
+    if cfg.get("estimate_spreads", True):
+        table = spread.cost_table(frames,
+                                  floor_bps=cfg.get("min_spread_bps", 1.0),
+                                  cap_bps=cfg.get("max_spread_bps"))
+        spreads = table["spreads"]
+        liquidity = {**spread.describe(table),
+                     "excluded_names": [row["ticker"] for row in table["excluded"][:20]],
+                     "cap_bps": cfg.get("max_spread_bps")}
+        # An instrument too wide to trade is not traded. It was measured, it was
+        # named, and it is out.
+        frames = {t: f for t, f in (frames or {}).items() if t in spreads}
+
     all_trades, per_ticker = [], {}
 
     for ticker, frame in (frames or {}).items():
         if frame is None or not len(frame):
             continue
+        costs = _costs_for(ticker, cfg, spreads)
+        ticker_config = {**config, "intraday": {**cfg, "costs": costs}}
         trades, prev_close = [], (prev_closes or {}).get(ticker)
         for _day, rows in frame.groupby(frame.index.date):
             if len(rows) >= 6:      # too few bars to form an opening range
                 trades.extend(run_session(ticker, rows, prev_close=prev_close,
-                                          config=config))
+                                          config=ticker_config))
             prev_close = float(rows["Close"].iloc[-1])
-        per_ticker[ticker] = summarise(trades, cfg["costs"])
+        per_ticker[ticker] = {**summarise(trades, costs),
+                              "spread_bps": costs["spread_bps"]}
         all_trades.extend(trades)
 
     by_strategy = {}
     for trade in all_trades:
         by_strategy.setdefault(trade["strategy"], []).append(trade)
 
-    overall = summarise(all_trades, cfg["costs"])
+    # What the surviving universe actually paid, weighted by how much of it was
+    # traded — not the number in config.yaml, which by this point describes
+    # nothing that happened.
+    charged = _blended_costs(cfg, spreads, per_ticker)
+    overall = summarise(all_trades, charged)
     return {
         "bar_size": cfg["bar_size"],
         "trades": all_trades,
         "overall": overall,
         "verdict": verdict(overall),
-        "by_strategy": {name: {**summarise(rows, cfg["costs"]),
-                               "verdict": verdict(summarise(rows, cfg["costs"]))}
+        "liquidity": liquidity,
+        "spread_source": ("measured per instrument (Corwin-Schultz)"
+                          if cfg.get("estimate_spreads", True)
+                          else "flat, from config.yaml"),
+        "by_strategy": {name: {**summarise(rows, charged),
+                               "verdict": verdict(summarise(rows, charged))}
                         for name, rows in by_strategy.items()},
         "by_ticker": per_ticker,
     }
+
+
+def _costs_for(ticker, cfg, spreads):
+    """This instrument's cost block: its own spread, the shared rest."""
+    costs = dict(cfg["costs"])
+    if ticker in spreads:
+        costs["spread_bps"] = spreads[ticker]
+    return costs
+
+
+def _blended_costs(cfg, spreads, per_ticker):
+    """The universe's cost, weighted by the trades each instrument produced.
+
+    An unweighted mean would let a thousand names that never fired a signal
+    drag the reported cost toward the illiquid tail, and a rule that only ever
+    trades the tightest names would be judged against a spread it never paid.
+    """
+    costs = dict(cfg["costs"])
+    if not spreads:
+        return costs
+    weighted, total = 0.0, 0
+    for ticker, summary in (per_ticker or {}).items():
+        count = summary.get("trades") or 0
+        if count and ticker in spreads:
+            weighted += spreads[ticker] * count
+            total += count
+    if total:
+        costs["spread_bps"] = round(weighted / total, 2)
+    return costs

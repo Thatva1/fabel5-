@@ -326,9 +326,37 @@ intraday:
     # Round trip, charged as a fraction of notional on BOTH sides — which is how
     # a spread actually behaves. Halving it to "one side" is the single most
     # common way an intraday backtest flatters itself.
+    #
+    # This flat number is only used when `estimate_spreads` is off. It is a
+    # mega-cap's spread, and it is roughly honest for SPY and AAPL and wildly
+    # wrong for most of a 1,568-name universe.
     spread_bps: 4.0
     slippage_bps: 2.0
     commission_per_trade: 1.0
+
+  # Measure each instrument's spread from its own bars rather than assuming one.
+  #
+  # This is the difference between a wide-universe study that means something
+  # and one that does not. The apparent intraday reversion in an illiquid name
+  # is largely bid-ask bounce — a print at the bid, then the offer, then the bid
+  # has "reverted" twice and moved not at all — and those are exactly the names
+  # whose real spread is 30, 80 or 200 basis points. Charge them SPY's 4bp and
+  # the study reports an edge that gets more convincing the more instruments you
+  # add and exists at none of them.
+  #
+  # Corwin-Schultz (2012), estimated from the bars themselves — which matters
+  # because this account has no quote data at all, and buying it to find out
+  # whether an edge exists is the wrong order.
+  estimate_spreads: true
+  # KNOWN TO UNDERSTATE. Measured against synthetic series with a known bounce,
+  # a true 60bp round trip comes back as roughly 44bp. So this cap is set
+  # conservatively on purpose: a measured 40 is plausibly a real 55, and a cap
+  # chosen as though the estimate were exact admits instruments that cannot be
+  # traded anywhere near the assumed cost. See backtest/spread.py.
+  max_spread_bps: 40.0
+  # An estimate of zero means the estimator could not see the spread, not that
+  # there isn't one.
+  min_spread_bps: 1.0
 
   strategies:
     # Break of the first half hour's range — Zarattini & Aziz (2023). The most

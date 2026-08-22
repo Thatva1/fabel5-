@@ -16,10 +16,14 @@
                                  price, and name the subscription that would
                                  unlock the rest (--universe for the full screen)
   python run.py intraday         does an edge exist on 5/15/30/60-minute bars?
-                                 (--bars 15m, --cost-bps 10, then tickers)
+                                 Runs the WHOLE tradable universe by default —
+                                 --watchlist, --mega, or name tickers to narrow;
+                                 --sample N / --limit N for a quick pass.
+                                 (--bars 15m, --cost-bps 10)
                                  --engine runs the REAL intraday rules instead:
                                  stops, targets, no entry in the last half hour,
-                                 flat before the bell, costs from config.yaml
+                                 flat before the bell, and EACH instrument
+                                 charged its own measured spread
   python run.py sweep --all      sweep EVERY strategy's lookback on one split
   python run.py sweep STRATEGY   does a SHORTER lookback still work? Ranks
                                  settings on the first half of history and
@@ -471,9 +475,92 @@ def _publish(argv):
         print("      learns what you are in before you are out of it.")
 
 
+def _intraday_universe(scope, config):
+    """Which instruments the intraday study runs on. Returns (symbols, note).
+
+    The default is the WHOLE tradable universe, and changing it from eight
+    mega-caps was not a convenience. Restricting an intraday reversion test to
+    SPY, AAPL and MSFT points it at the most arbitraged, tightest-spread
+    instruments in existence — the exact population where the effect is
+    smallest — and this project's own strategy notes already say so twice: that
+    a result from single mega-cap names is not a test of the paper, and that the
+    reversal family was "pointed at the wrong universe".
+
+    The same screen the paper book uses, filtered through the same coverage
+    report, so the intraday engine and the daily engine are answering questions
+    about the same set of instruments rather than two different markets.
+    """
+    if scope == "mega":
+        return (["SPY", "QQQ", "AAPL", "NVDA", "MSFT", "AMZN", "META", "TSLA"],
+                "Eight mega-caps — a smoke test, not a study. These are the "
+                "tightest-spread\ninstruments there are, which is where an "
+                "intraday reversion edge is smallest.")
+
+    if scope == "watchlist":
+        symbols = list(config.get("watchlist") or [])
+        return symbols, f"Your watchlist: {len(symbols)} instruments."
+
+    from assistant import pipeline
+    from assistant.paper import screen
+    from assistant.providers import coverage as coverage_report
+
+    print("Screening the tradable universe…")
+    try:
+        symbols, report, cached = screen.tradable_universe(
+            config, pipeline.get_router(config))
+    except Exception as exc:
+        print(f"Could not build the universe: {exc}")
+        print("Run with --watchlist or --mega, or name tickers explicitly.")
+        return None, ""
+
+    filtered, coverage_info = coverage_report.tradable_symbols(symbols, config)
+    dropped = 0
+    if filtered and len(filtered) != len(symbols):
+        dropped = len(symbols) - len(filtered)
+        symbols = filtered
+
+    return list(symbols), _describe_universe(symbols, cached, dropped)
+
+
+def _describe_universe(symbols, cached, dropped):
+    """Say what is actually in the universe, by instrument class.
+
+    Worth spelling out rather than printing one number. "1,568 instruments"
+    reads as an equity screen, and it is not — there are index and rate and
+    commodity futures in there, and eight currency pairs. Which classes are
+    present changes what an intraday result MEANS, and two of the classes carry
+    caveats the reader has to be given rather than discover.
+    """
+    futures = [s for s in symbols if s.endswith("=F")]
+    fx = [s for s in symbols if s.endswith("=X")]
+    lse = [s for s in symbols if s.endswith(".L")]
+    rest = len(symbols) - len(futures) - len(fx) - len(lse)
+
+    lines = [f"Tradable universe: {len(symbols)} instruments"
+             f"{' (from cache)' if cached else ''} — "
+             f"{rest} US shares and ETFs, {len(lse)} London, "
+             f"{len(futures)} futures, {len(fx)} FX pairs."]
+    if dropped:
+        lines.append(f"  {dropped} dropped: the licensed feed cannot price them.")
+    if futures:
+        lines.append(
+            "  Futures are walked against the US EQUITY session, because that is "
+            "the only calendar this project has for them.\n"
+            "  IB returns regular-hours bars only, so the approximation mostly "
+            "holds — but a contract that trades nearly around the\n"
+            "  clock does not really have a 16:00 close, and the flat-by-close "
+            "rule is therefore a modelling choice here, not a fact.")
+    if fx:
+        lines.append(
+            "  FX has no session at all and this account cannot price it "
+            "(no IDEALPRO subscription). Expect those to return nothing.")
+    return "\n".join(lines)
+
+
 def _intraday(argv):
     """Test whether an edge exists at intraday horizons. Trades nothing."""
     from assistant.core.config import load_config
+    from assistant.providers import bulk
     from assistant.research import intraday
 
     config = load_config()
@@ -485,6 +572,7 @@ def _intraday(argv):
                    "30m": "30 mins", "1h": "1 hour", "60m": "1 hour",
                    "2h": "2 hours"}
     bar_size, cost_bps, symbols = "5 mins", 10.0, []
+    scope, limit, sample = None, None, None
     # Two different questions, two different modes.
     #
     #   default    — RESEARCH. Does an edge exist at this horizon at all? Runs
@@ -509,6 +597,20 @@ def _intraday(argv):
                 print(f"--cost-bps needs a number, got {argv[i + 1]!r}")
                 return
             i += 2
+        elif arg in ("--limit", "--sample") and i + 1 < len(argv):
+            try:
+                value = int(argv[i + 1])
+            except ValueError:
+                print(f"{arg} needs a whole number, got {argv[i + 1]!r}")
+                return
+            if arg == "--limit":
+                limit = value
+            else:
+                sample = value
+            i += 2
+        elif arg in ("--universe", "--watchlist", "--mega"):
+            scope = arg[2:]
+            i += 1
         elif arg.startswith("--"):
             i += 1
         else:
@@ -516,18 +618,58 @@ def _intraday(argv):
             i += 1
 
     if not symbols:
-        symbols = ["SPY", "QQQ", "AAPL", "NVDA", "MSFT", "AMZN", "META", "TSLA"]
+        symbols, scope_note = _intraday_universe(scope or "universe", config)
+        if symbols is None:
+            return
+        print(scope_note)
+    if sample:
+        # Seeded, and the seed is printed. An unreproducible sample is not a
+        # measurement — you cannot tell a real result from the one draw out of
+        # twenty that happened to look good.
+        import random
+        rng = random.Random(20260822)
+        symbols = sorted(rng.sample(symbols, min(sample, len(symbols))))
+        print(f"Sampled {len(symbols)} of them (seed 20260822).")
+    if limit:
+        symbols = symbols[:limit]
+        print(f"Capped at the first {len(symbols)}.")
 
-    print(f"Fetching {bar_size} bars for {len(symbols)} instruments.")
+    print(f"\nFetching {bar_size} bars for {len(symbols)} instruments over one "
+          f"connection.")
+    if len(symbols) > 200:
+        print("  IB paces small-bar history far harder than daily bars, and it "
+              "answers a pacing violation by returning NOTHING — which is\n"
+              "  indistinguishable from an instrument the account cannot see. "
+              "The gap between requests adapts to whatever IB actually\n"
+              "  allows, so this is slow rather than wrong. Expect tens of "
+              "minutes, and a count of throttled names at the end.")
     print("Historical bars only — nothing here is tradable on this account, "
           "which has no live quote feed.\n")
+
+    def progress(done, total, got, gap=None):
+        pace = f" pacing {gap:.2f}s" if gap else ""
+        print(f"  {done}/{total} fetched, {got} with bars{pace}   ",
+              end="\r", flush=True)
+
     try:
-        frames = intraday.fetch(
-            symbols, config, bar_size=bar_size,
-            progress_cb=lambda d, t, s: print(f"  {d}/{t} {s}", end="\r", flush=True))
+        if use_engine:
+            frames, missing, pacing = bulk.intraday_history_ibkr(
+                symbols, bar_size=bar_size, config=config, progress_cb=progress)
+        else:
+            frames = intraday.fetch(
+                symbols, config, bar_size=bar_size,
+                progress_cb=lambda d, t, sym: progress(d, t, d))
+            missing, pacing = [], None
     except Exception as exc:
         print(f"\nCould not fetch intraday data: {exc}")
         return
+
+    if pacing and pacing["pacing_violations"]:
+        print(f"\n\nIB throttled {pacing['throttled_symbols']} of these "
+              f"({pacing['pacing_violations']} pacing violations); the request "
+              f"gap ended at {pacing['final_gap_seconds']}s.")
+        print("Those names returned nothing and are NOT in the study. That is a "
+              "gap in coverage, not a finding about them.")
 
     got = {k: v for k, v in frames.items() if v is not None and len(v)}
     print(f"\n\n{len(got)} of {len(symbols)} returned bars.")
@@ -586,8 +728,28 @@ def _intraday_engine(frames, config, bar_size):
         return
 
     charged = overall["charged_bps"]
-    print(f"\n{overall['trades']} trades on {bar_size} bars, "
-          f"charging {charged:.1f}bp a round trip.\n")
+    liquidity = out.get("liquidity")
+    if liquidity and liquidity.get("instruments"):
+        # How liquid the surviving universe actually is. Printed before the
+        # results because it decides what they mean: a rule that only ever
+        # trades the widest names in the list has not found an edge, it has
+        # found the bid-ask bounce.
+        print(f"\nSpreads, {out['spread_source']}:")
+        print(f"  {liquidity['instruments']} instruments · median "
+              f"{liquidity['median_bps']}bp · 10th–90th "
+              f"{liquidity['p10_bps']}–{liquidity['p90_bps']}bp · "
+              f"widest kept {liquidity['widest_bps']}bp")
+        if liquidity.get("excluded"):
+            names = ", ".join(liquidity.get("excluded_names") or [])
+            print(f"  {liquidity['excluded']} dropped for trading wider than "
+                  f"{liquidity['cap_bps']}bp: {names}"
+                  f"{' …' if liquidity['excluded'] > 20 else ''}")
+        if liquidity.get("unmeasured"):
+            print(f"  {liquidity['unmeasured']} could not be measured and are "
+                  f"not in the study.")
+
+    print(f"\n{overall['trades']} trades on {bar_size} bars, at a "
+          f"trade-weighted {charged:.1f}bp round trip.\n")
 
     print(f"{'strategy':<24}{'trades':>7}{'win%':>7}{'net/trade':>11}"
           f"{'mean R':>8}{'held':>7}{'breakeven':>11}{'t':>7}")
@@ -613,6 +775,28 @@ def _intraday_engine(frames, config, bar_size):
         share = row["trades"] / overall["trades"] * 100
         print(f"  {reason:<16}{row['trades']:>5}  ({share:4.1f}%)  "
               f"{row['net_pct']:+.3f}% total")
+
+    # Where the profit came from, by liquidity. If the money is all in the
+    # widest-spread names the result is bid-ask bounce, and this is the line
+    # that says so.
+    traded = [(t, r) for t, r in out["by_ticker"].items() if r.get("trades")]
+    if len(traded) >= 6 and traded[0][1].get("spread_bps") is not None:
+        traded.sort(key=lambda kv: kv[1]["spread_bps"])
+        half = len(traded) // 2
+        def bucket(rows):
+            trades = sum(r["trades"] for _, r in rows)
+            total = sum(r["mean_net_pct"] * r["trades"] for _, r in rows)
+            width = sum(r["spread_bps"] for _, r in rows) / len(rows)
+            return trades, (total / trades if trades else 0.0), width
+        tight, wide = bucket(traded[:half]), bucket(traded[half:])
+        print("\nBy liquidity, to show where the money came from:")
+        print(f"  tightest half   {tight[0]:>5} trades  {tight[1]:+.4f}%/trade  "
+              f"avg spread {tight[2]:.1f}bp")
+        print(f"  widest half     {wide[0]:>5} trades  {wide[1]:+.4f}%/trade  "
+              f"avg spread {wide[2]:.1f}bp")
+        if wide[1] > 0 and tight[1] <= 0:
+            print("  The edge is entirely in the wider half. That is the "
+                  "bid-ask bounce, not a strategy.")
 
     print(f"\n{out['verdict']}")
     print("\nHistorical bars, 10-15 minutes delayed on this account. Nothing "

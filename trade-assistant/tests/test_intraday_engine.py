@@ -250,3 +250,69 @@ def test_a_single_trade_has_no_t_statistic_rather_than_a_fake_one():
     one = [{"net_pct": 0.5, "gross_pct": 0.6, "r_multiple": 1.0,
             "held_minutes": 60, "exit_reason": "target"}]
     assert engine.summarise(one)["t_stat"] is None
+
+
+# --- one cost for fifteen hundred instruments is not a cost model ------------
+
+def _walk(bounce_bps, days=8, seed=1):
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    half = bounce_bps / 2 / 10_000
+    rows = []
+    for day in pd.bdate_range("2026-07-06", periods=days):
+        mid = 50 + np.cumsum(rng.normal(0, 0.05, 78))
+        side = np.where(np.arange(78) % 2 == 0, 1 + half, 1 - half)
+        close = mid * side
+        idx = pd.date_range(f"{day.date()} 09:30", periods=78, freq="5min")
+        rows.append(pd.DataFrame({
+            "Open": close, "High": mid * (1 + half), "Low": mid * (1 - half),
+            "Close": close, "Volume": rng.integers(1_000, 20_000, 78)}, index=idx))
+    return pd.concat(rows)
+
+
+def test_untradeably_wide_instruments_are_dropped_from_the_study():
+    """A name whose spread is wider than the cap is not traded at all. Left in
+    and charged the flat rate it contributes noise dressed as signal, and the
+    wider the universe the more of that noise there is."""
+    frames = {"TIGHT": _walk(3, seed=1), "WIDE": _walk(180, seed=2)}
+    out = engine.run(frames, config={"intraday": {**CONFIG["intraday"],
+                                                  "estimate_spreads": True,
+                                                  "max_spread_bps": 40.0}})
+    assert "WIDE" not in out["by_ticker"]
+    assert out["liquidity"]["excluded"] == 1
+    assert "WIDE" in out["liquidity"]["excluded_names"]
+
+
+def test_each_instrument_is_charged_its_own_measured_spread():
+    frames = {"TIGHT": _walk(3, seed=1), "MID": _walk(25, seed=2)}
+    out = engine.run(frames, config={"intraday": {**CONFIG["intraday"],
+                                                  "estimate_spreads": True,
+                                                  "max_spread_bps": 60.0}})
+    tight = out["by_ticker"]["TIGHT"]["spread_bps"]
+    mid = out["by_ticker"]["MID"]["spread_bps"]
+    assert mid > tight, (tight, mid)
+
+
+def test_switching_the_estimate_off_falls_back_to_the_flat_config_number():
+    frames = {"TIGHT": _walk(3, seed=1), "WIDE": _walk(180, seed=2)}
+    out = engine.run(frames, config={"intraday": {**CONFIG["intraday"],
+                                                  "estimate_spreads": False}})
+    # Nothing measured, nothing excluded — and the wide name is still in,
+    # charged 4bp it could not possibly trade at. Which is the point.
+    assert out["liquidity"] is None
+    assert out["spread_source"] == "flat, from config.yaml"
+
+
+def test_the_headline_cost_is_weighted_by_where_the_trades_actually_were():
+    """An unweighted mean lets a thousand names that never fired a signal drag
+    the reported cost toward the illiquid tail, and a rule that only trades the
+    tightest names would be judged against a spread it never paid."""
+    frames = {"TIGHT": _walk(3, seed=1), "MID": _walk(25, seed=2)}
+    out = engine.run(frames, config={"intraday": {**CONFIG["intraday"],
+                                                  "estimate_spreads": True,
+                                                  "max_spread_bps": 60.0}})
+    charged = out["overall"]["charged_bps"]
+    per = {t: r for t, r in out["by_ticker"].items() if r.get("trades")}
+    if len(per) == 2:
+        widths = sorted(r["spread_bps"] for r in per.values())
+        assert widths[0] <= charged <= widths[1]
