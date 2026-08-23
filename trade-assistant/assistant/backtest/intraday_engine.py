@@ -247,6 +247,30 @@ def _close(position, level, reason, stamp, held_minutes, costs):
 
 # --- reporting ---------------------------------------------------------------
 
+def _t_statistic(values, mean):
+    """One-sample t, or None when the sample cannot support one.
+
+    None rather than a number in two cases, and the second is the one that
+    bites. A single observation obviously has no dispersion — but so does a
+    set of identical trades, where floating-point residue leaves a variance of
+    1e-34 and the ratio comes back as 1.3e16. A t of ten quadrillion is not
+    overwhelming evidence, it is a divide by zero that did not quite divide by
+    zero, and printed beside a real result it is indistinguishable from one.
+
+    Serial correlation within a session makes even the honest number
+    optimistic, so treat it as a floor on the doubt rather than a p-value.
+    """
+    if len(values) < 2:
+        return None
+    variance = sum((x - mean) ** 2 for x in values) / (len(values) - 1)
+    if variance <= 0:
+        return None
+    stderr = math.sqrt(variance / len(values))
+    if stderr <= abs(mean) * 1e-9:
+        return None
+    return round(mean / stderr, 2)
+
+
 def summarise(trades, costs=None):
     """What these trades add up to, and the number that decides it.
 
@@ -273,12 +297,20 @@ def summarise(trades, costs=None):
     # A plain one-sample t on the net returns. Serial correlation within a
     # session makes it optimistic, so treat it as a floor on the doubt rather
     # than a p-value worth quoting.
-    if len(net) > 1:
-        variance = sum((x - mean) ** 2 for x in net) / (len(net) - 1)
-        stderr = math.sqrt(variance / len(net)) if variance > 0 else 0.0
-        t_stat = round(mean / stderr, 2) if stderr else None
-    else:
-        t_stat = None
+    t_stat = _t_statistic(net, mean)
+
+    # The SAME question asked of the gross return, and it is a different
+    # question with a different answer.
+    #
+    # t on net says whether the strategy made or lost money after costs. t on
+    # GROSS says whether the rule found anything at all. The full-universe run
+    # on 2026-08-23 is exactly why both are needed: net t was -19.83, which
+    # reads as a total failure, while gross t was +4.74 on a 2.2bp edge. The
+    # rules DO find something real and it is five times too small to pay its
+    # own spread. "Find a cheaper venue" and "these rules do not work" are
+    # opposite conclusions and only this number separates them.
+    mean_gross = sum(gross) / len(gross)
+    t_gross = _t_statistic(gross, mean_gross)
 
     by_reason = {}
     for trade in trades:
@@ -301,6 +333,7 @@ def summarise(trades, costs=None):
                         / max(1, sum(1 for t in trades if t["r_multiple"] is not None)), 3),
         "mean_held_minutes": round(sum(t["held_minutes"] for t in trades) / len(trades), 1),
         "t_stat": t_stat,
+        "t_gross": t_gross,
         "by_exit_reason": by_reason,
         # The round-trip cost at which the mean GROSS edge is exactly consumed.
         # Compared against what the account actually pays, this is the whole
@@ -324,26 +357,51 @@ def verdict(summary, charged_bps=None):
     breakeven = summary["breakeven_bps"]
     charged = charged_bps if charged_bps is not None else summary["charged_bps"]
 
-    t_stat = summary.get("t_stat")
-    if t_stat is not None and abs(t_stat) < 2.0:
-        return (f"Indistinguishable from noise: {summary['trades']} trades, "
-                f"t = {t_stat:+.2f}. The {breakeven:+.1f}bp of gross edge is "
-                f"inside the error bar, so comparing it against the "
-                f"{charged:.1f}bp spread would be measuring nothing. More "
-                f"sessions, or a rule with a real hypothesis behind it.")
+    t_gross = summary.get("t_gross")
+    trades = summary["trades"]
+    # Every branch quotes it, and it is legitimately absent on a sample with no
+    # dispersion. Formatted once here rather than guarded in four places.
+    t_text = f"t = {t_gross:+.2f}" if t_gross is not None else "t undefined"
+
+    # No dispersion means no significance test, and without one none of the
+    # branches below is entitled to its conclusion. "A real edge at t
+    # undefined" is a contradiction, and it was one this function printed.
+    if t_gross is None:
+        return (f"Cannot be judged: {trades} trade(s) with no spread of "
+                f"outcomes, so there is no significance test to run. The "
+                f"{breakeven:+.1f}bp figure is arithmetic on a degenerate "
+                f"sample, not a measurement.")
+
+    # Asked in the only order that makes sense: is there anything there at all,
+    # then can it pay for itself. Reversing them produces the most common
+    # intraday self-deception — a confident cost analysis of a number that was
+    # never different from zero.
+    if t_gross is not None and abs(t_gross) < 2.0:
+        return (f"Nothing there to cost. {trades} trades, gross edge "
+                f"{breakeven:+.1f}bp at {t_text} — inside its own "
+                f"error bar, so comparing it against the {charged:.1f}bp spread "
+                f"would be measuring noise. More sessions, or a rule with a "
+                f"real hypothesis behind it.")
 
     if breakeven <= 0:
-        return (f"No edge even before costs: the mean trade loses "
-                f"{abs(breakeven):.1f}bp gross. Costs are not the problem.")
+        return (f"Loses money BEFORE costs: {abs(breakeven):.1f}bp a trade "
+                f"gross, {t_text} on {trades} trades. Costs are not "
+                f"the problem and no venue fixes this — the rule is wrong.")
+
     if breakeven <= charged:
-        return (f"Not tradable here. The gross edge is {breakeven:.1f}bp a "
-                f"round trip and this account pays {charged:.1f}bp, so the "
-                f"spread eats it. A cheaper venue or a larger bar would be the "
-                f"only thing that changes this — not a parameter.")
+        shortfall = charged / breakeven
+        return (f"A real edge, and far too small to trade. {breakeven:.1f}bp "
+                f"gross at {t_text} over {trades} trades is genuine — "
+                f"but this account pays {charged:.1f}bp, so costs must fall "
+                f"{shortfall:.1f}x or the edge must rise {shortfall:.1f}x. "
+                f"Neither is a parameter. Worth knowing the rules find "
+                f"SOMETHING; not worth trading on this venue at this bar size.")
+
     margin = breakeven - charged
-    return (f"Survives its costs: {breakeven:.1f}bp of gross edge against "
-            f"{charged:.1f}bp charged, leaving {margin:.1f}bp. Thin enough that "
-            f"a wider spread on a bad day removes it, so size accordingly.")
+    return (f"Survives its costs: {breakeven:.1f}bp of gross edge at "
+            f"{t_text} against {charged:.1f}bp charged, leaving "
+            f"{margin:.1f}bp. Thin enough that a wider spread on a bad day "
+            f"removes it, so size accordingly.")
 
 
 def run(frames, *, prev_closes=None, config=None):

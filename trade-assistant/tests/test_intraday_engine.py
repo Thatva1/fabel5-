@@ -154,20 +154,48 @@ def test_london_is_walked_against_londons_own_bell():
 
 # --- reporting ---------------------------------------------------------------
 
-def test_the_breakeven_cost_is_what_the_verdict_turns_on():
-    """A rule whose gross edge is smaller than its spread is not a strategy."""
-    thin = [{"net_pct": 0.01, "gross_pct": 0.03, "r_multiple": 0.1,
-             "held_minutes": 30, "exit_reason": "target"}] * 10
-    summary = engine.summarise(thin)
-    assert summary["breakeven_bps"] == pytest.approx(3.0)
-    assert "Not tradable" in engine.verdict(summary, charged_bps=8.0)
+def _spread(mean_gross, mean_net, n=400, sd=0.3, seed=5):
+    """A sample with real dispersion around given means, so t means something."""
+    import random
+    rng = random.Random(seed)
+    noise = [rng.gauss(0, sd) for _ in range(n)]
+    centre = sum(noise) / n
+    return [{"gross_pct": mean_gross + x - centre,
+             "net_pct": mean_net + x - centre,
+             "r_multiple": 0.1, "held_minutes": 30, "exit_reason": "target"}
+            for x in noise]
+
+
+def test_a_real_edge_smaller_than_its_spread_is_named_as_exactly_that():
+    """The full-universe run on 2026-08-23 is why this wording matters: a
+    genuine 2.2bp gross edge at t = +4.7 against an 11.4bp cost. 'These rules
+    do not work' and 'this venue is too expensive' are opposite conclusions."""
+    summary = engine.summarise(_spread(0.03, 0.01, n=1000))
+    assert summary["breakeven_bps"] == pytest.approx(3.0, abs=0.1)
+    assert summary["t_gross"] > 2.0
+    answer = engine.verdict(summary, charged_bps=8.0)
+    assert "A real edge, and far too small to trade" in answer
+    assert "2.7x" in answer                      # how far short it falls
     assert "Survives its costs" in engine.verdict(summary, charged_bps=1.0)
 
 
-def test_a_rule_with_no_gross_edge_is_told_costs_are_not_the_problem():
-    losers = [{"net_pct": -0.1, "gross_pct": -0.05, "r_multiple": -1.0,
-               "held_minutes": 30, "exit_reason": "stop"}] * 5
-    assert "Costs are not the problem" in engine.verdict(engine.summarise(losers))
+def test_a_rule_that_loses_before_costs_is_told_no_venue_fixes_it():
+    summary = engine.summarise(_spread(-0.05, -0.10))
+    assert "Loses money BEFORE costs" in engine.verdict(summary)
+    assert "the rule is wrong" in engine.verdict(summary)
+
+
+def test_a_sample_with_no_dispersion_is_refused_rather_than_judged():
+    """Identical trades leave a variance of ~1e-34, and the ratio came back as
+    1.3e16 — a divide by zero that did not quite divide by zero, printed beside
+    real results as though it were overwhelming evidence."""
+    identical = [{"net_pct": 0.01, "gross_pct": 0.03, "r_multiple": 0.1,
+                  "held_minutes": 30, "exit_reason": "target"}] * 10
+    summary = engine.summarise(identical)
+    assert summary["t_gross"] is None
+    answer = engine.verdict(summary, charged_bps=8.0)
+    assert "Cannot be judged" in answer
+    assert "genuine" not in answer               # it must not claim an edge
 
 
 def test_no_trades_is_reported_as_no_trades_not_as_a_zero():
@@ -209,24 +237,17 @@ def test_run_hands_each_session_the_previous_sessions_close():
 # self-deception there is.
 
 def test_a_result_inside_its_own_error_bar_is_called_noise():
-    import random
-    random.seed(11)
-    trades = [{"net_pct": random.gauss(0.004, 0.3), "gross_pct": random.gauss(0.04, 0.3),
-               "r_multiple": 0.0, "held_minutes": 60, "exit_reason": "target"}
-              for _ in range(150)]
-    summary = engine.summarise(trades)
-    assert abs(summary["t_stat"]) < 2.0
+    summary = engine.summarise(_spread(0.004, -0.076, n=150, sd=0.3, seed=11))
+    assert abs(summary["t_gross"]) < 2.0
     answer = engine.verdict(summary, charged_bps=8.0)
-    assert "Indistinguishable from noise" in answer
-    # And it must NOT go on to talk about spreads as though the number were real.
-    assert "spread eats it" not in answer
+    assert "Nothing there to cost" in answer
+    # And it must NOT go on to reason about costs as though the number were real.
+    assert "far too small to trade" not in answer
 
 
 def test_a_result_well_clear_of_its_error_bar_is_judged_on_cost():
-    trades = [{"net_pct": 0.20, "gross_pct": 0.28, "r_multiple": 0.5,
-               "held_minutes": 60, "exit_reason": "target"} for _ in range(60)]
-    summary = engine.summarise(trades)
-    assert summary["t_stat"] is None or abs(summary["t_stat"]) >= 2.0
+    summary = engine.summarise(_spread(0.28, 0.20, n=200, sd=0.3))
+    assert abs(summary["t_gross"]) >= 2.0
     assert "Survives its costs" in engine.verdict(summary, charged_bps=8.0)
 
 
@@ -243,13 +264,26 @@ def test_the_significance_question_is_asked_before_the_cost_question():
                "held_minutes": 60, "exit_reason": "stop"}]
     summary = engine.summarise(trades)
     assert summary["breakeven_bps"] > 0        # looks like an edge
-    assert "Indistinguishable from noise" in engine.verdict(summary, charged_bps=1.0)
+    assert "Nothing there to cost" in engine.verdict(summary, charged_bps=1.0)
+
+
+def test_gross_and_net_significance_are_different_questions():
+    """The finding that made this necessary: net t = -19.83 reads as total
+    failure while gross t = +4.74 says the rules found something real. Costs
+    are a near-constant subtraction, so the two share a standard error and
+    diverge only in sign."""
+    summary = engine.summarise(_spread(0.022, -0.092, n=2000, sd=0.5))
+    assert summary["t_gross"] > 2          # a real edge exists
+    assert summary["t_stat"] < -2          # and it loses money anyway
+    assert "A real edge, and far too small to trade" in engine.verdict(
+        summary, charged_bps=11.4)
 
 
 def test_a_single_trade_has_no_t_statistic_rather_than_a_fake_one():
     one = [{"net_pct": 0.5, "gross_pct": 0.6, "r_multiple": 1.0,
             "held_minutes": 60, "exit_reason": "target"}]
     assert engine.summarise(one)["t_stat"] is None
+    assert engine.summarise(one)["t_gross"] is None
 
 
 # --- one cost for fifteen hundred instruments is not a cost model ------------

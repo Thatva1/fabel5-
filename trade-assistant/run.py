@@ -16,6 +16,7 @@
                                  price, and name the subscription that would
                                  unlock the rest (--universe for the full screen)
   python run.py intraday         does an edge exist on 5/15/30/60-minute bars?
+                                 --json FILE writes the result and every trade
                                  Runs the WHOLE tradable universe by default —
                                  --watchlist, --mega, or name tickers to narrow;
                                  --sample N / --limit N for a quick pass.
@@ -572,7 +573,7 @@ def _intraday(argv):
                    "30m": "30 mins", "1h": "1 hour", "60m": "1 hour",
                    "2h": "2 hours"}
     bar_size, cost_bps, symbols = "5 mins", 10.0, []
-    scope, limit, sample, duration = None, None, None, None
+    scope, limit, sample, duration, out_path = None, None, None, None, None
     # Two different questions, two different modes.
     #
     #   default    — RESEARCH. Does an edge exist at this horizon at all? Runs
@@ -607,6 +608,9 @@ def _intraday(argv):
                 limit = value
             else:
                 sample = value
+            i += 2
+        elif arg in ("--json", "--out") and i + 1 < len(argv):
+            out_path = argv[i + 1]
             i += 2
         elif arg == "--duration" and i + 1 < len(argv):
             duration = argv[i + 1]
@@ -698,7 +702,7 @@ def _intraday(argv):
         print(f"  {ticker}: {len(frame)} bars, {frame.index[0]} -> {frame.index[-1]}")
 
     if use_engine:
-        _intraday_engine(got, config, bar_size)
+        _intraday_engine(got, config, bar_size, out_path=out_path)
         return
 
     out = intraday.evaluate(got, cost_bps=cost_bps, bar_size=bar_size)
@@ -723,7 +727,23 @@ def _intraday(argv):
     print(f"\n{DISCLAIMER}")
 
 
-def _intraday_engine(frames, config, bar_size):
+def _write_trade_csv(trades, path):
+    """Every trade, so the sweep can be re-analysed without re-fetching."""
+    import csv
+
+    if not trades:
+        return
+    columns = ["ticker", "strategy", "direction", "entry_time", "entry",
+               "exit_time", "exit", "exit_reason", "held_minutes",
+               "gross_pct", "net_pct", "r_multiple", "stop", "target",
+               "headline"]
+    with open(path, "w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(trades)
+
+
+def _intraday_engine(frames, config, bar_size, out_path=None):
     """What the intraday rules would actually have done, session by session.
 
     Different from the research mode above in every way that matters: real
@@ -769,20 +789,27 @@ def _intraday_engine(frames, config, bar_size):
     print(f"\n{overall['trades']} trades on {bar_size} bars, at a "
           f"trade-weighted {charged:.1f}bp round trip.\n")
 
+    def t(value):
+        return "   —  " if value is None else f"{value:>6.2f}"
+
     print(f"{'strategy':<24}{'trades':>7}{'win%':>7}{'net/trade':>11}"
-          f"{'mean R':>8}{'held':>7}{'breakeven':>11}{'t':>7}")
+          f"{'mean R':>8}{'held':>7}{'breakeven':>11}{'t gross':>9}{'t net':>8}")
     for name, r in sorted(out["by_strategy"].items()):
         print(f"{name:<24}{r['trades']:>7}{r['win_rate_pct']:>7}"
               f"{r['mean_net_pct']:>10.4f}%{r['mean_r']:>8.2f}"
               f"{r['mean_held_minutes']:>6.0f}m{r['breakeven_bps']:>10.1f}b"
-              f"{(r['t_stat'] if r['t_stat'] is not None else 0):>7.2f}")
+              f"{t(r.get('t_gross')):>9}{t(r.get('t_stat')):>8}")
 
     print(f"\n{'TOTAL':<24}{overall['trades']:>7}{overall['win_rate_pct']:>7}"
           f"{overall['mean_net_pct']:>10.4f}%{overall['mean_r']:>8.2f}"
           f"{overall['mean_held_minutes']:>6.0f}m{overall['breakeven_bps']:>10.1f}b"
-          f"{(overall['t_stat'] if overall['t_stat'] is not None else 0):>7.2f}")
-    print("\nt is the net return's distance from zero in standard errors. "
-          "Below 2 the rest of the row is noise.")
+          f"{t(overall.get('t_gross')):>9}{t(overall.get('t_stat')):>8}")
+    print("\nTwo different questions, and they can disagree completely.")
+    print("  t gross — did the rule find anything AT ALL? Below 2, the "
+          "breakeven beside it is noise.")
+    print("  t net   — did it make money after costs? These can be +5 and -20 "
+          "at once: a real")
+    print("            edge, several times too small to pay its own spread.")
 
     # How each trade ended is the fastest read on whether the rules are doing
     # what they claim. A book that exits mostly on flat_by_close is one whose
@@ -817,6 +844,30 @@ def _intraday_engine(frames, config, bar_size):
                   "bid-ask bounce, not a strategy.")
 
     print(f"\n{out['verdict']}")
+
+    # A sweep that costs half an hour and leaves nothing but terminal scrollback
+    # cannot be re-analysed, compared against the next one, or checked by
+    # anybody who was not watching. Written whenever the caller names a file,
+    # and the trades go with it — the summary answers one question and the
+    # trades answer every question asked afterwards.
+    if out_path:
+        import json as _json
+        from datetime import datetime, timezone
+        payload = {k: v for k, v in out.items() if k != "trades"}
+        payload["settings"] = {"bar_size": bar_size,
+                               "instruments": len(frames),
+                               "generated_at": datetime.now(timezone.utc)
+                               .isoformat(timespec="seconds")}
+        try:
+            with open(out_path, "w") as handle:
+                _json.dump(payload, handle, indent=2, default=str)
+            trades_path = out_path.rsplit(".", 1)[0] + "-trades.csv"
+            _write_trade_csv(out["trades"], trades_path)
+            print(f"\nWrote {out_path} and {trades_path} "
+                  f"({len(out['trades'])} trades).")
+        except OSError as exc:
+            print(f"\nCould not write {out_path}: {exc}")
+
     print("\nHistorical bars, 10-15 minutes delayed on this account. Nothing "
           "here has traded and nothing here is live.")
     print(f"\n{DISCLAIMER}")
