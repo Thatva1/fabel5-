@@ -6,7 +6,16 @@
 # trading state. Committing it means every session's positions land in the
 # history, and a checkout on another machine would silently restore someone
 # else's book.
-data/paper_book.json
+#
+# Globbed rather than named exactly, because the exact name was not the only
+# one that ever holds this data. `Book.save` writes `paper_book.json.tmp` and
+# moves it into place, so an interrupted save leaves one behind; and repairing
+# a damaged book means staging the rebuilt copy beside the original before
+# swapping it in. Both are the same portfolio under a different suffix, and the
+# exact-match rule let them show up as ordinary untracked files — one `git add`
+# away from putting the whole book in the history the rule above exists to keep
+# it out of.
+data/paper_book.json*
 
 # Books retired by `run.py paper --reset`. Same reasoning as the live book, and
 # they are the evidence that a track record was not quietly restarted — which
@@ -38,7 +47,9 @@ data/last_scan.json
 
 # Closed trades, moved out of the book so it describes only what is held.
 # Append-only history; the book keeps a short tail that is a copy of these rows.
-data/closed_trades.jsonl
+# Globbed for the same reason as the book above: a rebuilt copy staged next to
+# the original is still your trade history.
+data/closed_trades.jsonl*
 
 # Generated public site. Rebuilt by `run.py publish` and after every scheduled run.
 public/
