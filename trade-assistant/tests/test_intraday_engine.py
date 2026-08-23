@@ -443,3 +443,28 @@ def test_trades_without_timestamps_cannot_be_clustered_and_say_so():
     assert summary["t_clustered"] is None
     assert summary["sessions"] == 0
     assert "Cannot be judged" in engine.verdict(summary)
+
+
+# --- a seven-hour fetch must survive being interrupted -----------------------
+
+def test_the_fetch_cache_key_separates_different_requests(tmp_path):
+    """A month of bars and two days of bars are different DATA, not two views
+    of the same data. Resuming a '1 M' sweep from a '2 D' cache would hand the
+    engine five days and call it a month."""
+    from assistant.providers import bulk
+
+    month = bulk._cache_slot(str(tmp_path), "AAPL", "5 mins", "1 M")
+    fortnight = bulk._cache_slot(str(tmp_path), "AAPL", "5 mins", "2 D")
+    bigger_bar = bulk._cache_slot(str(tmp_path), "AAPL", "15 mins", "1 M")
+    assert month != fortnight != bigger_bar
+    assert month != bigger_bar
+
+
+def test_the_cache_slot_survives_an_awkward_ticker(tmp_path):
+    """BRK-B, BT-A.L and ES=F all have to become filenames."""
+    from assistant.providers import bulk
+
+    for ticker in ("BRK-B", "BT-A.L", "ES=F", "EURUSD=X"):
+        slot = bulk._cache_slot(str(tmp_path), ticker, "5 mins", "1 M")
+        assert "/" not in slot[len(str(tmp_path)) + 1:]
+        assert slot.endswith(".pkl")

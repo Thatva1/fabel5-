@@ -309,6 +309,15 @@ def ohlcv_history_ibkr(symbols, period="2y", config=None, progress_cb=None):
                         # ranking a hundred times too large and every liquidity
                         # figure a hundred times too small.
                         out[symbol] = IBKRDataProvider.normalise_bars(symbol, frame)
+                        if slot:
+                            try:
+                                tmp = slot + ".tmp"
+                                with open(tmp, "wb") as handle:
+                                    pickle.dump(out[symbol], handle,
+                                                protocol=pickle.HIGHEST_PROTOCOL)
+                                os.replace(tmp, slot)
+                            except OSError:
+                                pass    # a cache that cannot be written is not fatal
                     else:
                         missing.append(symbol)
                 else:
@@ -322,8 +331,23 @@ def ohlcv_history_ibkr(symbols, period="2y", config=None, progress_cb=None):
     return out, missing
 
 
+def _cache_slot(cache_dir, symbol, bar_size, duration):
+    """Where one symbol's bars live on disk. Keyed on what was asked for.
+
+    The key includes the bar size and duration because they are different data,
+    not different views of the same data — resuming a "1 M" sweep from a "2 D"
+    cache would silently hand the engine five days and call it a month.
+    """
+    import hashlib
+    import os
+
+    tag = hashlib.sha1(f"{bar_size}|{duration}".encode()).hexdigest()[:8]
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in str(symbol))
+    return os.path.join(cache_dir, f"{safe}.{tag}.pkl")
+
+
 def intraday_history_ibkr(symbols, bar_size="5 mins", duration=None, config=None,
-                          progress_cb=None, pace=None):
+                          progress_cb=None, pace=None, cache_dir=None):
     """{symbol: intraday OHLCV} from IBKR over ONE held-open connection.
 
     The sibling of `ohlcv_history_ibkr`, and it exists for the same reason: the
@@ -366,6 +390,24 @@ def intraday_history_ibkr(symbols, bar_size="5 mins", duration=None, config=None
     gap = PACING_START_SECONDS if pace is None else float(pace)
     paced = {"hits": 0}
 
+    # Per-symbol cache on disk, for sweeps long enough that losing them hurts.
+    #
+    # A month of 5-minute bars costs 15.33 seconds an instrument on this
+    # account, so the full universe is close to seven hours of somebody's
+    # broker connection. Without this, an exception at hour six leaves nothing
+    # at all — and re-analysing the SAME bars with a changed rule costs another
+    # seven hours rather than the two minutes of CPU it actually needs.
+    #
+    # Written per symbol as each one arrives rather than in a batch at the end,
+    # because the failure being defended against is the one that stops the loop
+    # partway.
+    import os
+    import pickle
+
+    cached_hits = 0
+    if cache_dir:
+        os.makedirs(cache_dir, exist_ok=True)
+
     ib = provider._connect()
 
     def on_error(_req_id, code, message, _contract=None):
@@ -384,6 +426,19 @@ def intraday_history_ibkr(symbols, bar_size="5 mins", duration=None, config=None
     try:
         for index, symbol in enumerate(dict.fromkeys(symbols), start=1):
             before = paced["hits"]
+
+            slot = _cache_slot(cache_dir, symbol, bar_size, duration) if cache_dir else None
+            if slot and os.path.exists(slot):
+                try:
+                    with open(slot, "rb") as handle:
+                        out[symbol] = pickle.load(handle)
+                    cached_hits += 1
+                    if progress_cb:
+                        progress_cb(index, len(symbols), len(out), 0.0)
+                    continue
+                except (OSError, ValueError, EOFError, pickle.UnpicklingError):
+                    pass        # a corrupt slot is refetched, not fatal
+
             try:
                 contract = provider._contract_for(symbol)
                 if str(symbol).upper().endswith("=F"):
@@ -441,4 +496,5 @@ def intraday_history_ibkr(symbols, bar_size="5 mins", duration=None, config=None
 
     return out, missing, {"pacing_violations": paced["hits"],
                           "throttled_symbols": throttled,
-                          "final_gap_seconds": round(gap, 2)}
+                          "final_gap_seconds": round(gap, 2),
+                          "from_cache": cached_hits}

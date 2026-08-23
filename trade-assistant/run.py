@@ -17,6 +17,8 @@
                                  unlock the rest (--universe for the full screen)
   python run.py intraday         does an edge exist on 5/15/30/60-minute bars?
                                  --json FILE writes the result and every trade
+                                 --cache DIR keeps the fetched bars, so a long
+                                 sweep can resume and a re-analysis is free
                                  Runs the WHOLE tradable universe by default —
                                  --watchlist, --mega, or name tickers to narrow;
                                  --sample N / --limit N for a quick pass.
@@ -574,6 +576,7 @@ def _intraday(argv):
                    "2h": "2 hours"}
     bar_size, cost_bps, symbols = "5 mins", 10.0, []
     scope, limit, sample, duration, out_path = None, None, None, None, None
+    cache_dir = None
     # Two different questions, two different modes.
     #
     #   default    — RESEARCH. Does an edge exist at this horizon at all? Runs
@@ -608,6 +611,9 @@ def _intraday(argv):
                 limit = value
             else:
                 sample = value
+            i += 2
+        elif arg == "--cache" and i + 1 < len(argv):
+            cache_dir = argv[i + 1]
             i += 2
         elif arg in ("--json", "--out") and i + 1 < len(argv):
             out_path = argv[i + 1]
@@ -676,7 +682,7 @@ def _intraday(argv):
         if use_engine:
             frames, missing, pacing = bulk.intraday_history_ibkr(
                 symbols, bar_size=bar_size, duration=duration, config=config,
-                progress_cb=progress)
+                progress_cb=progress, cache_dir=cache_dir)
         else:
             frames = intraday.fetch(
                 symbols, config, bar_size=bar_size,
@@ -686,6 +692,9 @@ def _intraday(argv):
         print(f"\nCould not fetch intraday data: {exc}")
         return
 
+    if pacing and pacing.get("from_cache"):
+        print(f"\n\n{pacing['from_cache']} of these came from {cache_dir} and cost "
+              f"no broker time. Delete that directory to force a refetch.")
     if pacing and pacing["pacing_violations"]:
         print(f"\n\nIB throttled {pacing['throttled_symbols']} of these "
               f"({pacing['pacing_violations']} pacing violations); the request "
