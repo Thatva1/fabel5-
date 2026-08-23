@@ -229,7 +229,10 @@ function setNav() {
   $("#nb-today").textContent = pending || "";
   $("#nb-watch").textContent = (S.watchlist_symbols || []).length || "";
   $("#nb-ideas").textContent = ideas().length || "";
-  $("#nb-journal").textContent = (S.stats?.approved_total) || "";
+  // The tab now LEADS with the books' trading record, so the badge counts
+  // closed trades rather than hand-approved ideas. A badge reading 1 above a
+  // page listing 94 trades is worse than no badge.
+  $("#nb-journal").textContent = (S.paper?.closed_trades) || "";
 }
 
 /* ---------- shared components ---------- */
@@ -855,8 +858,74 @@ function performanceTable(title, groups, note) {
   </div>`;
 }
 
-/* ---------- 1g: Journal ---------- */
-function viewJournal() {
+/* ---------- the Journal tab ----------
+   Two records, and they measure different things. The BOOKS' record is what
+   the rules did, unattended; the IDEAS record is what you decided. Keeping
+   them apart is what lets you tell a good month from good judgement — and the
+   trading one leads, because it is the one with data in it.
+
+   Both were previously in the wrong place. The books' journal rendered at the
+   bottom of the Book tab, under the session log, and the tab named Journal
+   showed only the ideas half. */
+
+let journalBook = "daily";
+
+async function loadJournal() {
+  const root = $("#viewRoot");
+  const scrollY = window.scrollY;
+  root.innerHTML = marketClosedNotice()
+    + '<div class="card"><div class="label">Loading the trading record…</div></div>';
+
+  let J = null;
+  try {
+    J = await (await fetch(`/api/paper/journal?book=${encodeURIComponent(journalBook)}`)).json();
+  } catch (e) { /* the ideas half still renders */ }
+
+  root.innerHTML = marketClosedNotice() + journalSwitch(J)
+    + (J && J.started ? dailyCard(J) + breakdownCard(J) + journalCard(J)
+                      : journalEmpty(J))
+    + `<div class="card" style="margin-top:var(--s5)">
+         <div class="label">Your own decisions</div>
+         <p class="prov">Everything above is what the RULES did with nobody
+           intervening. This is what you approved by hand and logged the outcome
+           of. They are deliberately separate: one measures the strategies, the
+           other measures you.</p>
+       </div>`
+    + viewIdeaJournal();
+  bindView();
+  document.querySelectorAll("[data-journalbook]").forEach(b =>
+    b.addEventListener("click", () => {
+      journalBook = b.dataset.journalbook;
+      loadJournal();
+    }));
+  if (scrollY) window.scrollTo(0, scrollY);
+}
+
+function journalSwitch(J) {
+  const tab = (key, label) => `<button class="btn btn-sm${
+    journalBook === key ? " btn-primary" : ""}" data-journalbook="${key}">${label}</button>`;
+  const s = J && J.summary;
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:center">
+      <div style="display:flex;gap:6px">${tab("daily", "Daily book")}${tab("intraday", "Intraday book")}</div>
+      ${s ? `<div class="prov">${s.closed_trades} closed · ${s.days} session(s)
+        · win rate ${s.win_rate_pct == null ? "—" : s.win_rate_pct + "%"}</div>` : ""}
+    </div>
+    <p class="prov" style="margin-top:10px">The daily book holds for up to ten
+      sessions; the intraday one is flat by every bell. Their records are not
+      comparable and are never added together.</p>
+  </div>`;
+}
+
+function journalEmpty(J) {
+  return `<div class="card">
+    <b>The ${esc(journalBook)} book has not traded yet.</b>
+    <p class="meta" style="margin-top:6px">Once it closes a trade, this is where
+      the record appears: what was opened, the reason recorded BEFORE the outcome
+      was known, and what it made or lost.</p></div>`;
+}
+
+function viewIdeaJournal() {
   const st = S.stats || {};
   const kpi = (v, l) => `<div class="card marks"><i class="mk"></i>
     <div class="num" style="text-align:right;font-variant-numeric:tabular-nums" style="font-size:26px">${v}</div><div class="stat-l">${l}</div></div>`;
@@ -1093,6 +1162,15 @@ function render() {
     loadPaper();
     return;
   }
+  if (view === "journal") {
+    // Loaded from its own endpoint rather than from the scan snapshot. The
+    // trading record lives in the books, and it used to be rendered at the
+    // BOTTOM of the Book tab — three cards below the session log, where nobody
+    // scrolling a position table would look for them, while the tab actually
+    // called Journal showed only the ideas you had hand-logged.
+    loadJournal();
+    return;
+  }
   if (view === "options") {
     // On demand only. A chain is dozens of market-data lines, and a page that
     // pulled one every fifteen seconds would spend an account's whole quote
@@ -1108,7 +1186,7 @@ function render() {
     loadIntraday();
     return;
   }
-  const html = { today: viewToday, watchlist: viewWatchlist, ideas: viewIdeas, journal: viewJournal, detail: viewDetail }[view]();
+  const html = { today: viewToday, watchlist: viewWatchlist, ideas: viewIdeas, detail: viewDetail }[view]();
   // The notice leads the view: a page that has deliberately stopped updating
   // must say so, or it is indistinguishable from one that has broken.
   //
@@ -1879,8 +1957,6 @@ async function loadPaper() {
     return;
   }
   try { COV = await (await fetch('/api/coverage')).json(); } catch (e) { /* optional */ }
-  let J = null;
-  try { J = await (await fetch('/api/paper/journal')).json(); } catch (e) { /* optional */ }
   // Hold-or-close for each open position. Read separately and tolerated when
   // it fails: a verdict is an opinion about the book, and losing the opinion
   // must never take the book itself off the screen.
@@ -2032,10 +2108,6 @@ async function loadPaper() {
         </div>`;
       }).join('') || '<div class="meta">No sessions recorded.</div>'}
     </div>
-
-    ${J ? dailyCard(J) : ''}
-    ${J ? breakdownCard(J) : ''}
-    ${J ? journalCard(J) : ''}
 
     <div id="archiveRoot" data-open="0"></div>
     <div id="coverageRoot">${coverageCard(COV)}</div>`;

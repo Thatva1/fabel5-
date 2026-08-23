@@ -257,3 +257,105 @@ def test_the_endpoint_reports_a_ticker_that_matched_nothing(client, monkeypatch,
     r = client.post("/api/paper/close", json={"tickers": ["TSLA"]})
     assert r.status_code == 404
     assert "TSLA" in r.get_json()["error"]
+
+
+# --- the guard that should have stopped this twice ---------------------------
+#
+# Ninety-two positions were closed against marks three days old, on a Sunday
+# with every market shut, booking a realised loss of £206,947 that no market
+# produced — the whole figure was the gap between a stale Wednesday mark and
+# the arithmetic. The first time a test reached the real book. The second time
+# the caller could not be identified from the logs at all, which is the reason
+# the refusal belongs to the OPERATION rather than to its callers.
+
+from datetime import datetime, timezone      # noqa: E402
+
+from assistant.paper.manual import RefusedClose      # noqa: E402
+
+
+def _sunday():
+    """2026-08-23. Every market shut."""
+    return datetime(2026, 8, 23, 19, 20, tzinfo=timezone.utc)
+
+
+def _weekday_open():
+    """2026-08-21, 16:00 London — the US session is trading."""
+    return datetime(2026, 8, 21, 15, 0, tzinfo=timezone.utc)
+
+
+def _stale_book(tmp_path, count):
+    book = Book.load(str(tmp_path / "book.json"))
+    book.start(1_000_000.0, "USD", "2026-08-18")
+    for i in range(count):
+        book.open_position(ticker=f"T{i:02d}", direction="long", shares=10,
+                           price=100.0, stop=90.0, target=130.0,
+                           strategy="ts_momentum", regime="TRENDING_UP",
+                           date="2026-08-18", bar_date="2026-08-20")
+        book.positions[-1]["last_price"] = 95.0
+    return book
+
+
+def test_closing_the_whole_book_at_stale_marks_with_markets_shut_is_refused(tmp_path):
+    book = _stale_book(tmp_path, 92)
+    with pytest.raises(RefusedClose, match="Refusing to close 92 positions"):
+        manual.close_all(book, CONFIG, now=_sunday())
+    # And nothing was mutated on the way out.
+    assert len(book.positions) == 92
+    assert book.closed == []
+
+
+def test_the_refusal_names_the_fictional_loss_it_prevents(tmp_path):
+    book = _stale_book(tmp_path, 92)
+    try:
+        manual.close_all(book, CONFIG, now=_sunday())
+    except RefusedClose as exc:
+        assert "206,947" in str(exc)
+        assert "allow_stale_close" in str(exc)
+
+
+def test_one_position_at_a_stale_mark_is_allowed_but_warned(tmp_path):
+    """A single stale close is a judgement call. Ninety-two is not."""
+    book = _stale_book(tmp_path, 3)
+    out = manual.close_positions(book, ["T00"], CONFIG, now=_sunday())
+    assert len(out["closed"]) == 1
+    assert "not against a price anyone traded today" in out["stale_warning"]
+
+
+def test_the_guard_does_not_fire_while_a_market_is_open(tmp_path):
+    book = _stale_book(tmp_path, 92)
+    out = manual.close_all(book, CONFIG, now=_weekday_open())
+    assert len(out["closed"]) == 92
+    assert out["stale_warning"] is None
+
+
+def test_the_guard_does_not_fire_on_marks_from_today(tmp_path):
+    book = _stale_book(tmp_path, 92)
+    today = _sunday().strftime("%Y-%m-%d")
+    for position in book.positions:
+        position["bar_date"] = today
+    out = manual.close_all(book, CONFIG, now=_sunday())
+    assert len(out["closed"]) == 92
+
+
+def test_it_can_be_overridden_by_someone_who_means_it(tmp_path):
+    book = _stale_book(tmp_path, 92)
+    allowed = {**CONFIG, "paper": {**CONFIG["paper"], "allow_stale_close": True}}
+    out = manual.close_all(book, allowed, now=_sunday())
+    assert len(out["closed"]) == 92
+    assert "overridden" in out["stale_warning"]
+
+
+def test_the_endpoint_turns_a_refusal_into_a_409_not_a_500(client, monkeypatch, tmp_path):
+    """A refusal is the code working, not the code failing."""
+    from assistant.paper.book import Book as RealBook
+
+    _stale_book(tmp_path, 92).save()
+    monkeypatch.setattr(live, "fetch_marks",
+                        lambda tickers, config, force=False: ({}, None))
+    monkeypatch.setattr(manual, "_now", _sunday)
+
+    r = client.post("/api/paper/close", json={"all": True})
+    assert r.status_code == 409
+    assert r.get_json()["refused"] is True
+    # And the book on disk is untouched.
+    assert len(RealBook.load().positions) == 92

@@ -42,8 +42,14 @@ from ..backtest import simulator
 from . import live
 
 
+def _now():
+    """The clock, behind a seam. The stale-close guard turns on what day it is,
+    so a test has to be able to say."""
+    return datetime.now(timezone.utc)
+
+
 def _today():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return _now().strftime("%Y-%m-%d")
 
 
 def _slipped(price, direction, bps):
@@ -52,12 +58,80 @@ def _slipped(price, direction, bps):
     return price - drift if direction == "long" else price + drift
 
 
-def close_positions(book, tickers, config, *, force_refresh=True):
+class RefusedClose(Exception):
+    """A close that would book fictional P&L, stopped before it did."""
+
+
+def _guard(book, targets, config, moment=None):
+    """Refuse a close that cannot be priced honestly. Raises, or returns a note.
+
+    THIS EXISTS BECAUSE IT HAPPENED. TWICE.
+
+    Ninety-two positions were closed against marks three days old, on a Sunday
+    with every market shut, booking a realised loss of £206,947 that no market
+    produced — the entire figure was the gap between a stale Wednesday mark and
+    the arithmetic. The first time it was a test reaching the real book; the
+    second time I could not identify the caller from the logs at all, and that
+    is exactly the point.
+
+    An operation this destructive must not depend on every caller being
+    careful. `close_positions` is reachable from an HTTP endpoint, from the
+    CLI, from a test, and from any future scheduler — and the damage is silent,
+    because a closed trade with a plausible price looks like a trade.
+
+    So the refusal lives HERE, at the operation, and it triggers on the
+    combination that can only be a mistake: closing several positions, with no
+    market open, at prices that are not today's. One position closed by hand at
+    a stale mark is a judgement call and is allowed with a warning. Ninety-two
+    is not a judgement call.
+
+    `config['paper']['allow_stale_close']` overrides it for someone who
+    genuinely means it.
+    """
+    from ..core import market_clock
+
+    if bool(((config or {}).get("paper") or {}).get("allow_stale_close")):
+        return "Stale-close guard overridden by config."
+
+    moment = moment or _now()
+    open_venues = [v for v in ("US", "LSE") if market_clock.is_open(v, moment)]
+    if open_venues:
+        return None
+
+    today = moment.strftime("%Y-%m-%d")
+    stale = [p["ticker"] for p in targets
+             if str(p.get("bar_date") or "")[:10] != today]
+    if not stale:
+        return None
+
+    if len(targets) < BULK_CLOSE_THRESHOLD:
+        return (f"No market is open and {len(stale)} of these are marked at an "
+                f"older close. The P&L booked is against that mark, not against "
+                f"a price anyone traded today.")
+
+    raise RefusedClose(
+        f"Refusing to close {len(targets)} positions with every market shut and "
+        f"{len(stale)} of them marked at an older session. The realised P&L "
+        f"would be the gap between a stale mark and today's arithmetic, not "
+        f"anything the market did — which is how this book lost a fictional "
+        f"£206,947 on a Sunday. Wait for an open market, close fewer than "
+        f"{BULK_CLOSE_THRESHOLD} by hand, or set paper.allow_stale_close.")
+
+
+# Above this many positions at once, a stale close stops being a judgement call
+# and becomes an accident. One position closed at an old mark is a decision;
+# the whole book is not.
+BULK_CLOSE_THRESHOLD = 5
+
+
+def close_positions(book, tickers, config, *, force_refresh=True, now=None):
     """Close the named positions now. Returns a report; the caller saves.
 
     `tickers` is matched case-insensitively. An unknown ticker is reported
     rather than ignored — a "close everything" that silently missed a holding
     is the worst possible outcome of a button labelled that way.
+
+    Raises RefusedClose when the close cannot be priced honestly; see _guard.
     """
     wanted = {str(t).strip().upper() for t in tickers if str(t).strip()}
     if not wanted:
@@ -66,6 +140,10 @@ def close_positions(book, tickers, config, *, force_refresh=True):
 
     targets = [p for p in list(book.positions) if p["ticker"].upper() in wanted]
     missing = sorted(wanted - {p["ticker"].upper() for p in targets})
+
+    # Before anything is mutated. A guard that fires halfway through has
+    # already closed some of them.
+    stale_note = _guard(book, targets, config, now) if targets else None
 
     slippage_bps = float(((config or {}).get("paper") or {}).get("slippage_bps", 5.0))
 
@@ -123,6 +201,7 @@ def close_positions(book, tickers, config, *, force_refresh=True):
     return {
         "closed": closed,
         "missing": missing,
+        "stale_warning": stale_note,
         "realised": round(realised, 2),
         "costs": round(costs, 2),
         "equity": round(book.equity(), 2),

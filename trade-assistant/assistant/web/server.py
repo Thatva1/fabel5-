@@ -416,15 +416,24 @@ def api_paper_journal():
     seeing the result will always find a reason the result was foreseeable,
     which is the bias this record exists to defend against.
     """
-    from ..paper import tradelog
+    from ..paper import intraday_book, tradelog
     from ..paper.book import Book
 
-    book = Book.load()
+    # Two books now, and they answer different questions. `?book=intraday` is
+    # the flat-by-close record; the default is the daily one. Kept as one
+    # endpoint because the record's SHAPE is identical — what was opened, why,
+    # and what it did — and duplicating the reporting would let the two drift.
+    which = (request.args.get("book") or "daily").lower()
+    book = (Book.load(intraday_book.BOOK_PATH) if which == "intraday"
+            else Book.load())
     if not book.started:
-        return jsonify({"started": False, "entries": [], "daily": []})
+        return jsonify({"started": False, "book": which,
+                        "entries": [], "daily": []})
 
     out = tradelog.report(book)
     out["started"] = True
+    out["book"] = which
+    out["summary"] = book.summary()
     # Newest day first — the question is almost always "what happened today".
     out["daily"] = book.daily[::-1]
     return jsonify(out)
@@ -629,6 +638,8 @@ def api_intraday_close():
     try:
         result = (manual.close_all(book, config) if payload.get("all")
                   else manual.close_positions(book, tickers, config))
+    except manual.RefusedClose as exc:
+        return jsonify({"error": str(exc), "refused": True}), 409
     except Exception as exc:
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
     if not result["closed"]:
@@ -827,6 +838,9 @@ def api_paper_close():
     try:
         result = (manual.close_all(book, load_config()) if close_everything
                   else manual.close_positions(book, tickers, load_config()))
+    except manual.RefusedClose as exc:
+        # A refusal is not an error in the code; it is the code working.
+        return jsonify({"error": str(exc), "refused": True}), 409
     except Exception as exc:
         # Nothing is saved on the way out, so a failure leaves the book exactly
         # as it was rather than half-closed.
