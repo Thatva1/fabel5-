@@ -53,6 +53,35 @@ def _bar_size(config):
     return ((config or {}).get("intraday") or {}).get("bar_size", "5 mins")
 
 
+def _live_duration(config):
+    """How much history a LIVE pass asks for. Not the maximum — see below.
+
+    Measured on this account at 5-minute bars: 2 days costs 0.61s an
+    instrument, 5 days 0.68s, and a month 15.33s. That 25x cliff is not pacing
+    (zero violations across the sample); IB just serves a month of small bars
+    from somewhere far slower.
+
+    The loop defaulted to the maximum, which made a 60-name pass take fifteen
+    minutes against a five-minute bar. At the live duration it takes
+    thirty-seven seconds.
+    """
+    from ..providers.ibkr_provider import IBKRDataProvider
+
+    bar = _bar_size(config)
+    return IBKRDataProvider.INTRADAY_LIVE_DURATION.get(bar, "2 D")
+
+
+def _measurement_duration(config):
+    """How much history the once-a-day spread measurement asks for.
+
+    Longer than a live pass and far shorter than the maximum. Corwin-Schultz
+    needs a few hundred bars to average over, and five sessions supplies 390 —
+    at a twentieth of the cost of the month that would supply 1,716.
+    """
+    bar = _bar_size(config)
+    return {"1 min": "5 D", "5 mins": "5 D"}.get(bar, "1 M")
+
+
 def prepare(config, *, progress_cb=None, now=None):
     """Choose today's working set. Run once, before the open.
 
@@ -78,7 +107,8 @@ def prepare(config, *, progress_cb=None, now=None):
 
     started = time.monotonic()
     bars, missing, pacing = bulk.intraday_history_ibkr(
-        pool["symbols"], bar_size=_bar_size(config), config=config,
+        pool["symbols"], bar_size=_bar_size(config),
+        duration=_measurement_duration(config), config=config,
         progress_cb=progress_cb)
     out["fetch_seconds"] = round(time.monotonic() - started, 1)
     out["fetched"] = len(bars)
@@ -157,7 +187,8 @@ def tick(config, *, now=None, book_path=None, book=None, force=False):
 
     started = time.monotonic()
     frames, missing, pacing = bulk.intraday_history_ibkr(
-        symbols, bar_size=_bar_size(config), config=config)
+        symbols, bar_size=_bar_size(config),
+        duration=_live_duration(config), config=config)
     out["fetch_seconds"] = round(time.monotonic() - started, 1)
     out["fetched"] = len(frames)
     out["missing"] = len(missing)

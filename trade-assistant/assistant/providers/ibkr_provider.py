@@ -33,6 +33,8 @@ provider that silently returns nothing is how a rate-limited screen once cached
 prices would be worse, because a hedge priced from missing data reports
 protection that is not there.
 """
+import os
+
 from .base import DataProvider, ProviderUnavailable
 
 SOURCE = "ibkr"
@@ -52,7 +54,14 @@ class IBKRDataProvider(DataProvider):
         cfg = ((config or {}).get("providers") or {}).get("ibkr") or {}
         self.host = cfg.get("host", "127.0.0.1")
         self.port = int(cfg.get("port", DEFAULT_PORT))
-        self.client_id = int(cfg.get("data_client_id", 991))
+        # IBKR_DATA_CLIENT_ID overrides config, the same way IBKR_ACCOUNT
+        # overrides execution.account. `_connect` already walks eight ids from
+        # this one to survive a collision, but each collision costs a full
+        # connect TIMEOUT first — so a long CLI sweep started while the
+        # dashboard holds the configured id spends minutes failing before it
+        # begins. Naming a clear id up front avoids that entirely.
+        self.client_id = int(os.environ.get("IBKR_DATA_CLIENT_ID")
+                             or cfg.get("data_client_id", 991))
         self.enabled = bool(cfg.get("enabled", False))
 
     def is_available(self):
@@ -254,6 +263,32 @@ class IBKRDataProvider(DataProvider):
     INTRADAY_MAX_DURATION = {
         "1 min": "5 D", "5 mins": "1 M", "15 mins": "2 M",
         "30 mins": "3 M", "1 hour": "6 M", "2 hours": "1 Y",
+    }
+
+    # What a LIVE pass should ask for, which is nothing like the maximum.
+    #
+    # Measured on this account, 5-minute bars, per instrument:
+    #
+    #     2 D  ->  0.61s   (156 bars)
+    #     5 D  ->  0.68s   (390 bars)
+    #     1 M  -> 15.33s  (1716 bars)
+    #
+    # A 25x cliff, and it is not pacing — zero violations were reported across
+    # the whole sample. IB simply serves a month of small bars from somewhere
+    # much slower than it serves a week.
+    #
+    # This matters because the live loop defaulted to the maximum. A 60-name
+    # working set at 15.33s is FIFTEEN MINUTES a pass against a five-minute
+    # bar: every signal three bars stale, every exit three bars late, and the
+    # trades still looking like trades. At the live duration the same pass is
+    # thirty-seven seconds.
+    #
+    # Two days rather than one because the rules need the PREVIOUS session's
+    # close — Gao et al.'s momentum and the gap fade are both defined against
+    # it — and a Monday's "1 D" contains no Friday.
+    INTRADAY_LIVE_DURATION = {
+        "1 min": "2 D", "5 mins": "2 D", "15 mins": "5 D",
+        "30 mins": "5 D", "1 hour": "1 M", "2 hours": "1 M",
     }
 
     def intraday_history(self, ticker, bar_size="5 mins", duration=None):

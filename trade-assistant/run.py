@@ -572,7 +572,7 @@ def _intraday(argv):
                    "30m": "30 mins", "1h": "1 hour", "60m": "1 hour",
                    "2h": "2 hours"}
     bar_size, cost_bps, symbols = "5 mins", 10.0, []
-    scope, limit, sample = None, None, None
+    scope, limit, sample, duration = None, None, None, None
     # Two different questions, two different modes.
     #
     #   default    — RESEARCH. Does an edge exist at this horizon at all? Runs
@@ -608,6 +608,9 @@ def _intraday(argv):
             else:
                 sample = value
             i += 2
+        elif arg == "--duration" and i + 1 < len(argv):
+            duration = argv[i + 1]
+            i += 2
         elif arg in ("--universe", "--watchlist", "--mega"):
             scope = arg[2:]
             i += 1
@@ -634,8 +637,22 @@ def _intraday(argv):
         symbols = symbols[:limit]
         print(f"Capped at the first {len(symbols)}.")
 
+    # How much history to ask for, and it is the single biggest cost decision
+    # in this command. Measured on this account at 5-minute bars: 2 days costs
+    # 0.61s an instrument, 5 days 0.68s, a MONTH 15.33s. That 25x cliff is not
+    # pacing — zero violations across the sample — so asking for the maximum
+    # turns an eighteen-minute universe sweep into a seven-hour one for twenty
+    # times the sessions.
+    if duration is None:
+        duration = "5 D" if bar_size in ("1 min", "5 mins") else None
+
     print(f"\nFetching {bar_size} bars for {len(symbols)} instruments over one "
-          f"connection.")
+          f"connection"
+          + (f", {duration} of history each." if duration else "."))
+    if duration in ("5 D", "2 D"):
+        print("  A short window on purpose: IB serves a month of small bars ~25x "
+              "slower than a week, for the same instruments.\n"
+              "  Pass --duration '1 M' for the long sweep (hours, not minutes).")
     if len(symbols) > 200:
         print("  IB paces small-bar history far harder than daily bars, and it "
               "answers a pacing violation by returning NOTHING — which is\n"
@@ -654,7 +671,8 @@ def _intraday(argv):
     try:
         if use_engine:
             frames, missing, pacing = bulk.intraday_history_ibkr(
-                symbols, bar_size=bar_size, config=config, progress_cb=progress)
+                symbols, bar_size=bar_size, duration=duration, config=config,
+                progress_cb=progress)
         else:
             frames = intraday.fetch(
                 symbols, config, bar_size=bar_size,

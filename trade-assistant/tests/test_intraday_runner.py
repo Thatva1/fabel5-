@@ -153,3 +153,41 @@ def test_prepare_says_so_when_there_is_no_daily_history(monkeypatch):
     monkeypatch.setattr(intraday_runner, "_cached_daily_history", lambda: {})
     out = intraday_runner.prepare(CONFIG, now=london(13, 0))
     assert "No daily universe history" in out["error"]
+
+
+# --- how much history a pass asks for ---------------------------------------
+#
+# Measured on this account at 5-minute bars: 2 days costs 0.61s an instrument,
+# 5 days 0.68s, a month 15.33s. Not pacing — zero violations across the sample.
+# The loop defaulted to the maximum, which made a 60-name pass take FIFTEEN
+# MINUTES against a five-minute bar: every signal three bars stale, and the
+# trades still looking like trades.
+
+def test_a_live_pass_asks_for_days_not_the_maximum(monkeypatch):
+    asked = {}
+    monkeypatch.setattr(intraday_watchlist, "load", lambda *a, **k: {"symbols": ["T"]})
+
+    def spy(symbols, **kwargs):
+        asked.update(kwargs)
+        return {}, list(symbols), None
+    monkeypatch.setattr(intraday_runner.bulk, "intraday_history_ibkr", spy)
+
+    book = Book.load("/nonexistent/book.json")
+    intraday_runner.tick(CONFIG, now=london(16, 0), book=book)
+    assert asked["duration"] == "2 D"
+
+
+def test_the_live_duration_still_spans_a_previous_session():
+    """One day contains no previous close, and two of the four rules are
+    defined against it — on a Monday, "1 D" holds no Friday at all."""
+    for bar in ("1 min", "5 mins", "15 mins"):
+        duration = intraday_runner._live_duration({"intraday": {"bar_size": bar}})
+        assert duration.split()[0] != "1" or duration.endswith("M")
+
+
+def test_the_measurement_pass_asks_for_more_than_a_live_one_and_less_than_a_month():
+    """Corwin-Schultz needs a few hundred bars to average over. Five sessions
+    supplies 390 at a twentieth of the cost of the month that supplies 1,716."""
+    config = {"intraday": {"bar_size": "5 mins"}}
+    assert intraday_runner._live_duration(config) == "2 D"
+    assert intraday_runner._measurement_duration(config) == "5 D"
