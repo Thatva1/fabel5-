@@ -302,12 +302,13 @@ def ohlcv_history_ibkr(symbols, period="2y", config=None, progress_cb=None):
                         index=pd.to_datetime([b.date for b in bars]))
                     frame = frame.dropna(subset=["Close"])
                     if len(frame):
-                        # LSE bars arrive from IB in pence under a "GBP" label.
-                        # This is the path that builds the tradable universe, so
-                        # leaving it unscaled put every London name into the
-                        # ranking, the sizing and the book a hundred times too
-                        # large — see IBKRDataProvider.MINOR_UNIT_EXCHANGES.
-                        out[symbol] = IBKRDataProvider.to_major_units(symbol, frame)
+                        # LSE bars arrive from IB in pence under a "GBP" label,
+                        # and share volume arrives in round lots. This is the
+                        # path that builds the tradable universe, so leaving
+                        # either unscaled put every London name into the
+                        # ranking a hundred times too large and every liquidity
+                        # figure a hundred times too small.
+                        out[symbol] = IBKRDataProvider.normalise_bars(symbol, frame)
                     else:
                         missing.append(symbol)
                 else:
@@ -413,7 +414,7 @@ def intraday_history_ibkr(symbols, bar_size="5 mins", duration=None, config=None
                     if len(frame):
                         # London arrives in pence under a "GBP" label on this
                         # path exactly as it does on the daily one.
-                        out[symbol] = IBKRDataProvider.to_major_units(symbol, frame)
+                        out[symbol] = IBKRDataProvider.normalise_bars(symbol, frame)
                     else:
                         missing.append(symbol)
                 else:

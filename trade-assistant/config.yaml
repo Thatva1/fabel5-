@@ -286,6 +286,46 @@ intraday:
   # Which bar the rules run on. Larger bars pay the spread less often and see
   # less; IB caps how far back small bars go (5 mins -> 1 month, 15 mins -> 2).
   bar_size: "5 mins"
+  # Tick the book every bar while a market is open, from inside the dashboard
+  # process. Off means the engine still exists and still backtests, but nothing
+  # trades forward — and a machine that only wants the daily book does not open
+  # a broker socket every five minutes all afternoon.
+  live_loop: true
+
+  # --- which instruments the loop actually watches -------------------------
+  # The universe is 1,568 names and IB serves intraday bars at ~1.5 seconds
+  # each, so one pass over all of it takes forty minutes. A five-minute strategy
+  # re-reading its universe every forty minutes is not a five-minute strategy.
+  #
+  # Selected in two stages, because the cheap measurement is not the accurate
+  # one. Stage one runs on the daily history already cached for the daily
+  # rebalance — zero IB requests — and narrows to a pool. Stage two measures
+  # those candidates' real spreads on intraday bars and keeps what can pay.
+  #
+  # Corwin-Schultz on DAILY bars returns a median of 63bp across this universe,
+  # where the true figure for a liquid US name is a few basis points: a whole
+  # day's high-low is dominated by real movement rather than by the quote. So
+  # the daily estimate ORDERS instruments and never thresholds them, and every
+  # absolute gate at stage one is applied to something daily bars actually know.
+  watchlist:
+    size: 60                  # what the loop polls: ~90s of a 5-minute bar
+    pool: 150                 # the shortlist stage two measures: ~4 minutes, once
+    lookback_days: 60
+    # Absolute gates, on trustworthy quantities.
+    min_price: 5.0            # a penny spread on a $2 share is 50bp
+    min_dollar_volume: 20000000
+    # An instrument has to MOVE. This is what keeps BIL and SHV out: both score
+    # beautifully on travel-per-cost because both numbers are nearly zero, and a
+    # 0.01% daily range cannot pay a commission however good the ratio looks.
+    min_range_pct: 0.8
+    # Relative gate: keep the tightest share of what survives the above.
+    keep_tightest_pct: 40.0
+    # Stage two, on a measurement that means something.
+    max_spread_bps: 15.0
+    # The arithmetic no rule can beat — a session must offer this many round
+    # trips of travel, or every trade in it is a coin flip for the spread.
+    min_range_to_cost: 8.0
+    rebuild_after_hours: 20
 
   # --- flat by close -------------------------------------------------------
   # Stated as MINUTES BEFORE THE CLOSE, not as wall-clock times, and that is

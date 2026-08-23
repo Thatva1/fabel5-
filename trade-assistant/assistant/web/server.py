@@ -511,6 +511,135 @@ def api_paper_archive_detail(filename):
     })
 
 
+@app.get("/api/intraday")
+def api_intraday():
+    """The intraday book, today's working set, and how the loop is doing.
+
+    Served separately from /api/paper because they are two different books with
+    two different clocks. Collapsing them into one payload would invite the
+    dashboard to add their equity together, and one is a holding book measured
+    in weeks while the other is flat by every bell.
+    """
+    from ..core import market_clock
+    from ..paper import intraday_book, intraday_watchlist
+    from ..paper.book import Book
+    from . import scheduler
+
+    book = Book.load(intraday_book.BOOK_PATH)
+    working = intraday_watchlist.load()
+    cfg = intraday_book.settings(load_config())
+
+    venues = {"US": market_clock_phase("US", cfg), "LSE": market_clock_phase("LSE", cfg)}
+
+    payload = {
+        "started": book.started,
+        "loop": scheduler.intraday_status(),
+        "phases": venues,
+        "working_set": ({"size": working["size"], "symbols": working["symbols"],
+                         "detail": working.get("detail") or [],
+                         "age_hours": working.get("age_hours"),
+                         "summary": intraday_watchlist.describe(working)}
+                        if working else None),
+        "delay_note": ("Bars are IBKR historical intraday data, roughly 10-15 "
+                       "minutes behind. This account carries no streaming "
+                       "subscription, so nothing here is a live trading result."),
+    }
+    if not book.started:
+        payload["message"] = ("No intraday book yet. It opens on the first tick "
+                              "with a market open.")
+        return jsonify(payload)
+
+    payload.update({
+        "summary": book.summary(),
+        "positions": [{**p, "held_minutes": _held_minutes(p)} for p in book.positions],
+        "closed": book.closed[-40:][::-1],
+        "daily": book.daily[::-1],
+        "curve": book.curve,
+        # The claim the whole engine rests on, checked rather than asserted.
+        "flat": not book.positions,
+        "overnight_risk": [p["ticker"] for p in book.positions
+                           if not any(m["open"] for m in market_clock.summary().values())],
+    })
+    return jsonify(payload)
+
+
+def market_clock_phase(venue, cfg):
+    from ..core import market_clock as clock
+    return {
+        "phase": clock.session_phase(
+            venue, entry_cutoff_minutes=cfg["no_new_entries_minutes_before_close"],
+            flat_minutes=cfg["flat_by_minutes_before_close"]),
+        "minutes_to_close": clock.minutes_to_close(venue),
+        "open": clock.is_open(venue),
+    }
+
+
+def _held_minutes(position):
+    from datetime import datetime, timezone
+    opened = (position.get("meta") or {}).get("opened_at")
+    if not opened:
+        return None
+    try:
+        return round((datetime.now(timezone.utc)
+                      - datetime.fromisoformat(opened)).total_seconds() / 60, 1)
+    except (TypeError, ValueError):
+        return None
+
+
+@app.post("/api/intraday/tick")
+def api_intraday_tick():
+    """Run one pass now. `force` fetches even with every market closed."""
+    from . import scheduler
+
+    force = bool((request.get_json(silent=True) or {}).get("force"))
+    ok, detail = scheduler.run_intraday_tick(force=force)
+    return jsonify({"ok": ok, "detail": detail}), (200 if ok else 409)
+
+
+@app.post("/api/intraday/prepare")
+def api_intraday_prepare():
+    """Choose today's working set. Minutes, not seconds — it walks the pool."""
+    from ..paper import intraday_runner
+
+    try:
+        out = intraday_runner.prepare(load_config())
+    except Exception as exc:
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+    if out.get("error"):
+        return jsonify(out), 400
+    return jsonify(out)
+
+
+@app.post("/api/intraday/close")
+def api_intraday_close():
+    """Go flat now, by hand. The same escape hatch the daily book has."""
+    from ..paper import intraday_book, manual
+    from ..paper.book import Book
+
+    payload = request.get_json(silent=True) or {}
+    tickers = payload.get("tickers") or []
+    if not tickers and not payload.get("all"):
+        return jsonify({"error": "Name at least one ticker, or pass all: true."}), 400
+
+    book = Book.load(intraday_book.BOOK_PATH)
+    if not book.started or not book.positions:
+        return jsonify({"error": "The intraday book holds no open positions."}), 400
+
+    config = load_config()
+    try:
+        result = (manual.close_all(book, config) if payload.get("all")
+                  else manual.close_positions(book, tickers, config))
+    except Exception as exc:
+        return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
+    if not result["closed"]:
+        return jsonify({"error": "Nothing matched: "
+                                 + ", ".join(result["missing"] or tickers)}), 404
+
+    book.save(intraday_book.BOOK_PATH)
+    result["summary"] = book.summary()
+    return jsonify(result)
+
+
 @app.get("/api/coverage")
 def api_coverage():
     """What the licensed feed can price, and what a subscription would unlock."""
@@ -1072,6 +1201,17 @@ def main(port=None):
     # any access to ~/Desktop, where the project lives. See scheduler.py.
     from . import scheduler
     scheduler.start()
+
+    # The intraday loop is its own thread on its own clock: every bar while a
+    # market is open, rather than four times a day. Switched on from config so
+    # a machine that only wants the daily book does not open a broker socket
+    # every five minutes all afternoon.
+    config = load_config()
+    intraday_cfg = config.get("intraday") or {}
+    if intraday_cfg.get("enabled") and intraday_cfg.get("live_loop", True):
+        bar_minutes = {"1 min": 1, "5 mins": 5, "15 mins": 15, "30 mins": 30,
+                       "1 hour": 60}.get(intraday_cfg.get("bar_size"), 5)
+        scheduler.start_intraday(bar_minutes)
 
     app.run(host="127.0.0.1", port=port, debug=False, threaded=True)
 

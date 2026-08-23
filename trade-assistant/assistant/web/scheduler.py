@@ -36,6 +36,8 @@ from datetime import datetime, timedelta, timezone
 DEFAULT_JOBS = [
     {"at": "07:00", "mode": "both", "why": "1h before the London open"},
     {"at": "08:05", "mode": "session", "why": "just after the London open"},
+    {"at": "13:00", "mode": "intraday-prepare",
+     "why": "choose today's intraday working set, before the US open"},
     {"at": "13:30", "mode": "both", "why": "1h before the US open"},
     {"at": "21:10", "mode": "session", "why": "after the US close"},
 ]
@@ -45,6 +47,14 @@ _state = {
     "last": [],             # completed runs, newest first
     "started_at": None,
     "jobs": [],
+    # The intraday loop is tracked separately from the daily jobs on purpose.
+    # It runs on a completely different clock — every bar while a market is
+    # open, rather than four times a day — and sharing the `running` guard would
+    # mean a five-minute tick could block the evening session, or worse, that a
+    # forty-minute universe rebalance could stop the intraday book liquidating
+    # into the close.
+    "intraday": {"running": False, "last": [], "ticks": 0, "started_at": None,
+                 "next_tick": None},
 }
 _lock = threading.Lock()
 
@@ -125,6 +135,15 @@ def run_job(mode):
             result = pipeline.run_scan(config=config)
             notes.append(f"scan: {result.get('scanned')} instruments, "
                          f"{len(result.get('ideas') or [])} ideas")
+        if mode == "intraday-prepare":
+            from ..paper import intraday_runner
+            out = intraday_runner.prepare(config)
+            if out.get("error"):
+                ok = False
+                notes.append(f"intraday prepare: {out['error']}")
+            else:
+                notes.append(f"intraday prepare: {out.get('summary') or 'done'} "
+                             f"({out.get('fetch_seconds')}s)")
 
         # Rebuild the public site from whatever the run just produced. Doing it
         # here rather than on a separate timer means the published page cannot
@@ -155,6 +174,109 @@ def run_job(mode):
         _record(mode, ok, "; ".join(notes) or "no detail", started, finished)
 
     return ok, "; ".join(notes)
+
+
+def intraday_status():
+    with _lock:
+        state = _state["intraday"]
+        return {"enabled": bool(state["started_at"]), "running": state["running"],
+                "ticks": state["ticks"], "next_tick": state["next_tick"],
+                "started_at": state["started_at"],
+                "last": list(state["last"][:10])}
+
+
+def run_intraday_tick(force=False):
+    """One pass of the intraday loop. Returns (ok, detail).
+
+    Guarded by its own flag rather than the daily one. A tick that overlaps
+    itself would have two passes marking and closing the same book, and the
+    second would save over the first's exits — a position closed at 20:55 could
+    reappear, open, after the bell.
+    """
+    from ..core.config import load_config
+    from ..paper import intraday_runner
+
+    with _lock:
+        if _state["intraday"]["running"]:
+            return False, "a tick is already running"
+        _state["intraday"]["running"] = True
+
+    started = datetime.now(timezone.utc)
+    ok, detail = True, ""
+    try:
+        out = intraday_runner.tick(load_config(), force=force)
+        if out.get("skipped"):
+            detail = "no market open"
+        elif out.get("error"):
+            ok, detail = False, out["error"]
+        else:
+            detail = (f"{len(out.get('opened') or [])} opened, "
+                      f"{len(out.get('closed') or [])} closed, "
+                      f"equity {out.get('equity')}, "
+                      f"bars {out.get('staleness_minutes')}m old")
+            for note in (out.get("notes") or []):
+                if note.startswith(("HELD BUT UNPRICED", "OVERNIGHT RISK")):
+                    detail += f" | {note}"
+    except Exception as exc:
+        ok, detail = False, f"{type(exc).__name__}: {exc}"
+    finally:
+        finished = datetime.now(timezone.utc)
+        with _lock:
+            state = _state["intraday"]
+            state["running"] = False
+            state["ticks"] += 1
+            state["last"].insert(0, {
+                "ok": ok, "detail": detail,
+                "at": finished.isoformat(timespec="seconds"),
+                "seconds": round((finished - started).total_seconds(), 1)})
+            del state["last"][20:]
+    return ok, detail
+
+
+def _intraday_loop(every_minutes):
+    """Tick on the bar, and only while something is open.
+
+    Aligned to the bar boundary rather than to whenever the process started: a
+    loop that fires at :02 and :07 is always reading a bar that is two minutes
+    from complete, and the strategies would see a different, partial final bar
+    every single pass.
+    """
+    from ..core import market_clock
+
+    period = max(1, int(every_minutes)) * 60
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            # Sleep to the next boundary, plus a few seconds so the bar IB is
+            # about to hand us has actually closed.
+            elapsed = (now.minute * 60 + now.second) % period
+            wait = period - elapsed + 10
+            with _lock:
+                _state["intraday"]["next_tick"] = (
+                    now + timedelta(seconds=wait)).isoformat(timespec="seconds")
+            time.sleep(wait)
+
+            if any(market_clock.is_open(v) for v in ("US", "LSE")):
+                run_intraday_tick()
+        except Exception:
+            # The loop must never die. A tick that throws is one bad tick, and
+            # a dead intraday loop with open positions is the overnight risk
+            # this whole engine is built to prevent.
+            time.sleep(30)
+
+
+def start_intraday(every_minutes=5):
+    """Begin the intraday loop. Idempotent."""
+    with _lock:
+        if _state["intraday"]["started_at"]:
+            return intraday_status()
+        _state["intraday"]["started_at"] = datetime.now(
+            timezone.utc).isoformat(timespec="seconds")
+
+    thread = threading.Thread(target=_intraday_loop, args=(every_minutes,),
+                              name="intraday-loop", daemon=True)
+    thread.start()
+    return intraday_status()
 
 
 def _loop():

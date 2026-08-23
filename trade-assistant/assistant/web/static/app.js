@@ -1063,7 +1063,7 @@ function legalDialog() {
 }
 
 /* ---------- render + events ---------- */
-const TITLES = { today: "Today", watchlist: "Watchlist", ideas: "Ideas", journal: "Journal", detail: "Idea" , paper: "Book" };
+const TITLES = { today: "Today", watchlist: "Watchlist", ideas: "Ideas", journal: "Journal", detail: "Idea" , paper: "Book", intraday: "Intraday" };
 
 function go(v) {
   view = v;
@@ -1091,6 +1091,14 @@ function render() {
     // Rendered from its own endpoint: the book is live state, not part of the
     // scan snapshot the rest of these views read from.
     loadPaper();
+    return;
+  }
+  if (view === "intraday") {
+    // A SECOND book, deliberately not merged into the one above. They run on
+    // different clocks and mean different things: that one holds for weeks,
+    // this one is flat by every bell. Adding their equity together would be
+    // the natural mistake, so they never share a payload.
+    loadIntraday();
     return;
   }
   const html = { today: viewToday, watchlist: viewWatchlist, ideas: viewIdeas, journal: viewJournal, detail: viewDetail }[view]();
@@ -2078,6 +2086,282 @@ async function runPaper(rebalance) {
   await loadPaper();
 }
 
+
+/* ---------- the intraday book ----------
+   A second book, on a different clock. The daily book answers "what am I
+   holding and what is it worth"; this one answers "what did today make, and am
+   I flat". Those are different questions and they get different pages —
+   merging them would invite exactly one arithmetic mistake, adding the two
+   equity figures together as though they were one account.
+
+   The banner leads with the session phase and whether the book is flat,
+   because during a session those are the only two facts that can hurt you. */
+
+const PHASE = {
+  open: { word: "Open", cls: "ok", note: "New positions allowed." },
+  no_new_entries: { word: "Last half hour", cls: "warn", note: "Nothing new opens; open positions are being managed to the bell." },
+  liquidate: { word: "Liquidating", cls: "warn", note: "Everything is being closed." },
+  closed: { word: "Closed", cls: "muted", note: "Nothing trades." },
+};
+
+async function loadIntraday() {
+  const root = document.getElementById('viewRoot');
+  const scrollY = window.scrollY;
+  root.innerHTML = '<div class="card"><div class="label">Loading the intraday book…</div></div>';
+
+  let d;
+  try {
+    d = await (await fetch('/api/intraday')).json();
+  } catch (e) {
+    root.innerHTML = '<div class="card"><b>Could not load the intraday book.</b></div>';
+    return;
+  }
+
+  const badge = document.getElementById('nb-intraday');
+  if (badge) badge.textContent = (d.summary?.open_positions) || '';
+
+  root.innerHTML = intradayBanner(d)
+    + (d.started ? intradayBook(d) : intradayEmpty(d))
+    + intradayWorkingSet(d)
+    + intradayLoop(d)
+    + `<div class="card"><div class="label">Data</div>
+        <p class="meta">${esc(d.delay_note || '')}</p></div>`;
+  if (scrollY) window.scrollTo(0, scrollY);
+}
+
+function intradayBanner(d) {
+  const rows = Object.entries(d.phases || {}).map(([venue, p]) => {
+    const meta = PHASE[p.phase] || PHASE.closed;
+    const left = p.minutes_to_close == null ? '' :
+      ` · <b>${Math.round(p.minutes_to_close)} min</b> to the bell`;
+    return `<div style="margin-bottom:4px">
+      <b>${esc(venue)}</b> <span class="pill ${meta.cls}">${meta.word}</span>${left}
+      <div class="prov">${esc(meta.note)}</div></div>`;
+  }).join('');
+
+  /* The one claim the whole engine rests on. Stated as a fact on the page
+     rather than left to be inferred from an empty table, because "flat" and
+     "the table failed to render" look identical otherwise. */
+  const open = d.summary?.open_positions || 0;
+  const risk = (d.overnight_risk || []).length;
+  const flat = risk
+    ? `<div class="callout bad"><b>${GLYPH.fail} Overnight risk: ${risk} position(s) open with every market closed</b>
+        <div class="muted" style="margin-top:6px">${esc((d.overnight_risk || []).join(', '))}
+        — this should be impossible. Something did not price during the liquidation window.</div></div>`
+    : open
+      ? `<div class="callout warn">${GLYPH.advisory} <b>${open} position(s) open.</b>
+          Every one closes before its own venue's bell.</div>`
+      : `<div class="callout ok">${GLYPH.ok} <b>Flat.</b> Nothing is held.</div>`;
+
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div>${rows}</div>
+      <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
+        <button class="btn" onclick="intradayTick()">Tick now</button>
+        <button class="btn" onclick="intradayPrepare()">Rebuild working set</button>
+        ${open ? `<button class="btn btn-primary" onclick="confirmIntradayClose()">Go flat</button>` : ''}
+      </div>
+    </div>
+    <div style="margin-top:14px">${flat}</div>
+    <div id="intradayMsg" class="prov" style="margin-top:8px"></div>
+  </div>`;
+}
+
+function intradayEmpty(d) {
+  return `<div class="card">
+    <b>No intraday book yet.</b>
+    <p class="meta">${esc(d.message || '')} Build a working set first, then tick it.</p>
+  </div>`;
+}
+
+function intradayBook(d) {
+  const s = d.summary, ccy = s.base_currency;
+  const money = v => (v == null ? '—' : Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }));
+  const cls = v => (v > 0 ? 'up' : v < 0 ? 'down' : '');
+  const today = (d.daily || [])[0];
+
+  const rows = (d.positions || []).map(p => {
+    const hold = p.meta?.max_hold_minutes;
+    const held = p.held_minutes;
+    const left = (hold && held != null) ? Math.max(0, Math.round(hold - held)) : null;
+    return `<tr style="border-bottom:1px solid rgba(128,128,128,.18)">
+      <td><b>${esc(p.ticker)}</b>
+        <div class="meta">${esc(p.direction)}</div></td>
+      <td>${esc(p.strategy)}
+        ${p.headline ? `<div class="meta" style="font-size:11px;max-width:26ch;white-space:normal">${esc(p.headline)}</div>` : ''}</td>
+      <td class="num" style="text-align:right">${money(p.shares)}</td>
+      <td class="num" style="text-align:right">${Number(p.entry_price).toFixed(2)}</td>
+      <td class="num" style="text-align:right">${Number(p.last_price).toFixed(2)}</td>
+      <td class="num" style="text-align:right">${Number(p.stop).toFixed(2)}</td>
+      <td class="num" style="text-align:right">${Number(p.target).toFixed(2)}</td>
+      <td class="num" style="text-align:right">${held == null ? '—' : Math.round(held) + 'm'}
+        ${left != null ? `<div class="meta" style="font-size:11px">${left}m left</div>` : ''}</td>
+      <td><button class="btn btn-sm" onclick="confirmIntradayClose(['${esc(p.ticker)}'])">Close</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="9" class="meta">No open positions.</td></tr>';
+
+  const closed = (d.closed || []).slice(0, 20).map(c => `
+    <tr style="border-bottom:1px solid rgba(128,128,128,.18)">
+      <td><b>${esc(c.ticker)}</b></td>
+      <td>${esc(c.strategy || '')}</td>
+      <td>${esc(c.exit_reason || '')}</td>
+      <td class="num ${cls(c.pnl)}" style="text-align:right">${money(c.pnl)}</td>
+      <td class="num" style="text-align:right">${c.r_multiple == null ? '—' : c.r_multiple + 'R'}</td>
+      <td class="meta">${c.held_minutes == null ? '' : Math.round(c.held_minutes) + 'm'}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="meta">Nothing closed yet.</td></tr>';
+
+  return `
+  <div class="card">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:18px 26px">
+      <div><div class="label">Equity</div><b style="font-size:1.4rem">${money(s.equity)} <span class="meta">${esc(ccy)}</span></b></div>
+      <div><div class="label">Banked today</div>
+        <b class="${cls(today?.realised)}">${today ? money(today.realised) : '—'}</b>
+        <div class="prov">realised, not marks</div></div>
+      <div><div class="label">Costs today</div><b>${today ? money(today.costs) : '—'}</b></div>
+      <div><div class="label">Trades today</div><b>${today ? (today.closed || 0) : 0}</b></div>
+      <div><div class="label">Open</div><b>${s.open_positions}</b></div>
+      <div><div class="label">Win rate</div><b>${s.win_rate_pct == null ? '—' : s.win_rate_pct + '%'}</b></div>
+      <div><div class="label">Sessions</div><b>${s.days}</b></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">Open positions</div>
+    <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left;opacity:.6">
+        <th>Instrument</th><th>Rule</th>
+        <th class="num" style="text-align:right">Units</th>
+        <th class="num" style="text-align:right">Entry</th>
+        <th class="num" style="text-align:right">Last</th>
+        <th class="num" style="text-align:right">Stop</th>
+        <th class="num" style="text-align:right">Target</th>
+        <th class="num" style="text-align:right">Held</th><th></th>
+      </tr></thead><tbody>${rows}</tbody></table>
+  </div>
+
+  <div class="card">
+    <div class="label">Closed today and before</div>
+    <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left;opacity:.6">
+        <th>Instrument</th><th>Rule</th><th>Exit</th>
+        <th class="num" style="text-align:right">P&L</th>
+        <th class="num" style="text-align:right">R</th><th>Held</th>
+      </tr></thead><tbody>${closed}</tbody></table>
+  </div>`;
+}
+
+function intradayWorkingSet(d) {
+  const w = d.working_set;
+  if (!w) {
+    return `<div class="card"><div class="label">Working set</div>
+      <p class="meta">None for today. The loop will not choose instruments from a
+        stale liquidity profile, so it refuses to run until this is built.</p>
+      <button class="btn" onclick="intradayPrepare()">Build it</button></div>`;
+  }
+  const rows = (w.detail || []).slice(0, 20).map(r => `<tr>
+    <td><b>${esc(r.ticker)}</b></td>
+    <td class="num" style="text-align:right">${Number(r.price).toFixed(2)}</td>
+    <td class="num" style="text-align:right">${Number(r.range_pct).toFixed(2)}%</td>
+    <td class="num" style="text-align:right">${r.intraday_spread_bps ?? '—'}b</td>
+    <td class="num" style="text-align:right">${Number(r.range_to_cost).toFixed(0)}</td>
+  </tr>`).join('');
+  return `<div class="card">
+    <div class="label">Working set${w.age_hours != null ? ` · built ${w.age_hours}h ago` : ''}</div>
+    <p class="meta">${esc(w.summary || '')}</p>
+    <p class="prov">Ranked by how far an instrument travels in a session divided by
+      what it costs to get in and out. Nothing here predicts a move — it says that
+      when one happens, it is large relative to the toll.</p>
+    <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left;opacity:.6"><th>Instrument</th>
+        <th class="num" style="text-align:right">Price</th>
+        <th class="num" style="text-align:right">Daily range</th>
+        <th class="num" style="text-align:right">Spread</th>
+        <th class="num" style="text-align:right">Round trips</th>
+      </tr></thead><tbody>${rows}</tbody></table>
+    ${(w.detail || []).length > 20 ? `<div class="prov" style="margin-top:8px">…and ${w.detail.length - 20} more.</div>` : ''}
+  </div>`;
+}
+
+function intradayLoop(d) {
+  const l = d.loop || {};
+  const last = (l.last || []).slice(0, 6).map(r => `<div style="margin-bottom:6px">
+    <div class="meta">${esc(r.at)} · ${r.seconds}s
+      <span class="${r.ok ? 'ok' : 'bad'}">${r.ok ? GLYPH.ok : GLYPH.fail}</span></div>
+    <div class="prov">${esc(r.detail)}</div></div>`).join('')
+    || '<div class="meta">No ticks yet.</div>';
+  return `<div class="card">
+    <div class="label">Loop</div>
+    <p class="meta">${l.enabled
+      ? `Running · ${l.ticks} tick(s)${l.next_tick ? ` · next ${esc(l.next_tick)}` : ''}`
+      : 'Not running. Set intraday.live_loop in config.yaml and restart the dashboard.'}</p>
+    ${last}
+  </div>`;
+}
+
+async function intradayTick() {
+  const msg = document.getElementById('intradayMsg');
+  if (msg) msg.textContent = 'Ticking… fetching bars for the working set.';
+  const r = await post('/api/intraday/tick', {});
+  if (msg) msg.innerHTML = r.ok
+    ? `${GLYPH.ok} ${esc(r.data.detail || 'done')}`
+    : `<span class="bad">${GLYPH.fail} ${esc(r.data.detail || r.data.error || 'failed')}</span>`;
+  setTimeout(loadIntraday, 1200);
+}
+
+async function intradayPrepare() {
+  const msg = document.getElementById('intradayMsg');
+  if (msg) msg.textContent = 'Choosing today\'s working set. This walks a 150-name '
+    + 'shortlist over IB and takes a few minutes — the daily pre-filter costs nothing, '
+    + 'the intraday measurement is what takes the time.';
+  const r = await post('/api/intraday/prepare', {});
+  if (msg) msg.innerHTML = r.ok
+    ? `${GLYPH.ok} ${esc(r.data.summary || 'done')}`
+    : `<span class="bad">${GLYPH.fail} ${esc(r.data.error || 'failed')}</span>`;
+  setTimeout(loadIntraday, 800);
+}
+
+function confirmIntradayClose(tickers) {
+  const all = !tickers;
+  const names = all ? 'every open intraday position' : tickers.join(', ');
+  $("#modalRoot").innerHTML = `
+    <div class="scrim"></div>
+    <div class="modal-wrap" role="dialog" aria-modal="true" aria-labelledby="icTitle">
+      <div class="modal"><div class="topbar"></div><div class="inner">
+        <h2 id="icTitle" class="h" style="font-size:22px">Close ${esc(names)}?</h2>
+        <p class="prov" style="margin-top:8px">Closes at the best price available and
+          charges slippage and commission exactly as an automatic exit pays them. Filed
+          under <b>manual</b>, so the journal can tell your decisions from the rules'.</p>
+        <p class="prov" style="margin-top:8px">These would have closed before the bell
+          anyway. This is only for getting out sooner.</p>
+        <div style="display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center;margin-top:var(--s4)">
+          ${all ? `<input id="icInput" placeholder="type FLAT" size="10" autocomplete="off">` : ''}
+          <button class="btn btn-primary" id="icGo">${all ? 'Go flat' : 'Close it'}</button>
+          <button class="btn" id="icCancel">Cancel</button>
+        </div>
+        <div class="prov" style="margin-top:10px" id="icMsg"></div>
+      </div></div></div>`;
+  $("#icCancel").addEventListener("click", closeModal);
+  $(".scrim").addEventListener("click", closeModal);
+  $("#icInput")?.focus();
+  $("#icGo").addEventListener("click", async () => {
+    const msg = $("#icMsg");
+    if (all && ($("#icInput").value || '').trim().toUpperCase() !== 'FLAT') {
+      msg.innerHTML = `<span class="bad">${GLYPH.fail} Type FLAT to confirm.</span>`;
+      return;
+    }
+    $("#icGo").disabled = true;
+    msg.textContent = 'Closing…';
+    const r = await post('/api/intraday/close', all ? { all: true } : { tickers });
+    if (!r.ok) {
+      $("#icGo").disabled = false;
+      msg.innerHTML = `<span class="bad">${GLYPH.fail} ${esc(r.data.error || 'failed')}</span>`;
+      return;
+    }
+    closeModal();
+    lastCloseResult = r.data;
+    loadIntraday();
+  });
+}
 
 /* ---------- closing a position by hand ----------
    The book's own exits are three numbers: the stop, the target, and the

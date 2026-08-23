@@ -96,9 +96,38 @@ def _load_history_cache(symbols, period, max_age_hours):
     age_h = (time.time() - payload.get("fetched_at", 0)) / 3600
     if age_h > float(max_age_hours):
         return None
-    return {"frames": payload.get("frames") or {},
+    return {"frames": _in_current_units(payload),
             "price_source": payload.get("price_source"),
             "age_hours": round(age_h, 2)}
+
+
+# Bumped when the units of a cached frame change. A cache written before a
+# boundary correction holds numbers the rest of the project no longer means the
+# same thing by, and silently reading it is how a fixed bug comes back.
+#
+#   1 — IB volume left in ROUND LOTS and LSE prices left in pence.
+#   2 — both corrected at the provider by `normalise_bars`.
+HISTORY_CACHE_UNITS = 2
+
+
+def _in_current_units(payload):
+    """Bring a cached fetch up to the units the code now assumes.
+
+    Corrected on READ rather than by throwing the cache away, because throwing
+    it away costs a 38-minute refetch to recover numbers that are recoverable
+    arithmetically — and corrected exactly once, because a cache stamped with
+    the current version is left alone. Double-normalising would move London a
+    hundredfold in the other direction, which is the same bug wearing a
+    different sign.
+    """
+    frames = payload.get("frames") or {}
+    if int(payload.get("units") or 1) >= HISTORY_CACHE_UNITS:
+        return frames
+    from ..providers.ibkr_provider import IBKRDataProvider
+    if (payload.get("price_source") or "").lower() != "ibkr":
+        return frames        # yfinance already delivers shares and pounds
+    return {ticker: IBKRDataProvider.normalise_bars(ticker, frame)
+            for ticker, frame in frames.items()}
 
 
 def _save_history_cache(symbols, period, frames, price_source):
@@ -110,6 +139,7 @@ def _save_history_cache(symbols, period, frames, price_source):
         with open(tmp, "wb") as handle:
             pickle.dump({"key": _history_cache_key(symbols, period),
                          "fetched_at": time.time(), "frames": frames,
+                         "units": HISTORY_CACHE_UNITS,
                          "price_source": price_source}, handle,
                         protocol=pickle.HIGHEST_PROTOCOL)
         os.replace(tmp, HISTORY_CACHE_PATH)

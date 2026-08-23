@@ -291,7 +291,7 @@ class IBKRDataProvider(DataProvider):
                 "Open": b.open, "High": b.high, "Low": b.low,
                 "Close": b.close, "Volume": b.volume} for b in bars],
                 index=pd.to_datetime([b.date for b in bars]))
-            return self.to_major_units(ticker, frame.dropna(subset=["Close"]))
+            return self.normalise_bars(ticker, frame.dropna(subset=["Close"]))
         finally:
             ib.disconnect()
 
@@ -337,7 +337,7 @@ class IBKRDataProvider(DataProvider):
                 "Open": b.open, "High": b.high, "Low": b.low,
                 "Close": b.close, "Volume": b.volume} for b in bars],
                 index=pd.to_datetime([b.date for b in bars]))
-            return self.to_major_units(ticker, frame.dropna(subset=["Close"]))
+            return self.normalise_bars(ticker, frame.dropna(subset=["Close"]))
         finally:
             ib.disconnect()
 
@@ -519,6 +519,43 @@ class IBKRDataProvider(DataProvider):
         for column in ("Open", "High", "Low", "Close", "Adj Close"):
             if column in frame.columns:
                 frame[column] = frame[column] / divisor
+        return frame
+
+    # IB reports SHARE volume in ROUND LOTS on historical bars: AAPL comes back
+    # as ~790,000 on a day it traded 79 million shares. Futures and FX are
+    # reported in contracts and must not be touched.
+    #
+    # This is the same class of trap as the pence prices above, and it hides in
+    # the same way. Every RELATIVE use of volume survives it — a volume ratio
+    # against its own average, a VWAP weighting — because a constant factor
+    # cancels. Only an ABSOLUTE use notices, and then it is out by exactly 100:
+    # a $20m dollar-volume floor silently becomes $2bn, and 1,409 of a 1,524
+    # instrument universe fail a liquidity test they comfortably pass. Found
+    # exactly that way.
+    VOLUME_LOT_SIZE = 100
+
+    @classmethod
+    def volume_multiplier(cls, ticker):
+        """Shares per reported unit: 100 for stocks, 1 for futures and FX."""
+        symbol = str(ticker or "").upper()
+        if symbol.endswith("=F") or symbol.endswith("=X"):
+            return 1
+        return cls.VOLUME_LOT_SIZE
+
+    @classmethod
+    def normalise_bars(cls, ticker, frame):
+        """One frame in the units the rest of the project assumes.
+
+        Prices in major units, volume in shares. Both corrections belong at the
+        data boundary and belong together — an OHLCV frame that is right about
+        four columns and wrong about the fifth is worse than one that is
+        obviously broken, because it is trusted.
+        """
+        frame = cls.to_major_units(ticker, frame)
+        multiplier = cls.volume_multiplier(ticker)
+        if multiplier != 1 and "Volume" in frame.columns:
+            frame = frame.copy()
+            frame["Volume"] = frame["Volume"] * multiplier
         return frame
 
     @classmethod
