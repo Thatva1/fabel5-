@@ -203,3 +203,40 @@ def test_profit_factor_and_averages_are_reported():
     assert totals["closed"] == 2
     assert totals["wins"] == 1 and totals["losses"] == 1
     assert totals["profit_factor"] == round(4500 / 1200, 2)
+
+
+# --- a P&L that is arithmetic rather than money ------------------------------
+
+def test_the_journal_separates_provisional_pnl_from_realised():
+    """The live book's headline realised figure is -208,451 — and -206,947 of
+    it came from 92 positions closed on a Sunday against Wednesday's marks. A
+    realised total quoted without that split is the one number in the journal
+    most likely to be believed and least likely to have happened."""
+    book = started_book()
+    add_trade(book, exit_price=90.0, reason="stop")
+    add_trade(book, exit_price=110.0, reason="manual")
+    book.closed[-1]["provisional_pnl"] = True
+    book.closed[-1]["exit_note"] = "closed with no market open"
+
+    out = tradelog.report(book)
+    assert out["totals"]["closed"] == 2
+    assert out["totals"]["provisional_trades"] == 1
+    assert out["totals"]["provisional_pnl"] == pytest.approx(book.closed[-1]["pnl"])
+
+
+def test_every_entry_carries_the_flag_not_just_the_total():
+    """A reader scrolling to one instrument never sees the banner."""
+    book = started_book()
+    add_trade(book, exit_price=110.0, reason="manual")
+    book.closed[-1]["provisional_pnl"] = True
+
+    entry = tradelog.report(book)["entries"][0]
+    assert entry["provisional_pnl"] is True
+
+
+def test_an_ordinary_trade_is_not_flagged():
+    book = started_book()
+    add_trade(book, exit_price=90.0, reason="stop")
+    out = tradelog.report(book)
+    assert out["totals"]["provisional_trades"] == 0
+    assert out["entries"][0]["provisional_pnl"] is False

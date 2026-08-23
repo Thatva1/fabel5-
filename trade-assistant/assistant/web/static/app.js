@@ -881,7 +881,7 @@ async function loadJournal() {
     J = await (await fetch(`/api/paper/journal?book=${encodeURIComponent(journalBook)}`)).json();
   } catch (e) { /* the ideas half still renders */ }
 
-  root.innerHTML = marketClosedNotice() + journalSwitch(J)
+  root.innerHTML = marketClosedNotice() + journalSwitch(J) + provisionalNotice(J)
     + (J && J.started ? dailyCard(J) + breakdownCard(J) + journalCard(J)
                       : journalEmpty(J))
     + `<div class="card" style="margin-top:var(--s5)">
@@ -899,6 +899,20 @@ async function loadJournal() {
       loadJournal();
     }));
   if (scrollY) window.scrollTo(0, scrollY);
+}
+
+function provisionalNotice(J) {
+  const t = (J && J.totals) || {};
+  if (!t.provisional_trades) return "";
+  const share = t.realised_pnl ? Math.abs(t.provisional_pnl / t.realised_pnl) * 100 : 0;
+  return `<div class="callout warn">
+    ${GLYPH.advisory} <b>${t.provisional_trades} of these ${t.closed} trades have a
+    provisional P&amp;L</b>, totalling ${money(t.provisional_pnl, t.base_currency)}
+    ${share > 50 ? `— ${share.toFixed(0)}% of the realised figure below` : ""}.
+    <div class="muted" style="margin-top:6px">They were closed by hand with no market
+      open, so they filled at an earlier session's mark: the only price available. That
+      P&amp;L is what the arithmetic assumes, not money anyone was paid. Real fills would
+      have been the next open.</div></div>`;
 }
 
 function journalSwitch(J) {
@@ -1584,6 +1598,10 @@ function breakdownCard(J) {
 
 function journalCard(J) {
   const entries = J.entries || [];
+  // Marked per trade as well as in the banner: a reader scrolling to one
+  // instrument never sees the banner.
+  const provisionalTag = e => e.provisional_pnl
+    ? ` <span class="pill warn" title="${esc(e.exit_note || "")}">provisional</span>` : "";
   if (!entries.length) {
     return `<div class="card">
       <div class="label">Trade journal</div>
@@ -1608,7 +1626,7 @@ function journalCard(J) {
         </div>
         <div class="prov" style="margin:4px 0 10px">
           ${esc(e.entry_date || "")} → ${esc(e.exit_date || "")} ·
-          ${esc(e.outcome_title)} · priced by ${esc(e.price_source || "—")}</div>
+          ${esc(e.outcome_title)} · priced by ${esc(e.price_source || "—")}${provisionalTag(e)}</div>
         <div style="display:flex;gap:22px;flex-wrap:wrap">
           <div style="flex:1;min-width:250px">
             <div class="label" style="margin-bottom:4px">Why it was opened</div>

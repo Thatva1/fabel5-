@@ -154,6 +154,13 @@ def entry(trade):
         "measurements": _measurement_lines(trade.get("meta")),
         "why_this_outcome": outcome_lines,
         "price_source": trade.get("price_source"),
+        # A P&L settled against a mark from an earlier session, because no
+        # market was open to fill against. Carried into every reading of the
+        # journal rather than living only in the response that created it —
+        # months later, "was this money or arithmetic" is not a question anyone
+        # can answer from memory.
+        "provisional_pnl": bool(trade.get("provisional_pnl")),
+        "exit_note": trade.get("exit_note"),
     }
 
 
@@ -257,6 +264,7 @@ def report(book):
     wins = [t for t in closed if (t.get("pnl") or 0) > 0]
     losses = [t for t in closed if (t.get("pnl") or 0) < 0]
 
+    provisional = [t for t in closed if t.get("provisional_pnl")]
     return {
         "entries": entries,
         "breakdown": by,
@@ -264,6 +272,12 @@ def report(book):
         "totals": {
             "closed": len(closed),
             "realised_pnl": round(realised, 2),
+            # How much of that headline is an assumption. A realised figure
+            # quoted without this is the one number in the journal most likely
+            # to be believed and least likely to have happened.
+            "provisional_trades": len(provisional),
+            "provisional_pnl": round(
+                sum((t.get("pnl") or 0.0) for t in provisional), 2),
             "wins": len(wins),
             "losses": len(losses),
             "win_rate_pct": round(len(wins) / len(closed) * 100, 1) if closed else None,
