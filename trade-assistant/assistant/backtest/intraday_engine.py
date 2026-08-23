@@ -140,6 +140,10 @@ def run_session(ticker, frame, *, prev_close=None, config=None, venue=None):
     flat_at = int(cfg["flat_by_minutes_before_close"])
 
     trades, position, pending = [], None, None
+    # One pass over the session builds the cumulative sums every bar's context
+    # would otherwise rebuild from scratch. Prefix sums only, so a context
+    # holding the first i bars still cannot see past them.
+    precomputed = intraday_lib.precompute(frame)
 
     for i in range(len(frame)):
         bar = frame.iloc[i]
@@ -193,7 +197,7 @@ def run_session(ticker, frame, *, prev_close=None, config=None, venue=None):
             ctx = intraday_lib.IntradayContext(
                 ticker=ticker, bars=frame.iloc[:i + 1], prev_close=prev_close,
                 bar_minutes=bar_minutes, minutes_to_close=remaining,
-                config=config)
+                config=config, precomputed=precomputed)
             ideas = intraday_lib.detect_all(ctx, config)
             if ideas:
                 # The signal is computed from this bar's CLOSE, which is only

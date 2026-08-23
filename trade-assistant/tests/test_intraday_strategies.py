@@ -255,3 +255,54 @@ def test_detect_all_returns_every_rule_that_fired():
         assert idea.regime == "INTRADAY"
         assert idea.meta["horizon"] == "intraday"
         assert idea.risk_per_share > 0
+
+
+# --- the fast path must give the same answers as the slow one ----------------
+#
+# `precompute` shares cumulative sums across a whole session's contexts, which
+# turned an O(n^2) rebuild into a prefix-sum lookup. An optimisation that
+# changes an answer is not an optimisation, and one that lets a context see
+# past its own slice would destroy the causality guarantee everything rests on.
+
+def test_precomputed_vwap_matches_the_direct_computation():
+    closes = [100 + (i % 7) * 0.3 for i in range(60)]
+    whole = session(closes)
+    pre = intraday.precompute(whole)
+    for i in (10, 25, 44, 59):
+        slow = ctx(whole.iloc[:i + 1]).session_vwap()
+        fast = ctx(whole.iloc[:i + 1], precomputed=pre).session_vwap()
+        assert fast == pytest.approx(slow, rel=1e-12), i
+
+
+def test_precomputed_atr_matches_the_direct_computation():
+    closes = [100 + (i % 5) * 0.4 for i in range(60)]
+    whole = session(closes)
+    pre = intraday.precompute(whole)
+    for i in (10, 25, 44, 59):
+        for minutes in (15, 30, 60):
+            slow = ctx(whole.iloc[:i + 1]).session_atr(minutes)
+            fast = ctx(whole.iloc[:i + 1], precomputed=pre).session_atr(minutes)
+            assert fast == pytest.approx(slow, rel=1e-12), (i, minutes)
+
+
+def test_the_precomputed_path_still_cannot_see_the_future():
+    """The arrays span the WHOLE session, so this is the test that matters: a
+    context holding the first i bars must read a prefix and never an index
+    beyond it."""
+    calm = [100.0] * 30
+    explosion = [100.0] * 30 + [500.0] * 30
+    pre_calm = intraday.precompute(session(calm))
+    pre_explosion = intraday.precompute(session(explosion))
+
+    early = ctx(session(explosion).iloc[:30], precomputed=pre_explosion)
+    isolated = ctx(session(calm), precomputed=pre_calm)
+    assert early.session_vwap() == pytest.approx(isolated.session_vwap())
+    assert early.session_atr(30) == pytest.approx(isolated.session_atr(30))
+
+
+def test_a_context_without_precomputed_arrays_still_works():
+    """The live book holds one snapshot and never walks a session, so it must
+    need to know nothing about any of this."""
+    frame = session([100.0] * 20)
+    assert ctx(frame).session_vwap() == pytest.approx(100.0)
+    assert ctx(frame).session_atr(30) is not None

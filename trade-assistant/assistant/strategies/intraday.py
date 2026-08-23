@@ -66,6 +66,18 @@ class IntradayContext:
     minutes_to_close: Optional[float] = None
     params: dict = field(default_factory=dict)
     config: dict = field(default_factory=dict)
+    # Cumulative session arrays, computed ONCE for the whole session by a
+    # caller that walks it bar by bar, and sliced here.
+    #
+    # Not an optimisation detail — an algorithmic one. `session_vwap` rebuilt
+    # the entire cumulative average from the first bar on EVERY bar, which
+    # makes one session O(n^2) in its own length and dominated the profile at
+    # 1.6 of 5.8 seconds. A backtest is not slow here because it is written in
+    # Python; it is slow because it does the same sum seventy-eight times.
+    #
+    # Optional, so a caller holding a single snapshot (the live book, the
+    # dashboard) needs to know nothing about this and gets the same answers.
+    precomputed: Optional[dict] = None
 
     @property
     def price(self):
@@ -88,6 +100,14 @@ class IntradayContext:
 
     def session_vwap(self):
         """Volume-weighted average price for the session so far."""
+        pre = self.precomputed
+        if pre is not None:
+            index = len(self.bars) - 1
+            total = pre["cum_volume"][index]
+            if not total:
+                return None
+            return float(pre["cum_pv"][index] / total)
+
         bars = self.bars
         typical = (bars["High"] + bars["Low"] + bars["Close"]) / 3
         volume = bars["Volume"].replace(0, 1)
@@ -104,12 +124,48 @@ class IntradayContext:
         expects to be resolved within the hour, and a stop that is never
         reached is not a stop.
         """
-        window = self.bars.tail(self.bars_for(minutes))
+        span = self.bars_for(minutes)
+        pre = self.precomputed
+        if pre is not None:
+            end = len(self.bars)
+            start = max(0, end - span)
+            if end - start < 2:
+                return None
+            total = pre["cum_range"][end - 1]
+            if start:
+                total -= pre["cum_range"][start - 1]
+            value = float(total / (end - start))
+            return value if value > 0 and math.isfinite(value) else None
+
+        window = self.bars.tail(span)
         if len(window) < 2:
             return None
         ranges = (window["High"] - window["Low"]).astype(float)
         value = float(ranges.mean())
         return value if value > 0 and math.isfinite(value) else None
+
+
+def precompute(frame):
+    """Cumulative sums a whole session's worth of contexts can share.
+
+    Built once by a caller that walks a session bar by bar. Every value is a
+    PREFIX sum, so a context holding the first `i` bars reads index `i-1` and
+    can never see past its own slice — the causality guarantee survives the
+    optimisation, which is the only reason it is allowed.
+    """
+    import numpy as np
+
+    high = frame["High"].to_numpy(dtype=float)
+    low = frame["Low"].to_numpy(dtype=float)
+    close = frame["Close"].to_numpy(dtype=float)
+    volume = frame["Volume"].to_numpy(dtype=float)
+    volume = np.where(volume == 0, 1.0, volume)
+    typical = (high + low + close) / 3.0
+    return {
+        "cum_pv": np.cumsum(typical * volume),
+        "cum_volume": np.cumsum(volume),
+        "cum_range": np.cumsum(high - low),
+    }
 
 
 class IntradayStrategy(Strategy):
