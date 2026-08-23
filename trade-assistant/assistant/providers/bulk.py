@@ -309,15 +309,6 @@ def ohlcv_history_ibkr(symbols, period="2y", config=None, progress_cb=None):
                         # ranking a hundred times too large and every liquidity
                         # figure a hundred times too small.
                         out[symbol] = IBKRDataProvider.normalise_bars(symbol, frame)
-                        if slot:
-                            try:
-                                tmp = slot + ".tmp"
-                                with open(tmp, "wb") as handle:
-                                    pickle.dump(out[symbol], handle,
-                                                protocol=pickle.HIGHEST_PROTOCOL)
-                                os.replace(tmp, slot)
-                            except OSError:
-                                pass    # a cache that cannot be written is not fatal
                     else:
                         missing.append(symbol)
                 else:
@@ -470,6 +461,15 @@ def intraday_history_ibkr(symbols, bar_size="5 mins", duration=None, config=None
                         # London arrives in pence under a "GBP" label on this
                         # path exactly as it does on the daily one.
                         out[symbol] = IBKRDataProvider.normalise_bars(symbol, frame)
+                        if slot:
+                            try:
+                                tmp = slot + ".tmp"
+                                with open(tmp, "wb") as handle:
+                                    pickle.dump(out[symbol], handle,
+                                                protocol=pickle.HIGHEST_PROTOCOL)
+                                os.replace(tmp, slot)
+                            except OSError:
+                                pass    # a cache that cannot be written is not fatal
                     else:
                         missing.append(symbol)
                 else:

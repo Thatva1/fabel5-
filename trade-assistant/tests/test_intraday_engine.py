@@ -468,3 +468,142 @@ def test_the_cache_slot_survives_an_awkward_ticker(tmp_path):
         slot = bulk._cache_slot(str(tmp_path), ticker, "5 mins", "1 M")
         assert "/" not in slot[len(str(tmp_path)) + 1:]
         assert slot.endswith(".pkl")
+
+
+# --- a name used in the wrong function -------------------------------------
+#
+# The resumable-cache block was written into `ohlcv_history_ibkr` instead of
+# `intraday_history_ibkr`, because a str.replace on a line that appears in BOTH
+# functions takes the first one. `slot` is undefined there, so every successful
+# symbol of the next daily universe rebalance would have raised NameError —
+# and no test caught it, because nothing exercises that path without a live IB
+# connection. Python does not fail at import for this; it waits for the branch.
+
+def _bound_names(node):
+    """Every name an assignment target binds, including nested unpacking."""
+    import ast
+
+    if isinstance(node, ast.Name):
+        return {node.id}
+    if isinstance(node, (ast.Tuple, ast.List)):
+        out = set()
+        for element in node.elts:
+            out |= _bound_names(element)
+        return out
+    if isinstance(node, ast.Starred):
+        return _bound_names(node.value)
+    return set()        # attribute and subscript targets bind nothing new
+
+
+def _undefined_names(module):
+    """Names a function reads without anything having bound them.
+
+    A small linter, and only because there is no ruff on this machine to do it
+    properly. It errs toward silence: anything it cannot classify counts as
+    bound, so a clean result is weaker evidence than a dirty one is.
+    """
+    import ast
+    import builtins
+    import inspect
+
+    tree = ast.parse(inspect.getsource(module))
+
+    # TOP-LEVEL statements only. Walking the whole tree here was the first
+    # version's bug and it made the check vacuous: a local `slot = ...` inside
+    # one function was collected as module scope, so its sibling reading `slot`
+    # looked perfectly defined. A checker that passes on the bug it was written
+    # for is worse than no checker.
+    module_scope = set(dir(builtins))
+
+    def collect(body):
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                module_scope.add(node.name)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                module_scope.update((a.asname or a.name).split(".")[0]
+                                    for a in node.names)
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    module_scope.update(_bound_names(target))
+            elif isinstance(node, (ast.If, ast.Try)):
+                # try/except ImportError around an import is how half this
+                # project selects a dependency.
+                collect(node.body)
+                collect(getattr(node, "orelse", []) or [])
+                for handler in getattr(node, "handlers", []) or []:
+                    collect(handler.body)
+
+    collect(tree.body)
+
+    problems = []
+    for fn in [n for n in tree.body if isinstance(n, ast.FunctionDef)]:
+        bound = {a.arg for a in fn.args.args} | {a.arg for a in fn.args.kwonlyargs}
+        if fn.args.vararg:
+            bound.add(fn.args.vararg.arg)
+        if fn.args.kwarg:
+            bound.add(fn.args.kwarg.arg)
+
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    bound |= _bound_names(target)
+            elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+                bound |= _bound_names(node.target)
+            elif isinstance(node, ast.NamedExpr):
+                bound |= _bound_names(node.target)
+            elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+                bound |= _bound_names(node.target)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                bound |= {(a.asname or a.name).split(".")[0] for a in node.names}
+            elif isinstance(node, ast.withitem) and node.optional_vars is not None:
+                bound |= _bound_names(node.optional_vars)
+            elif isinstance(node, ast.ExceptHandler) and node.name:
+                bound.add(node.name)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node is not fn:
+                bound.add(node.name)
+                bound |= {a.arg for a in node.args.args}
+            elif isinstance(node, ast.Lambda):
+                bound |= {a.arg for a in node.args.args}
+
+        used = {n.id for n in ast.walk(fn)
+                if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+        unknown = used - bound - module_scope
+        if unknown:
+            problems.append(f"{fn.name}: {sorted(unknown)}")
+    return problems
+
+
+def test_no_bulk_fetcher_reads_a_name_it_never_defines():
+    """Static check for the class of bug a str.replace across near-identical
+    functions produces. Cheap, and it generalises past the one instance."""
+    from assistant.providers import bulk
+
+    assert not _undefined_names(bulk), \
+        "undefined names: " + "; ".join(_undefined_names(bulk))
+
+
+def test_the_checker_actually_catches_the_bug_it_was_written_for():
+    """A checker that passes on everything is not evidence. This reproduces the
+    exact shape of the mistake: a name defined in one function, used in its
+    near-identical sibling."""
+    import types
+
+    module = types.ModuleType("sample")
+    module.__dict__["__source__"] = None
+    source = (
+        "def defines_it(x):\n"
+        "    slot = x + 1\n"
+        "    return slot\n"
+        "\n"
+        "def uses_it_anyway(x):\n"
+        "    return slot\n"
+    )
+    import inspect
+    original = inspect.getsource
+    inspect.getsource = lambda _m: source
+    try:
+        problems = _undefined_names(module)
+    finally:
+        inspect.getsource = original
+    assert any("uses_it_anyway" in p and "slot" in p for p in problems), problems
+    assert not any("defines_it" in p for p in problems)
