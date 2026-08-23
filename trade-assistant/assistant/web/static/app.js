@@ -1063,7 +1063,7 @@ function legalDialog() {
 }
 
 /* ---------- render + events ---------- */
-const TITLES = { today: "Today", watchlist: "Watchlist", ideas: "Ideas", journal: "Journal", detail: "Idea" , paper: "Book", intraday: "Intraday" };
+const TITLES = { today: "Today", watchlist: "Watchlist", ideas: "Ideas", journal: "Journal", detail: "Idea" , paper: "Book", intraday: "Intraday", options: "Options" };
 
 function go(v) {
   view = v;
@@ -1091,6 +1091,13 @@ function render() {
     // Rendered from its own endpoint: the book is live state, not part of the
     // scan snapshot the rest of these views read from.
     loadPaper();
+    return;
+  }
+  if (view === "options") {
+    // On demand only. A chain is dozens of market-data lines, and a page that
+    // pulled one every fifteen seconds would spend an account's whole quote
+    // budget on a tab nobody was looking at.
+    renderOptions();
     return;
   }
   if (view === "intraday") {
@@ -2086,6 +2093,159 @@ async function runPaper(rebalance) {
   await loadPaper();
 }
 
+
+/* ---------- the option chain ----------
+   The point of this view is the ± column. An option quoted 1.05 / 1.45 does
+   not have an implied volatility, it has a RANGE — and on a wing strike that
+   range is several volatility points wide. Every chain display that shows a
+   mid IV alone turns a shrug into a number, and it is that number which makes
+   a skew curve look like information. So the width the quote leaves is shown
+   beside every vol, and a skew narrower than the spreads it was read off is
+   labelled as what it is. */
+
+let optionTicker = "";
+let optionExpiry = "";
+
+function viewOptionsShell(body) {
+  return `<div class="card">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <label class="sr-only" for="optTicker">Underlying</label>
+      <input id="optTicker" placeholder="SPY" size="10" value="${esc(optionTicker)}">
+      <button class="btn btn-primary" id="optGo">Load chain</button>
+      <span class="prov" id="optMsg"></span>
+    </div>
+    <p class="prov" style="margin-top:10px">Fetched on demand — a chain is dozens
+      of market-data lines, so nothing here refreshes on a timer.</p>
+  </div>${body || ""}`;
+}
+
+function renderOptions(body) {
+  $("#viewRoot").innerHTML = viewOptionsShell(body);
+  $("#optGo").addEventListener("click", () => loadOptions($("#optTicker").value));
+  $("#optTicker").addEventListener("keydown", e => {
+    if (e.key === "Enter") loadOptions($("#optTicker").value);
+  });
+  if (optionTicker && !body) loadOptions(optionTicker, optionExpiry);
+}
+
+async function loadOptions(ticker, expiry) {
+  ticker = (ticker || "").trim().toUpperCase();
+  if (!ticker) return;
+  optionTicker = ticker;
+  optionExpiry = expiry || "";
+  const msg = $("#optMsg");
+  if (msg) msg.textContent = `Loading ${ticker}… this walks the broker and takes a moment.`;
+
+  let d;
+  try {
+    const query = expiry ? `?expiry=${encodeURIComponent(expiry)}` : "";
+    d = await (await fetch(`/api/options/${encodeURIComponent(ticker)}${query}`)).json();
+  } catch (e) {
+    renderOptions(`<div class="card"><b class="bad">Could not load ${esc(ticker)}.</b></div>`);
+    return;
+  }
+  optionExpiry = d.expiry || "";
+  renderOptions(optionChainCard(d));
+}
+
+function optionChainCard(d) {
+  if (d.error && !d.rows) {
+    return `<div class="card"><b class="bad">${GLYPH.fail} ${esc(d.ticker || "")}</b>
+      <p class="meta" style="margin-top:6px">${esc(d.error)}</p></div>`;
+  }
+
+  const picker = (d.expiries || []).map(e =>
+    `<button class="btn btn-sm${e === d.expiry ? " btn-primary" : ""}"
+       onclick="loadOptions('${esc(d.ticker)}','${esc(e)}')">${esc(e)}</button>`).join(" ");
+
+  const head = `<div class="card">
+    <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div>
+        <div class="label">${esc(d.ticker)} at ${n(d.spot, 2)}</div>
+        <div class="meta">${esc(d.expiry)} · ${d.days} days
+          ${d.trading_class ? `· class ${esc(d.trading_class)}` : ""}
+          ${d.chains_offered ? `(chosen from ${d.chains_offered} listings)` : ""}</div>
+      </div>
+      <div class="prov" style="text-align:right">
+        rate ${n(d.rate * 100, 2)}%<div class="meta">${esc(d.rate_source || "")}</div></div>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">${picker}</div>
+    ${d.straddles_spot === false ? `<div class="callout warn" style="margin-top:12px">
+      ${GLYPH.advisory} The strikes on offer do not straddle the spot. That is a
+      chain for a different contract, not a market view.</div>` : ""}
+  </div>`;
+
+  const s = d.surface || {};
+  if (!s.quoted_strikes) {
+    return head + `<div class="card">
+      <b>No prices reached this stack.</b>
+      <p class="meta" style="margin-top:6px">${esc(d.quote_note || s.note || "")}</p>
+      <p class="prov" style="margin-top:8px">The chain's SHAPE is real — those
+        strikes and expiries exist. There is simply no quote to imply a
+        volatility from, which is not the same as a volatility of zero.</p></div>`;
+  }
+
+  const surface = `<div class="card">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:18px 26px">
+      <div><div class="label">ATM implied vol</div><b style="font-size:1.3rem">${n(s.atm_iv * 100, 1)}%</b></div>
+      <div><div class="label">Skew</div><b>${s.skew_25pct == null ? "—" : (s.skew_25pct > 0 ? "+" : "") + n(s.skew_25pct * 100, 1) + " pts"}</b>
+        <div class="prov">downside put minus upside call</div></div>
+      <div><div class="label">Typical quote width</div><b>${s.median_iv_width == null ? "—" : n(s.median_iv_width * 100, 1) + " pts"}</b>
+        <div class="prov">what the quote does NOT say</div></div>
+      <div><div class="label">Forward</div><b>${n(d.forward, 2)}</b>
+        <div class="prov">carry ${n(d.carry * 100, 2)}%</div></div>
+      <div><div class="label">Strikes quoted</div><b>${s.quoted_strikes}</b></div>
+    </div>
+    <div class="prov" style="margin-top:12px">${esc(d.carry_source || "")}</div>
+    ${s.skew_25pct != null && !s.skew_exceeds_spread ? `<div class="callout warn" style="margin-top:12px">
+      ${GLYPH.advisory} That skew is smaller than the spreads it was read off.
+      It is not a shape, it is two quotes.</div>` : ""}
+  </div>`;
+
+  const cell = (v, digits, scale) => v == null ? "—" : n(v * (scale || 1), digits);
+  const rows = (d.rows || []).map(r => {
+    const atm = d.forward && Math.abs(r.strike - d.forward) ===
+      Math.min(...d.rows.map(x => Math.abs(x.strike - d.forward)));
+    return `<tr style="border-bottom:1px solid rgba(128,128,128,.18)${atm ? ";font-weight:600" : ""}">
+      <td class="num" style="text-align:right">${n(r.strike, 2)}</td>
+      <td class="num" style="text-align:right">${cell(r.call_mid, 2)}</td>
+      <td class="num" style="text-align:right">${cell(r.call_iv_mid, 1, 100)}</td>
+      <td class="num" style="text-align:right"${r.call_wide ? ' class="warn"' : ""}>±${cell(r.call_iv_width, 1, 100)}</td>
+      <td class="num" style="text-align:right">${cell(r.call_delta, 2)}</td>
+      <td class="num" style="text-align:right;border-left:1px solid rgba(128,128,128,.25)">${cell(r.put_mid, 2)}</td>
+      <td class="num" style="text-align:right">${cell(r.put_iv_mid, 1, 100)}</td>
+      <td class="num" style="text-align:right">±${cell(r.put_iv_width, 1, 100)}</td>
+      <td class="num" style="text-align:right">${cell(r.put_delta, 2)}</td>
+    </tr>`;
+  }).join("");
+
+  const parity = (d.parity_violations || []).length ? `<div class="card">
+    <div class="label">Put-call parity broken at ${d.parity_violations.length} strike(s)</div>
+    <p class="prov">Parity is an arbitrage identity, not a model — it holds whatever
+      volatility does. A strike that breaks it has a stale quote on one side, and
+      every implied vol taken from that side is wrong in a way no volatility
+      check would catch.</p>
+    <div class="meta">${d.parity_violations.slice(0, 8).map(v =>
+      `${n(v.strike, 2)} off by ${v.gap > 0 ? "+" : ""}${n(v.gap, 2)}`).join(" · ")}</div>
+  </div>` : "";
+
+  return head + surface + `<div class="card">
+    <div class="label">Chain</div>
+    <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="opacity:.6"><th></th><th colspan="4" style="text-align:center">calls</th>
+          <th colspan="4" style="text-align:center;border-left:1px solid rgba(128,128,128,.25)">puts</th></tr>
+        <tr style="opacity:.6;text-align:right">
+          <th>strike</th><th>mid</th><th>iv %</th><th>±</th><th>delta</th>
+          <th style="border-left:1px solid rgba(128,128,128,.25)">mid</th><th>iv %</th><th>±</th><th>delta</th></tr>
+      </thead><tbody>${rows}</tbody></table>
+    <p class="prov" style="margin-top:12px">'iv' is implied from the MID. '±' is how
+      many volatility points lie between the bid's implied vol and the ask's — a wide
+      ± means the quote does not pin the volatility down, whatever the mid says.
+      A blank vol is a strike whose price cannot identify one (deep in the money,
+      where vega is zero and any volatility reprices it).</p>
+  </div>` + parity;
+}
 
 /* ---------- the intraday book ----------
    A second book, on a different clock. The daily book answers "what am I

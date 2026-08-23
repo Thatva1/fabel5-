@@ -575,6 +575,20 @@ def _rank_candidates(ideas, config):
     it means the strategy mix in the book is not a considered judgement about
     which signal is better today.
     """
+    # The composite ranking replaces both stages with one measured score. Off
+    # by default: it will choose a different book from the priority list, and
+    # that is a decision to take deliberately rather than to discover.
+    if ((config or {}).get("composite") or {}).get("enabled"):
+        from ..strategies import composite
+
+        edges, age_days = composite.load_edges()
+        ordered, detail = composite.rank(ideas, edges=edges, config=config)
+        if ordered:
+            return _interleave_segments(ordered)
+        # No measured edges means nothing to rank on. Falling through to the
+        # priority list is the honest failure: a book that stops trading
+        # because a report file is missing is worse than one ordered by hand.
+
     priority = {name: rank for rank, name in enumerate(
         backtest_engine.settings(config)["strategy_priority"])}
 

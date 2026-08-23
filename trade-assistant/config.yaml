@@ -261,6 +261,47 @@ strategies:
     stop_atr: 2.5
     reward_multiple: 2.5
 
+# --- Combining the strategies into one algorithm -----------------------------
+# What decides which instruments the book holds, when twelve strategies are all
+# producing candidates for a handful of slots.
+#
+# OFF BY DEFAULT, and the reason is that turning it on chooses a different book.
+# That is a decision to take deliberately, with a backtest behind it, rather
+# than to discover one morning.
+#
+# WHAT IT REPLACES. Today the choice is made twice: a hand-ordered
+# `strategy_priority` list decides which strategy claims an instrument, and
+# reward:risk orders the instruments against each other. The second is nearly
+# useless — every strategy targets a fixed multiple of its own stop, so
+# reward:risk is 3.0, 3.0 and 2.5 by construction and the real ordering is
+# whatever order the liquidity screen returned. And the whole design throws
+# away its best information: when four strategies independently flag the same
+# instrument, one is picked and the agreement is discarded.
+#
+# WHAT IT DOES INSTEAD. Grinold-Kahn: score = |w·d| / sqrt(wᵀCw), where w is
+# each strategy's MEASURED out-of-sample mean return (reports/KELLY-EDGES.json)
+# and C is their return-stream correlation (reports/STRATEGY-CORRELATION.csv).
+# Nothing is fitted; every input is measured.
+#
+# The denominator is what makes it honest. Two momentum strategies agreeing
+# correlate at 0.78, so their combination is worth 1.13 signals rather than 2.
+# Momentum agreeing with reversal correlates at 0.27 and is worth 1.41. With
+# everything at 1.0 the score collapses to a single signal, which is correct.
+# Disagreement cancels in the numerator, so an instrument the library cannot
+# agree about scores near zero and gets no slot — something the priority list
+# could not express at all.
+composite:
+  enabled: false
+  # Below this score an instrument is not worth a slot. 1.0 is one unopposed
+  # strategy, so a floor above it demands genuine agreement and a floor below
+  # it lets a lone signal through.
+  min_score: 0.0
+  # Correlation assumed between two strategies the matrix does not cover. High
+  # on purpose: an unmeasured pair is far more likely to be two variations on
+  # one idea than a genuine diversifier, and assuming independence would hand a
+  # brand-new strategy the largest possible agreement bonus on no evidence.
+  unknown_correlation: 0.7
+
 # --- Intraday engine ---------------------------------------------------------
 # The PRIMARY engine, by decision on 2026-08-22. The daily/monthly library below
 # stays as the secondary one; it is not being removed.

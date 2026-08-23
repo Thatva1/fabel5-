@@ -640,6 +640,89 @@ def api_intraday_close():
     return jsonify(result)
 
 
+@app.get("/api/options/<path:ticker>")
+def api_options(ticker):
+    """One expiry's chain, with the volatility each strike implies.
+
+    Slow and broker-bound, so it is fetched on demand from its own tab rather
+    than folded into /api/state. A chain is dozens of market-data lines; a
+    dashboard that pulled one every fifteen seconds would spend an account's
+    entire quote budget on a page nobody was looking at.
+    """
+    from datetime import date, datetime
+
+    from ..providers.base import ProviderUnavailable
+    from ..providers.ibkr_provider import IBKRDataProvider
+    from ..research import option_chain
+    from ..risk import options as opt
+
+    config = load_config()
+    ticker = ticker.upper()
+    wanted = (request.args.get("expiry") or "").replace("-", "") or None
+    width = max(2, min(30, int(request.args.get("strikes") or 10)))
+
+    # The rate is a MEASURED input. Wrong by a percentage point and every
+    # implied vol on the page moves, so where it came from is shown.
+    rate, rate_source = 0.04, "fallback — FRED unreachable"
+    try:
+        series = (pipeline.get_router(config).get_macro() or {}).get("series") or {}
+        raw = (series.get("three_month_yield") or {}).get("value")
+        if raw is not None:
+            rate, rate_source = float(raw) / 100.0, "FRED DTB3, 3-month bill"
+    except Exception:
+        pass
+
+    provider = IBKRDataProvider(config)
+    try:
+        chain = provider.option_chain(ticker, max_expiries=10)
+    except (ProviderUnavailable, Exception) as exc:
+        return jsonify({"ticker": ticker,
+                        "error": f"{type(exc).__name__}: {exc}"}), 200
+
+    expiries = chain.get("expiries") or []
+    if not expiries:
+        return jsonify({"ticker": ticker, "error": "No listed expiries."}), 200
+    expiry = wanted if wanted in expiries else expiries[0]
+
+    try:
+        spot = float(pipeline.get_router(config)
+                     .get_prices(ticker, period="5d")["Close"].iloc[-1])
+    except Exception as exc:
+        return jsonify({"ticker": ticker,
+                        "error": f"Could not price {ticker}: {exc}"}), 200
+
+    strikes = sorted(sorted(chain["strikes"],
+                            key=lambda k: abs(k - spot))[:width * 2])
+    days = (datetime.strptime(expiry, "%Y%m%d").date() - date.today()).days
+    years = opt.years_to_expiry(days)
+
+    head = {"ticker": ticker, "spot": round(spot, 4), "expiry": expiry,
+            "expiries": expiries, "days": days,
+            "trading_class": chain.get("trading_class"),
+            "chains_offered": chain.get("chains_offered"),
+            "rate": rate, "rate_source": rate_source,
+            "straddles_spot": bool(strikes and min(strikes) <= spot <= max(strikes))}
+
+    if years <= 0:
+        return jsonify({**head, "error": "That expiry is today or past."}), 200
+
+    try:
+        quotes = provider.option_quotes(
+            ticker, expiry, strikes,
+            multiplier=chain.get("multiplier") or "100",
+            trading_class=chain.get("trading_class"))
+    except Exception as exc:
+        return jsonify({**head, "error": f"{type(exc).__name__}: {exc}"}), 200
+
+    built = option_chain.build(quotes["rows"], spot, years, rate)
+    return jsonify({**head, "quote_note": quotes.get("note"),
+                    "forward": built["forward"], "carry": built["carry"],
+                    "carry_source": built["carry_source"],
+                    "surface": built["surface"], "rows": built["rows"],
+                    "parity_violations": option_chain.parity_violations(
+                        built["rows"], spot, years, rate, built["carry"])})
+
+
 @app.get("/api/coverage")
 def api_coverage():
     """What the licensed feed can price, and what a subscription would unlock."""
