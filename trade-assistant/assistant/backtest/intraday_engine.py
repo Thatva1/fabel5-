@@ -247,6 +247,42 @@ def _close(position, level, reason, stamp, held_minutes, costs):
 
 # --- reporting ---------------------------------------------------------------
 
+def _clustered_t(trades, key="gross_pct"):
+    """t on SESSION means, not on trades. The only one worth quoting.
+
+    A one-sample t over trades assumes 26,380 independent draws. They are
+    nothing of the kind: fifteen hundred instruments traded through the same
+    five sessions move together, so when the market drops at 13:30 several
+    hundred VWAP-reversion longs are wrong simultaneously and for one reason.
+    The independent unit is much closer to the SESSION than to the trade.
+
+    Measured on the full-universe sweep of 2026-08-23, the difference is not
+    academic:
+
+        naive, per trade      +2.15bp   t = +4.63   n = 26,380
+        clustered by session  +2.08bp   t = +1.86   n = 5
+
+    Same edge, and the evidence for it collapses from overwhelming to absent.
+    The first number was the one this function used to report, and reporting it
+    alone would have sent somebody to buy a market-data subscription on the
+    strength of five days.
+
+    Returns (t, cluster_count). None when there are too few sessions to say
+    anything at all — which, with a week of data, is the usual answer and
+    should be, rather than a number that implies otherwise.
+    """
+    by_session = {}
+    for trade in trades:
+        stamp = str(trade.get("entry_time") or "")[:10]
+        if stamp:
+            by_session.setdefault(stamp, []).append(float(trade.get(key) or 0.0))
+    if len(by_session) < 2:
+        return None, len(by_session)
+    means = [sum(v) / len(v) for v in by_session.values()]
+    mean = sum(means) / len(means)
+    return _t_statistic(means, mean), len(means)
+
+
 def _t_statistic(values, mean):
     """One-sample t, or None when the sample cannot support one.
 
@@ -311,6 +347,10 @@ def summarise(trades, costs=None):
     # opposite conclusions and only this number separates them.
     mean_gross = sum(gross) / len(gross)
     t_gross = _t_statistic(gross, mean_gross)
+    # The honest one. See _clustered_t — the per-trade figure above overstates
+    # the evidence by roughly 2.5x on a week of data, in the direction that
+    # makes an untradable result look like a discovery.
+    t_clustered, sessions = _clustered_t(trades)
 
     by_reason = {}
     for trade in trades:
@@ -334,6 +374,8 @@ def summarise(trades, costs=None):
         "mean_held_minutes": round(sum(t["held_minutes"] for t in trades) / len(trades), 1),
         "t_stat": t_stat,
         "t_gross": t_gross,
+        "t_clustered": t_clustered,
+        "sessions": sessions,
         "by_exit_reason": by_reason,
         # The round-trip cost at which the mean GROSS edge is exactly consumed.
         # Compared against what the account actually pays, this is the whole
@@ -357,8 +399,24 @@ def verdict(summary, charged_bps=None):
     breakeven = summary["breakeven_bps"]
     charged = charged_bps if charged_bps is not None else summary["charged_bps"]
 
-    t_gross = summary.get("t_gross")
+    # The CLUSTERED figure decides the verdict wherever it exists. The
+    # per-trade one is kept for comparison and is never the basis of a claim.
+    t_gross = summary.get("t_clustered")
+    naive = summary.get("t_gross")
+    sessions = summary.get("sessions") or 0
     trades = summary["trades"]
+
+    # Below this, no arrangement of the arithmetic produces evidence. Said
+    # plainly rather than dressed up as a weak result, because "not significant"
+    # invites one more parameter sweep and "you have five days" does not.
+    if sessions and sessions < 20:
+        naive_text = f" (per-trade t reads {naive:+.2f}, which assumes the trades are independent — they are not)" if naive is not None else ""
+        return (f"{sessions} session(s) is not enough to answer this. "
+                f"{trades} trades sound like a lot and are not: everything "
+                f"inside one session shares one market, so the independent "
+                f"count is {sessions}, not {trades}. The gross edge is "
+                f"{breakeven:+.1f}bp{naive_text}. Re-run over months before "
+                f"reading anything into it.")
     # Every branch quotes it, and it is legitimately absent on a sample with no
     # dispersion. Formatted once here rather than guarded in four places.
     t_text = f"t = {t_gross:+.2f}" if t_gross is not None else "t undefined"

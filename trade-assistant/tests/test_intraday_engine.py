@@ -154,16 +154,26 @@ def test_london_is_walked_against_londons_own_bell():
 
 # --- reporting ---------------------------------------------------------------
 
-def _spread(mean_gross, mean_net, n=400, sd=0.3, seed=5):
-    """A sample with real dispersion around given means, so t means something."""
+def _spread(mean_gross, mean_net, n=400, sd=0.3, seed=5, sessions=60):
+    """A sample with real dispersion around given means, spread over sessions.
+
+    `entry_time` is not decoration. The engine clusters its standard error by
+    session, because trades inside one session share one market and are not
+    independent draws — so a fixture without dates is a fixture the honest
+    statistic cannot be computed on. Defaults to enough sessions that the
+    "you only have a week" guard does not fire; tests about that guard pass a
+    smaller number deliberately.
+    """
     import random
     rng = random.Random(seed)
     noise = [rng.gauss(0, sd) for _ in range(n)]
     centre = sum(noise) / n
+    days = pd.bdate_range("2026-01-05", periods=sessions).strftime("%Y-%m-%d")
     return [{"gross_pct": mean_gross + x - centre,
              "net_pct": mean_net + x - centre,
+             "entry_time": f"{days[i % sessions]} 10:{i % 60:02d}:00-04:00",
              "r_multiple": 0.1, "held_minutes": 30, "exit_reason": "target"}
-            for x in noise]
+            for i, x in enumerate(noise)]
 
 
 def test_a_real_edge_smaller_than_its_spread_is_named_as_exactly_that():
@@ -190,7 +200,9 @@ def test_a_sample_with_no_dispersion_is_refused_rather_than_judged():
     1.3e16 — a divide by zero that did not quite divide by zero, printed beside
     real results as though it were overwhelming evidence."""
     identical = [{"net_pct": 0.01, "gross_pct": 0.03, "r_multiple": 0.1,
-                  "held_minutes": 30, "exit_reason": "target"}] * 10
+                  "held_minutes": 30, "exit_reason": "target",
+                  "entry_time": f"2026-0{1 + i // 9}-{1 + i % 28:02d} 10:00:00-04:00"}
+                 for i in range(40)]
     summary = engine.summarise(identical)
     assert summary["t_gross"] is None
     answer = engine.verdict(summary, charged_bps=8.0)
@@ -254,17 +266,11 @@ def test_a_result_well_clear_of_its_error_bar_is_judged_on_cost():
 def test_the_significance_question_is_asked_before_the_cost_question():
     """A strong-looking breakeven on four trades is not a cheap edge, it is
     four trades."""
-    trades = [{"net_pct": 0.5, "gross_pct": 0.6, "r_multiple": 1.0,
-               "held_minutes": 60, "exit_reason": "target"},
-              {"net_pct": -0.4, "gross_pct": -0.3, "r_multiple": -1.0,
-               "held_minutes": 60, "exit_reason": "stop"},
-              {"net_pct": 0.6, "gross_pct": 0.7, "r_multiple": 1.0,
-               "held_minutes": 60, "exit_reason": "target"},
-              {"net_pct": -0.3, "gross_pct": -0.2, "r_multiple": -1.0,
-               "held_minutes": 60, "exit_reason": "stop"}]
+    trades = _spread(0.5, 0.4, n=4, sd=0.5, sessions=4)
     summary = engine.summarise(trades)
     assert summary["breakeven_bps"] > 0        # looks like an edge
-    assert "Nothing there to cost" in engine.verdict(summary, charged_bps=1.0)
+    answer = engine.verdict(summary, charged_bps=1.0)
+    assert "4 session(s) is not enough" in answer
 
 
 def test_gross_and_net_significance_are_different_questions():
@@ -281,7 +287,8 @@ def test_gross_and_net_significance_are_different_questions():
 
 def test_a_single_trade_has_no_t_statistic_rather_than_a_fake_one():
     one = [{"net_pct": 0.5, "gross_pct": 0.6, "r_multiple": 1.0,
-            "held_minutes": 60, "exit_reason": "target"}]
+            "held_minutes": 60, "exit_reason": "target",
+            "entry_time": "2026-08-21 10:00:00-04:00"}]
     assert engine.summarise(one)["t_stat"] is None
     assert engine.summarise(one)["t_gross"] is None
 
@@ -350,3 +357,89 @@ def test_the_headline_cost_is_weighted_by_where_the_trades_actually_were():
     if len(per) == 2:
         widths = sorted(r["spread_bps"] for r in per.values())
         assert widths[0] <= charged <= widths[1]
+
+
+# --- the trades are not independent, and the t-statistic must know it --------
+#
+# The full-universe sweep on 2026-08-23 reported a gross edge of +2.15bp at
+# t = +4.63 over 26,380 trades, which reads as overwhelming. Clustered by
+# session it is +2.08bp at t = +1.86 over 5 — the same edge, with the evidence
+# gone. Fifteen hundred instruments traded through the same five days move
+# together: when the market drops at 13:30 several hundred VWAP-reversion longs
+# are wrong simultaneously and for one reason.
+#
+# Reporting the per-trade figure alone would have sent somebody to buy a
+# market-data subscription on the strength of five days.
+
+def _one_session_shock(sessions, per_session=300, shock=0.5, spread=0.6, seed=3):
+    """Trades whose outcome is decided by the SESSION, not by the trade.
+
+    The extreme case of what really happens: within a session every trade gets
+    the same market move. A per-trade t sees thousands of confirmations; a
+    clustered t sees however many days there were.
+
+    Session means are laid out deterministically around `shock` rather than
+    drawn, so a test can ask for "a small positive average with large
+    session-to-session dispersion" and actually get it instead of whatever the
+    seed happened to produce.
+    """
+    import random
+    rng = random.Random(seed)
+    out = []
+    days = pd.bdate_range("2026-01-05", periods=sessions).strftime("%Y-%m-%d")
+    # Symmetric offsets summing to zero, so the mean is exactly `shock`.
+    offsets = [spread * (2 * (i / max(1, sessions - 1)) - 1) for i in range(sessions)]
+    for day, offset in zip(days, offsets):
+        move = shock + offset
+        for i in range(per_session):
+            jitter = rng.gauss(0, 0.01)
+            out.append({"gross_pct": move + jitter, "net_pct": move + jitter - 0.1,
+                        "entry_time": f"{day} 10:{i % 60:02d}:00-04:00",
+                        "r_multiple": 0.1, "held_minutes": 30,
+                        "exit_reason": "target"})
+    return out
+
+
+def test_clustering_by_session_collapses_a_falsely_overwhelming_t():
+    summary = engine.summarise(_one_session_shock(sessions=30))
+    assert summary["sessions"] == 30
+    # Per trade it looks unanswerable; per session it is an ordinary result.
+    assert summary["t_gross"] > 20
+    assert summary["t_clustered"] < summary["t_gross"] / 4
+
+
+def test_the_verdict_is_decided_by_the_clustered_figure(monkeypatch):
+    """A per-trade t of +30 must not be allowed to carry a verdict when the
+    clustered one is under 2."""
+    trades = _one_session_shock(sessions=25, shock=0.02, spread=0.6, seed=9)
+    summary = engine.summarise(trades)
+    assert summary["t_gross"] > 2                    # naive says yes
+    assert abs(summary["t_clustered"]) < 2           # clustered says no
+    assert "Nothing there to cost" in engine.verdict(summary, charged_bps=8.0)
+
+
+def test_a_week_of_data_is_told_it_is_a_week_of_data():
+    """The commonest case, and the one where a weak-but-positive number invites
+    one more parameter sweep. It gets a different sentence."""
+    summary = engine.summarise(_one_session_shock(sessions=5))
+    answer = engine.verdict(summary, charged_bps=8.0)
+    assert "5 session(s) is not enough" in answer
+    assert "independent count is 5, not" in answer
+    assert "assumes the trades are independent" in answer
+
+
+def test_the_naive_figure_is_still_reported_for_comparison():
+    """Kept visible rather than removed: seeing +4.63 beside +1.86 is what
+    teaches the reader why one of them is wrong."""
+    summary = engine.summarise(_one_session_shock(sessions=30))
+    assert summary["t_gross"] is not None
+    assert summary["t_clustered"] is not None
+
+
+def test_trades_without_timestamps_cannot_be_clustered_and_say_so():
+    plain = [{"gross_pct": 0.1, "net_pct": 0.02, "r_multiple": 0.1,
+              "held_minutes": 30, "exit_reason": "target"}] * 50
+    summary = engine.summarise(plain)
+    assert summary["t_clustered"] is None
+    assert summary["sessions"] == 0
+    assert "Cannot be judged" in engine.verdict(summary)

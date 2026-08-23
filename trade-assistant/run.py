@@ -793,23 +793,26 @@ def _intraday_engine(frames, config, bar_size, out_path=None):
         return "   —  " if value is None else f"{value:>6.2f}"
 
     print(f"{'strategy':<24}{'trades':>7}{'win%':>7}{'net/trade':>11}"
-          f"{'mean R':>8}{'held':>7}{'breakeven':>11}{'t gross':>9}{'t net':>8}")
+          f"{'mean R':>8}{'held':>7}{'breakeven':>11}{'t/session':>11}{'t/trade':>9}")
     for name, r in sorted(out["by_strategy"].items()):
         print(f"{name:<24}{r['trades']:>7}{r['win_rate_pct']:>7}"
               f"{r['mean_net_pct']:>10.4f}%{r['mean_r']:>8.2f}"
               f"{r['mean_held_minutes']:>6.0f}m{r['breakeven_bps']:>10.1f}b"
-              f"{t(r.get('t_gross')):>9}{t(r.get('t_stat')):>8}")
+              f"{t(r.get('t_clustered')):>11}{t(r.get('t_gross')):>9}")
 
     print(f"\n{'TOTAL':<24}{overall['trades']:>7}{overall['win_rate_pct']:>7}"
           f"{overall['mean_net_pct']:>10.4f}%{overall['mean_r']:>8.2f}"
           f"{overall['mean_held_minutes']:>6.0f}m{overall['breakeven_bps']:>10.1f}b"
-          f"{t(overall.get('t_gross')):>9}{t(overall.get('t_stat')):>8}")
-    print("\nTwo different questions, and they can disagree completely.")
-    print("  t gross — did the rule find anything AT ALL? Below 2, the "
-          "breakeven beside it is noise.")
-    print("  t net   — did it make money after costs? These can be +5 and -20 "
-          "at once: a real")
-    print("            edge, several times too small to pay its own spread.")
+          f"{t(overall.get('t_clustered')):>11}{t(overall.get('t_gross')):>9}")
+
+    print(f"\nBoth columns test the GROSS edge. Only the first one is honest.")
+    print(f"  t/session — {overall.get('sessions', 0)} independent observations. "
+          f"Trades inside one session share")
+    print( "              one market, so the session is the unit, not the trade. "
+           "THIS decides the verdict.")
+    print( "  t/trade   — the same edge counted as if every trade were "
+           "independent. Runs 2-3x")
+    print( "              higher and is shown only so the difference is visible.")
 
     # How each trade ended is the fastest read on whether the rules are doing
     # what they claim. A book that exits mostly on flat_by_close is one whose
