@@ -638,8 +638,6 @@ def api_intraday_close():
     try:
         result = (manual.close_all(book, config) if payload.get("all")
                   else manual.close_positions(book, tickers, config))
-    except manual.RefusedClose as exc:
-        return jsonify({"error": str(exc), "refused": True}), 409
     except Exception as exc:
         return jsonify({"error": f"{type(exc).__name__}: {exc}"}), 500
     if not result["closed"]:
@@ -838,9 +836,6 @@ def api_paper_close():
     try:
         result = (manual.close_all(book, load_config()) if close_everything
                   else manual.close_positions(book, tickers, load_config()))
-    except manual.RefusedClose as exc:
-        # A refusal is not an error in the code; it is the code working.
-        return jsonify({"error": str(exc), "refused": True}), 409
     except Exception as exc:
         # Nothing is saved on the way out, so a failure leaves the book exactly
         # as it was rather than half-closed.

@@ -59,69 +59,52 @@ def _slipped(price, direction, bps):
 
 
 class RefusedClose(Exception):
-    """A close that would book fictional P&L, stopped before it did."""
+    """Kept so callers that already handle it keep compiling.
+
+    Nothing raises this any more, and the reason is worth recording. An earlier
+    version refused to close a book at stale marks with every market shut,
+    because it had twice seen 92 positions closed on a Sunday for a realised
+    loss of £206,947 that no market produced.
+
+    The second of those was not a bug. It was Thatva pressing the button,
+    meaning it. Refusing would have stopped a legitimate instruction — "get me
+    flat" is exactly what that control is for, and whether to be flat is the
+    owner's call, not this function's.
+
+    What was actually wrong was never the action. It was the ACCOUNTING.
+    """
 
 
-def _guard(book, targets, config, moment=None):
-    """Refuse a close that cannot be priced honestly. Raises, or returns a note.
+def _stale_close_note(targets, config, moment=None):
+    """How honest the exit prices are, said plainly. Never refuses.
 
-    THIS EXISTS BECAUSE IT HAPPENED. TWICE.
+    You cannot sell on a Sunday. A close instruction with every market shut is
+    an intention, not a fill, and the last mark is the only price available to
+    settle it against — so the trade is recorded, and the P&L that comes out of
+    it is labelled PROVISIONAL rather than presented as money made or lost.
 
-    Ninety-two positions were closed against marks three days old, on a Sunday
-    with every market shut, booking a realised loss of £206,947 that no market
-    produced — the entire figure was the gap between a stale Wednesday mark and
-    the arithmetic. The first time it was a test reaching the real book; the
-    second time I could not identify the caller from the logs at all, and that
-    is exactly the point.
-
-    An operation this destructive must not depend on every caller being
-    careful. `close_positions` is reachable from an HTTP endpoint, from the
-    CLI, from a test, and from any future scheduler — and the damage is silent,
-    because a closed trade with a plausible price looks like a trade.
-
-    So the refusal lives HERE, at the operation, and it triggers on the
-    combination that can only be a mistake: closing several positions, with no
-    market open, at prices that are not today's. One position closed by hand at
-    a stale mark is a judgement call and is allowed with a warning. Ninety-two
-    is not a judgement call.
-
-    `config['paper']['allow_stale_close']` overrides it for someone who
-    genuinely means it.
+    Returns (note, provisional). `provisional` is written onto every trade
+    closed this way, so the journal can separate what the market paid from what
+    the arithmetic assumed, months later, without anyone having to remember
+    which afternoon this was.
     """
     from ..core import market_clock
 
-    if bool(((config or {}).get("paper") or {}).get("allow_stale_close")):
-        return "Stale-close guard overridden by config."
-
     moment = moment or _now()
-    open_venues = [v for v in ("US", "LSE") if market_clock.is_open(v, moment)]
-    if open_venues:
-        return None
+    if any(market_clock.is_open(v, moment) for v in ("US", "LSE")):
+        return None, False
 
     today = moment.strftime("%Y-%m-%d")
     stale = [p["ticker"] for p in targets
              if str(p.get("bar_date") or "")[:10] != today]
     if not stale:
-        return None
+        return None, False
 
-    if len(targets) < BULK_CLOSE_THRESHOLD:
-        return (f"No market is open and {len(stale)} of these are marked at an "
-                f"older close. The P&L booked is against that mark, not against "
-                f"a price anyone traded today.")
-
-    raise RefusedClose(
-        f"Refusing to close {len(targets)} positions with every market shut and "
-        f"{len(stale)} of them marked at an older session. The realised P&L "
-        f"would be the gap between a stale mark and today's arithmetic, not "
-        f"anything the market did — which is how this book lost a fictional "
-        f"£206,947 on a Sunday. Wait for an open market, close fewer than "
-        f"{BULK_CLOSE_THRESHOLD} by hand, or set paper.allow_stale_close.")
-
-
-# Above this many positions at once, a stale close stops being a judgement call
-# and becomes an accident. One position closed at an old mark is a decision;
-# the whole book is not.
-BULK_CLOSE_THRESHOLD = 5
+    return (f"No market is open, and {len(stale)} of these are marked at an "
+            f"older session's close. They are closed at that mark because it is "
+            f"the only price there is — so the realised P&L is what the "
+            f"arithmetic says, not what anyone was paid. Recorded as "
+            f"PROVISIONAL; the real fills would be Monday's opening prices."), True
 
 
 def close_positions(book, tickers, config, *, force_refresh=True, now=None):
@@ -141,9 +124,10 @@ def close_positions(book, tickers, config, *, force_refresh=True, now=None):
     targets = [p for p in list(book.positions) if p["ticker"].upper() in wanted]
     missing = sorted(wanted - {p["ticker"].upper() for p in targets})
 
-    # Before anything is mutated. A guard that fires halfway through has
-    # already closed some of them.
-    stale_note = _guard(book, targets, config, now) if targets else None
+    # Worked out before anything is mutated, so every trade in this batch gets
+    # the same honest label rather than depending on where the loop got to.
+    stale_note, provisional = (_stale_close_note(targets, config, now)
+                               if targets else (None, False))
 
     slippage_bps = float(((config or {}).get("paper") or {}).get("slippage_bps", 5.0))
 
@@ -179,6 +163,10 @@ def close_positions(book, tickers, config, *, force_refresh=True, now=None):
         position["exit_price_source"] = source
         position["exit_price_at"] = stamp
         position["exit_note"] = "Closed by hand from the dashboard."
+        # Carried on the TRADE, not just in a report. A provisional P&L that is
+        # only flagged in the response is unflagged the moment anyone reads the
+        # journal instead.
+        position["provisional_pnl"] = provisional
 
         realised += position.get("pnl") or 0.0
         costs += commission
@@ -193,6 +181,7 @@ def close_positions(book, tickers, config, *, force_refresh=True, now=None):
             "pnl": position.get("pnl"),
             "r": position.get("r_multiple"),
             "commission": commission,
+            "provisional": provisional,
         })
 
     if closed:
@@ -202,6 +191,7 @@ def close_positions(book, tickers, config, *, force_refresh=True, now=None):
         "closed": closed,
         "missing": missing,
         "stale_warning": stale_note,
+        "provisional": provisional,
         "realised": round(realised, 2),
         "costs": round(costs, 2),
         "equity": round(book.equity(), 2),
@@ -220,7 +210,9 @@ def _record(book, today, closed, realised, costs):
     """
     previous = book.daily[-1] if book.daily and book.daily[-1]["date"] == today else {}
     names = ", ".join(c["ticker"] for c in closed)
-    note = f"closed by hand — {len(closed)} position(s): {names}"
+    provisional = any(c.get("provisional") for c in closed)
+    note = (f"closed by hand — {len(closed)} position(s)"
+            f"{' at stale marks, P&L PROVISIONAL' if provisional else ''}: {names}")
 
     book.mark(today, note, rebalanced=False, opened=0, closed=len(closed))
     book.record_day(

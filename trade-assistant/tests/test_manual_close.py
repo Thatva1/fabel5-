@@ -259,18 +259,20 @@ def test_the_endpoint_reports_a_ticker_that_matched_nothing(client, monkeypatch,
     assert "TSLA" in r.get_json()["error"]
 
 
-# --- the guard that should have stopped this twice ---------------------------
+# --- closing when no market is open ------------------------------------------
 #
-# Ninety-two positions were closed against marks three days old, on a Sunday
-# with every market shut, booking a realised loss of £206,947 that no market
-# produced — the whole figure was the gap between a stale Wednesday mark and
-# the arithmetic. The first time a test reached the real book. The second time
-# the caller could not be identified from the logs at all, which is the reason
-# the refusal belongs to the OPERATION rather than to its callers.
+# An earlier version REFUSED this, because it had twice seen 92 positions
+# closed on a Sunday for a realised loss of £206,947 that no market produced.
+# The second of those was not a bug — it was the owner pressing the button and
+# meaning it. Refusing would have blocked a legitimate instruction: "get me
+# flat" is exactly what that control is for, and whether to be flat is not this
+# function's call.
+#
+# The action was never the problem. The ACCOUNTING was. You cannot sell on a
+# Sunday, so the last mark is the only price there is, and what comes out of it
+# is an assumption rather than money. It is recorded, and it is labelled.
 
 from datetime import datetime, timezone      # noqa: E402
-
-from assistant.paper.manual import RefusedClose      # noqa: E402
 
 
 def _sunday():
@@ -295,67 +297,55 @@ def _stale_book(tmp_path, count):
     return book
 
 
-def test_closing_the_whole_book_at_stale_marks_with_markets_shut_is_refused(tmp_path):
+def test_going_flat_with_markets_shut_is_allowed(tmp_path):
+    """It is the owner's book and the owner's decision. Nothing here gets to
+    veto it."""
     book = _stale_book(tmp_path, 92)
-    with pytest.raises(RefusedClose, match="Refusing to close 92 positions"):
-        manual.close_all(book, CONFIG, now=_sunday())
-    # And nothing was mutated on the way out.
-    assert len(book.positions) == 92
-    assert book.closed == []
+    out = manual.close_all(book, CONFIG, now=_sunday())
+    assert len(out["closed"]) == 92
+    assert book.positions == []
 
 
-def test_the_refusal_names_the_fictional_loss_it_prevents(tmp_path):
+def test_but_the_pnl_is_labelled_provisional(tmp_path):
+    """What comes out of a stale mark is what the arithmetic says, not what
+    anyone was paid."""
     book = _stale_book(tmp_path, 92)
-    try:
-        manual.close_all(book, CONFIG, now=_sunday())
-    except RefusedClose as exc:
-        assert "206,947" in str(exc)
-        assert "allow_stale_close" in str(exc)
+    out = manual.close_all(book, CONFIG, now=_sunday())
+    assert out["provisional"] is True
+    assert "PROVISIONAL" in out["stale_warning"]
+    assert "Monday" in out["stale_warning"]
+    assert all(c["provisional"] for c in out["closed"])
 
 
-def test_one_position_at_a_stale_mark_is_allowed_but_warned(tmp_path):
-    """A single stale close is a judgement call. Ninety-two is not."""
+def test_the_label_is_on_the_TRADE_not_only_in_the_response(tmp_path):
+    """A provisional P&L flagged only in the reply is unflagged the moment
+    anyone reads the journal instead."""
     book = _stale_book(tmp_path, 3)
-    out = manual.close_positions(book, ["T00"], CONFIG, now=_sunday())
-    assert len(out["closed"]) == 1
-    assert "not against a price anyone traded today" in out["stale_warning"]
+    manual.close_all(book, CONFIG, now=_sunday())
+    assert all(t["provisional_pnl"] for t in book.closed)
 
 
-def test_the_guard_does_not_fire_while_a_market_is_open(tmp_path):
+def test_the_days_record_says_the_pnl_was_provisional(tmp_path):
+    book = _stale_book(tmp_path, 3)
+    manual.close_all(book, CONFIG, now=_sunday())
+    assert "PROVISIONAL" in book.daily[-1]["note"]
+    assert "PROVISIONAL" in book.sessions[-1]["note"]
+
+
+def test_nothing_is_labelled_provisional_while_a_market_trades(tmp_path):
     book = _stale_book(tmp_path, 92)
     out = manual.close_all(book, CONFIG, now=_weekday_open())
-    assert len(out["closed"]) == 92
+    assert out["provisional"] is False
     assert out["stale_warning"] is None
+    assert not any(t["provisional_pnl"] for t in book.closed)
 
 
-def test_the_guard_does_not_fire_on_marks_from_today(tmp_path):
+def test_marks_from_today_are_not_stale_even_with_markets_shut(tmp_path):
+    """After the close, today's marks are the freshest that exist. That is the
+    ordinary end-of-day case and it is not provisional."""
     book = _stale_book(tmp_path, 92)
     today = _sunday().strftime("%Y-%m-%d")
     for position in book.positions:
         position["bar_date"] = today
     out = manual.close_all(book, CONFIG, now=_sunday())
-    assert len(out["closed"]) == 92
-
-
-def test_it_can_be_overridden_by_someone_who_means_it(tmp_path):
-    book = _stale_book(tmp_path, 92)
-    allowed = {**CONFIG, "paper": {**CONFIG["paper"], "allow_stale_close": True}}
-    out = manual.close_all(book, allowed, now=_sunday())
-    assert len(out["closed"]) == 92
-    assert "overridden" in out["stale_warning"]
-
-
-def test_the_endpoint_turns_a_refusal_into_a_409_not_a_500(client, monkeypatch, tmp_path):
-    """A refusal is the code working, not the code failing."""
-    from assistant.paper.book import Book as RealBook
-
-    _stale_book(tmp_path, 92).save()
-    monkeypatch.setattr(live, "fetch_marks",
-                        lambda tickers, config, force=False: ({}, None))
-    monkeypatch.setattr(manual, "_now", _sunday)
-
-    r = client.post("/api/paper/close", json={"all": True})
-    assert r.status_code == 409
-    assert r.get_json()["refused"] is True
-    # And the book on disk is untouched.
-    assert len(RealBook.load().positions) == 92
+    assert out["provisional"] is False

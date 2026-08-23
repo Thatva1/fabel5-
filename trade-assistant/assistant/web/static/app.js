@@ -2624,6 +2624,11 @@ function confirmClose(tickers) {
         <div class="callout warn" style="margin:var(--s4) 0">
           ${GLYPH.advisory} This cannot be undone. A closed position is not reopened by
           the next session — it has to be found by the strategy again.</div>
+        ${S.any_market_open === false ? `<div class="callout warn" style="margin:var(--s4) 0">
+          ${GLYPH.advisory} <b>No market is open.</b> These will fill at the last session's
+          close, because that is the only price there is — so the profit or loss recorded
+          is what the arithmetic says, not what anyone was paid. It is marked
+          PROVISIONAL, and the real fills would be the next open.</div>` : ""}
         <div style="display:flex;gap:var(--s2);flex-wrap:wrap;align-items:center">
           ${all ? `<label class="sr-only" for="clInput">Type FLAT to confirm</label>
                    <input id="clInput" placeholder="type FLAT" size="10" autocomplete="off">` : ""}
@@ -2671,13 +2676,16 @@ function closeReceipt() {
     <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${c.pnl == null ? "—" : Number(c.pnl).toFixed(2)}</td>
     <td class="num" style="text-align:right;font-variant-numeric:tabular-nums">${c.r == null ? "—" : c.r + "R"}</td>
   </tr>`).join("");
+  const provisional = (d.closed || []).filter(c => c.provisional).length;
   const stale = (d.closed || []).filter(c => c.price_source !== "live").length;
   return `<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
       <div class="label">Closed by hand — ${(d.closed || []).length} position(s)</div>
       <button class="btn btn-sm" onclick="lastCloseResult=null;loadPaper()">Dismiss</button>
     </div>
-    ${stale ? `<div class="callout warn" style="margin:10px 0">${GLYPH.advisory}
+    ${provisional ? `<div class="callout warn" style="margin:10px 0">${GLYPH.advisory}
+      <b>P&amp;L is provisional.</b> ${esc(d.stale_warning || "")}</div>` : ""}
+    ${stale && !provisional ? `<div class="callout warn" style="margin:10px 0">${GLYPH.advisory}
       ${stale} of these filled at the last <b>session close</b>, not a live price — the
       feed did not answer for them. The recorded P&amp;L is only as current as that mark.</div>` : ""}
     ${d.note ? `<div class="prov" style="margin:8px 0">${esc(d.note)}</div>` : ""}
