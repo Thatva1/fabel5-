@@ -416,7 +416,7 @@ class IBKRDataProvider(DataProvider):
                     f"{SOURCE}: no option chain for {underlying}. This usually "
                     "means the account has no options market-data subscription "
                     "rather than that the underlying has no options.")
-            chain = next((c for c in chains if c.exchange == "SMART"), chains[0])
+            chain = self._standard_chain(chains, stock.symbol)
             expiries = sorted(chain.expirations)[:max_expiries]
             return {
                 "underlying": underlying,
@@ -425,8 +425,133 @@ class IBKRDataProvider(DataProvider):
                 "multiplier": chain.multiplier,
                 "expiries": expiries,
                 "strikes": sorted(chain.strikes),
+                "chains_offered": len(chains),
                 "source": SOURCE,
             }
+
+        finally:
+            ib.disconnect()
+
+    @staticmethod
+    def _standard_chain(chains, symbol):
+        """The ordinary listed chain, out of the dozens IB returns.
+
+        SPY comes back as THIRTY-NINE entries — one per listing exchange, times
+        several trading classes. Most are the standard `SPY` class with 491
+        strikes from 50 to 1480; three are `2SPY`, a special class carrying
+        exactly three strikes from 668 to 682.
+
+        The previous rule was "the SMART one, else the first". There is no
+        SMART entry — SMART is a routing destination, not a listing venue — so
+        it always fell through to the first, and IB does not return these in a
+        stable order. On one call that was the full chain and on the next it
+        was `2SPY`: three strikes nowhere near a spot of 765, no error, and a
+        chain view that looked broken for reasons nothing explained.
+
+        So: prefer the class named after the underlying, then the widest strike
+        coverage, then the most expiries. Deterministic, and it picks the chain
+        a person means when they say "SPY options".
+        """
+        if not chains:
+            raise ProviderUnavailable(f"{SOURCE}: no option chain for {symbol}")
+        standard = [c for c in chains
+                    if str(c.tradingClass).upper() == str(symbol).upper()]
+        return max(standard or chains,
+                   key=lambda c: (len(c.strikes), len(c.expirations)))
+
+
+    @staticmethod
+    def clean_option_field(value):
+        """One IB option field as a number, or None. NaN, -1 and 0 all mean none.
+
+        IB signals "no quote" three different ways depending on the field and
+        the entitlement, and only one of them is an obvious absence. NaN is the
+        dangerous one: it is a float, it survives every isinstance check, and it
+        arithmetics into a plausible-looking number anywhere downstream that
+        forgets to test for it. -1 is IB's own sentinel for an unavailable
+        field and would read as a negative price.
+
+        Cleaned at the boundary rather than at the point of use, so a chain
+        with no subscription is visibly empty instead of quietly zero.
+        """
+        import math as _math
+
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return None
+        if _math.isnan(value) or _math.isinf(value):
+            return None
+        return value if value > 0 else None
+
+    def option_quotes(self, underlying, expiry, strikes, *, exchange="SMART",
+                      trading_class=None, multiplier="100", currency="USD"):
+        """Two-sided quotes for a set of strikes, over ONE held-open connection.
+
+        `expiry` is IB's own format, YYYYMMDD, exactly as `option_chain`
+        returns it. Returns one row per strike with call_bid/call_ask and
+        put_bid/put_ask, any of which may be None.
+
+        A SNAPSHOT rather than a streaming subscription: this asks once and
+        disconnects, which is what a chain view needs and what an account
+        without a streaming entitlement can actually do.
+
+        NONE IS THE EXPECTED ANSWER ON THIS ACCOUNT. Without an OPRA
+        subscription IB returns NaN for every option field — not an error, not
+        an empty list, a NaN that arithmetics into a plausible-looking number
+        if anything downstream forgets to check. Every field is therefore
+        cleaned to None here, at the boundary, so a chain with no data is
+        visibly empty rather than quietly zero.
+        """
+        try:
+            from ib_async import Option
+        except ImportError:
+            from ib_insync import Option
+
+        strikes = sorted({float(k) for k in strikes})
+        ib = self._connect()
+        try:
+            contracts = []
+            for strike in strikes:
+                for right in ("C", "P"):
+                    option = Option(str(underlying).upper(), str(expiry), strike,
+                                    right, exchange, currency=currency)
+                    if trading_class:
+                        option.tradingClass = trading_class
+                    if multiplier:
+                        option.multiplier = str(multiplier)
+                    contracts.append((strike, right, option))
+
+            qualified = ib.qualifyContracts(*[c for _, _, c in contracts])
+            live = {(c.strike, c.right) for c in qualified if getattr(c, "conId", 0)}
+            wanted = [(k, r, c) for k, r, c in contracts if (k, r) in live]
+            if not wanted:
+                raise ProviderUnavailable(
+                    f"{SOURCE}: no option contracts resolved for {underlying} "
+                    f"{expiry}. Either the expiry is wrong or the account "
+                    f"cannot see this chain.")
+
+            tickers = ib.reqTickers(*[c for _, _, c in wanted])
+            by_key = {}
+            for (strike, right, _c), ticker in zip(wanted, tickers):
+                by_key[(strike, right)] = (
+                    self.clean_option_field(getattr(ticker, "bid", None)),
+                    self.clean_option_field(getattr(ticker, "ask", None)))
+
+            rows, quoted = [], 0
+            for strike in strikes:
+                call = by_key.get((strike, "C"), (None, None))
+                put = by_key.get((strike, "P"), (None, None))
+                quoted += sum(1 for x in call + put if x is not None)
+                rows.append({"strike": strike,
+                             "call_bid": call[0], "call_ask": call[1],
+                             "put_bid": put[0], "put_ask": put[1]})
+            return {"underlying": underlying, "expiry": expiry, "rows": rows,
+                    "quoted_fields": quoted, "source": SOURCE,
+                    "note": (None if quoted else
+                             "Every field came back empty. On this account that "
+                             "means no OPRA options market-data subscription, "
+                             "not that the strikes do not exist.")}
         finally:
             ib.disconnect()
 

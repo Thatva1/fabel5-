@@ -27,6 +27,8 @@
                                  stops, targets, no entry in the last half hour,
                                  flat before the bell, and EACH instrument
                                  charged its own measured spread
+  python run.py options TICKER    option chain with an implied vol per strike
+                                 (--expiry YYYYMMDD, --strikes N either side)
   python run.py sweep --all      sweep EVERY strategy's lookback on one split
   python run.py sweep STRATEGY   does a SHORTER lookback still work? Ranks
                                  settings on the first half of history and
@@ -885,6 +887,172 @@ def _intraday_engine(frames, config, bar_size, out_path=None):
     print(f"\n{DISCLAIMER}")
 
 
+def _options(argv):
+    """The option chain for one underlying, with an implied vol per strike."""
+    from datetime import date, datetime
+
+    from assistant import pipeline
+    from assistant.core.config import load_config
+    from assistant.providers.base import ProviderUnavailable
+    from assistant.providers.ibkr_provider import IBKRDataProvider
+    from assistant.research import option_chain
+    from assistant.risk import options as opt
+
+    if not argv:
+        print("Which underlying? e.g. python run.py options SPY")
+        return
+
+    ticker = argv[0].upper()
+    wanted_expiry = None
+    width = 10
+    i = 1
+    while i < len(argv):
+        if argv[i] == "--expiry" and i + 1 < len(argv):
+            wanted_expiry = argv[i + 1].replace("-", "")
+            i += 2
+        elif argv[i] == "--strikes" and i + 1 < len(argv):
+            width = int(argv[i + 1])
+            i += 2
+        else:
+            i += 1
+
+    config = load_config()
+    provider = IBKRDataProvider(config)
+    router = pipeline.get_router(config)
+
+    # The risk-free rate is a MEASURED input, not a constant. Three-month
+    # Treasury bills are the right tenor for the expiries this looks at, and
+    # a rate wrong by a percentage point moves every implied vol in the chain.
+    rate = None
+    try:
+        # The router wraps every provider's series in a `series` block
+        # alongside its provenance. Reading the top level found nothing and
+        # silently fell back to a hardcoded 4%.
+        macro = (router.get_macro() or {}).get("series") or {}
+        raw = (macro.get("three_month_yield") or {}).get("value")
+        rate = float(raw) / 100.0 if raw is not None else None
+    except Exception:
+        rate = None
+    if rate is None:
+        rate = 0.04
+        print("Could not read the 3-month bill rate from FRED; using 4.0%. "
+              "Every implied vol below moves if that is wrong.")
+    else:
+        print(f"Risk-free rate {rate * 100:.2f}% (FRED DTB3, 3-month bill).")
+
+    try:
+        chain = provider.option_chain(ticker, max_expiries=8)
+    except ProviderUnavailable as exc:
+        print(f"\nNo chain: {exc}")
+        return
+    except Exception as exc:
+        print(f"\nNo chain: {type(exc).__name__}: {exc}")
+        return
+
+    expiries = chain["expiries"]
+    if not expiries:
+        print(f"\n{ticker} has no listed expiries.")
+        return
+    expiry = wanted_expiry if wanted_expiry in expiries else expiries[0]
+    if wanted_expiry and wanted_expiry not in expiries:
+        print(f"\n{wanted_expiry} is not listed. Using {expiry}. "
+              f"Available: {', '.join(expiries[:8])}")
+
+    try:
+        spot = float(router.get_prices(ticker, period="5d")["Close"].iloc[-1])
+    except Exception as exc:
+        print(f"\nCould not price the underlying: {exc}")
+        return
+
+    # Only the strikes near the money. A full chain is hundreds of contracts,
+    # most of them unquoted, and every one costs a market-data line.
+    strikes = sorted(chain["strikes"], key=lambda k: abs(k - spot))[:width * 2]
+    strikes = sorted(strikes)
+
+    days = (datetime.strptime(expiry, "%Y%m%d").date() - date.today()).days
+    years = opt.years_to_expiry(days)
+    print(f"\n{ticker} at {spot:.2f} · expiry {expiry} · {days} days · "
+          f"{len(strikes)} strikes around the money"
+          + (f" · class {chain.get('trading_class')}"
+             f" (chosen from {chain.get('chains_offered')} listings)"
+             if chain.get("chains_offered") else ""))
+    if strikes and not (min(strikes) <= spot <= max(strikes)):
+        print(f"  The strikes on offer ({min(strikes):g}–{max(strikes):g}) do "
+              f"not straddle the spot. That is a chain for a different "
+              f"contract, not a market view.")
+
+    if years <= 0:
+        print("That expiry is today or past. Pass --expiry YYYYMMDD.")
+        return
+
+    try:
+        quotes = provider.option_quotes(
+            ticker, expiry, strikes,
+            multiplier=chain.get("multiplier") or "100",
+            trading_class=chain.get("trading_class"))
+    except ProviderUnavailable as exc:
+        print(f"\nNo quotes: {exc}")
+        return
+    except Exception as exc:
+        print(f"\nNo quotes: {type(exc).__name__}: {exc}")
+        return
+
+    if quotes.get("note"):
+        print(f"\n{quotes['note']}")
+
+    built = option_chain.build(quotes["rows"], spot, years, rate)
+    surface = built["surface"]
+
+    if not surface.get("quoted_strikes"):
+        print("\nNothing to imply a volatility from. The chain's SHAPE is real "
+              "— those strikes and expiries exist — but no price reached this "
+              "stack, so there is no surface to show.")
+        return
+
+    print(f"\nForward {built['forward']} · carry {built['carry'] * 100:.2f}% "
+          f"({built['carry_source']})")
+    print(f"ATM implied vol {surface['atm_iv'] * 100:.1f}%"
+          + (f" · skew {surface['skew_25pct'] * 100:+.1f} points"
+             if surface["skew_25pct"] is not None else "")
+          + (f" · typical quote width {surface['median_iv_width'] * 100:.1f} points"
+             if surface["median_iv_width"] else ""))
+    if surface.get("skew_25pct") is not None and not surface["skew_exceeds_spread"]:
+        print("  That skew is smaller than the spreads it was read off. It is "
+              "not a shape, it is two quotes.")
+
+    def cell(value, fmt="{:.1f}", scale=1.0):
+        return "  —  " if value is None else fmt.format(value * scale)
+
+    print(f"\n{'strike':>8} | {'call mid':>9}{'iv':>7}{'±':>7}{'delta':>7} "
+          f"| {'put mid':>9}{'iv':>7}{'±':>7}{'delta':>7}")
+    for row in built["rows"]:
+        mark = " <" if abs(row["strike"] - (built["forward"] or spot)) < 1e-9 else ""
+        print(f"{row['strike']:>8.2f} | "
+              f"{cell(row['call_mid'], '{:.2f}'):>9}"
+              f"{cell(row['call_iv_mid'], '{:.1f}', 100):>7}"
+              f"{cell(row['call_iv_width'], '{:.1f}', 100):>7}"
+              f"{cell(row['call_delta'], '{:.2f}'):>7} | "
+              f"{cell(row['put_mid'], '{:.2f}'):>9}"
+              f"{cell(row['put_iv_mid'], '{:.1f}', 100):>7}"
+              f"{cell(row['put_iv_width'], '{:.1f}', 100):>7}"
+              f"{cell(row['put_delta'], '{:.2f}'):>7}{mark}")
+
+    print("\n'iv' is from the MID; '±' is how many volatility points lie "
+          "between the bid's implied vol and the ask's.")
+    print("A wide ± means the quote does not pin the volatility down, whatever "
+          "the mid says.")
+
+    bad = option_chain.parity_violations(built["rows"], spot, years, rate,
+                                         built["carry"])
+    if bad:
+        print(f"\n{len(bad)} strike(s) break put-call parity, which is an "
+              f"arbitrage identity rather than a model — one side is stale:")
+        for v in bad[:6]:
+            print(f"  {v['strike']:>8.2f}  off by {v['gap']:+.2f}")
+
+    print(f"\n{DISCLAIMER}")
+
+
 def _paper(argv):
     """One paper-trading session. Places nothing — there is no broker in it."""
     from assistant.paper import screen, session
@@ -1189,6 +1357,9 @@ def main():
 
     elif cmd == "paper":
         _paper(args[1:])
+
+    elif cmd == "options":
+        _options(args[1:])
 
     elif cmd == "coverage":
         _coverage(args[1:])
