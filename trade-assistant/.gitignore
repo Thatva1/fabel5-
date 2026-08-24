@@ -53,3 +53,16 @@ data/closed_trades.jsonl*
 
 # Generated public site. Rebuilt by `run.py publish` and after every scheduled run.
 public/
+
+# Raw intraday sweep output. The FINDING lives in reports/INTRADAY-REVIEW.md,
+# which is a few kilobytes and is what anyone would actually read; these are
+# 1.3 MB each and 880 KB of that is a per-instrument block for 1,554 names.
+# Reproducible in about two minutes of CPU from the cached bars, against the
+# seven hours of broker time the original run cost — which is precisely why
+# the bar cache exists.
+reports/INTRADAY-*.json
+
+# Today's intraday working set: which sixty instruments the live loop polls.
+# Rebuilt every morning from measured spreads, and account-specific — a
+# different subscription selects a different set. State, not source.
+data/intraday_watchlist.json
