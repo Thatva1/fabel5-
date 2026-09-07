@@ -26,14 +26,12 @@ config = load_config()
 def price_fn(t):
     return prices_dict.get(t)
 
-print(f"Loaded CSV data for {len(tickers)} tickers: {', '.join(tickers)}")
-
 result = engine.run_backtest(tickers, config, price_fn, benchmark_fn=lambda: prices_dict.get("SPY")['Close'])
 out = report.build(result, config, period="10y")
 
 import json
-output_text = f"# 34 Strategies Backtest Results (CSV Dataset)\n\n"
-output_text += f"**Universe:** {len(tickers)} highly liquid core instruments spanning 5 asset classes (loaded locally from CSV export).\n"
+output_text = f"# 34 Strategies Backtest Results (Client CSV Dataset)\n\n"
+output_text += f"**Universe:** {len(tickers)} highly liquid core instruments spanning 5 asset classes (loaded locally from your CSV export).\n"
 output_text += f"**Period:** 10 Years\n\n"
 output_text += f"### Overall Performance\n"
 overall = out["overall"]
@@ -47,8 +45,10 @@ else:
     output_text += f"- **Net P&L:** {out['equity_curve']['final_pnl']:.2f} {out['base_currency']}\n\n"
 
     output_text += f"### Strategy Allocation (Who 'won' the capital)\n"
-    for strat in out["by_strategy"]:
-        output_text += f"- **{strat['name']}**: {strat['trades']} trades, {strat['win_rate_pct']*100:.1f}% win rate, {strat['expectancy_r']:.2f}R expectancy, P&L: {strat['pnl']:.0f}\n"
+    # out["by_strategy"] is a dict mapping name to stats
+    for strat_name, strat in out["by_strategy"].items():
+        if strat['trades'] > 0:
+            output_text += f"- **{strat_name}**: {strat['trades']} trades, {strat['win_rate_pct']*100:.1f}% win rate, {strat['expectancy_r']:.2f}R expectancy, P&L: {strat['pnl']:.0f}\n"
 
 with open("/Users/thatvagowda/.gemini/antigravity/brain/aa6d07f9-a8ef-4a0d-9ce6-c4519a2de6b7/34_Strategies_Backtest.md", "w") as f:
     f.write(output_text)
