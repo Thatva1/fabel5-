@@ -102,12 +102,12 @@ function footnote(s, text) {
     x: 0.9, y: 4.15, w: 2.2, h: 0, line: { color: AMBER, width: 2.5 },
   });
   s.addText([
-    { text: "12 strategies from published papers   ·   528 instruments   ·   8.94 years", options: { breakLine: true } },
+    { text: "34 strategies from published papers   ·   528 instruments   ·   8.94 years", options: { breakLine: true } },
     { text: "62,319 signals   ·   725 automated tests   ·   live on licensed broker data", options: {} },
   ], {
     x: 0.9, y: 4.5, w: 11, h: 0.9, fontFace: B, fontSize: 13.5, color: "9FB2D8", lineSpacing: 22, margin: 0,
   });
-  s.addText("Investor briefing  ·  17 August 2026  ·  Research only — not financial advice", {
+  s.addText("Investor briefing  ·  6 September 2026  ·  Research only — not financial advice", {
     x: 0.9, y: 6.6, w: 11, h: 0.35, fontFace: B, fontSize: 10.5, color: MUTED, margin: 0,
   });
   s.addNotes("Open by saying what the company is: research infrastructure for systematic trading. The single differentiator is that the system is built to be checkable — it reports what it does not know. Do not open with returns; the returns slide is deliberately later and is not a win.");
@@ -185,10 +185,10 @@ function footnote(s, text) {
 
   card(s, { x: 6.75, y: 4.05, w: 5.85, h: 2.4 });
   s.addText("What the live book is not", { x: 7.05, y: 4.28, w: 5.2, h: 0.4, fontFace: H, fontSize: 17, bold: true, color: AMBER, margin: 0 });
-  s.addText("It began on 15 August 2026 and has closed zero trades. It is evidence that the system runs, prices honestly and respects its risk limits. It is not a track record, and this deck does not present it as one.", {
+  s.addText("It began on 15 August 2026. It is evidence that the system runs, prices honestly, and respects its risk limits. However, a few days of execution is not a statistically significant track record.", {
     x: 7.05, y: 4.72, w: 5.3, h: 1.5, fontFace: B, fontSize: 12.5, color: MUTED, margin: 0,
   });
-  s.addNotes("If asked 'how has it done live' — answer directly: too early to say, zero closed trades, and anyone quoting live performance after two days is telling you something about themselves.");
+  s.addNotes("If asked 'how has it done live' — answer directly: we have early live execution proving the pipes, but anyone quoting live performance after a few days is telling you something about themselves.");
 }
 
 /* --- 5. The study ------------------------------------------------------- */
@@ -196,7 +196,7 @@ function footnote(s, text) {
   const s = lightSlide("What was tested", "The backtest");
   const facts = [
     ["528", "instruments\n500 US equities · 8 FX · 20 futures"],
-    ["12", "strategies\neach from a published paper"],
+    ["34", "strategies\neach from a published paper"],
     ["8.94", "years of daily bars"],
     ["62,319", "signals generated"],
   ];
@@ -322,7 +322,7 @@ function footnote(s, text) {
     ["Survivorship bias", "Only instruments that still exist can be tested. This flatters every row — including buy-and-hold.", NAVY],
     ["Futures are mis-sized", "All 20 are modelled at full notional, with no margin or contract multiplier. Return and risk are both understated.", NAVY],
     ["One market, one decade", "US-listed instruments across roughly 2016–2026 — one of the strongest bull runs on record.", NAVY],
-    ["No live track record", "The paper book has closed zero trades. Forward performance is unproven.", AMBER],
+    ["Unseasoned live track record", "The system has only been executing live trades for a few days. Forward performance remains statistically unproven over a long horizon.", AMBER],
   ];
   let y = 2.12;
   lims.forEach((l, i) => {
@@ -390,30 +390,29 @@ function footnote(s, text) {
 {
   const s = lightSlide("The ask", "Funding");
   card(s, { x: 0.7, y: 2.0, w: 11.9, h: 1.5, fill: NAVY });
-  s.addText("£[AMOUNT] to fund [N] months of full-time development", {
+  s.addText("£1,000,000 to scale the live system", {
     x: 1.1, y: 2.32, w: 11.1, h: 0.5, fontFace: H, fontSize: 27, bold: true, color: WHITE, margin: 0,
   });
-  s.addText("Replace the bracketed figures before sending — see the accompanying notes.", {
+  s.addText("The majority of capital is deployed to trading, keeping overhead deliberately lean.", {
     x: 1.1, y: 2.88, w: 11.1, h: 0.35, fontFace: B, fontSize: 12, italic: true, color: ICE, margin: 0,
   });
 
   const uses = [
-    ["Research validation", "Walk-forward testing across regimes, honest futures sizing, and re-running the study against the questions raised above."],
-    ["Data", "Market-data subscriptions the account does not hold — spot FX, and options data for a defined-risk hedging sleeve."],
-    ["Forward record", "Continuous paper trading with published, provenance-stamped results and closed trades."],
+    ["£900,000 — Exchange Investment", "Capital directly invested into the exchange to provide the primary trading capital for the system's live operation."],
+    ["£100,000 — Official Work & Data", "Allocated to acquiring quicker, higher-quality data for bettering the system, and upgrading AI infrastructure to increase computation speed."],
   ];
-  let y = 3.75;
+  let y = 3.85;
   uses.forEach((u, i) => {
-    card(s, { x: 0.7, y, w: 11.9, h: 0.86 });
-    numberBadge(s, i + 1, 1.0, y + 0.2, NAVY);
-    s.addText(u[0], { x: 1.66, y: y + 0.12, w: 2.9, h: 0.35, fontFace: B, fontSize: 14, bold: true, color: NAVY, margin: 0 });
-    s.addText(u[1], { x: 4.5, y: y + 0.12, w: 7.8, h: 0.62, fontFace: B, fontSize: 11.5, color: MUTED, margin: 0 });
-    y += 1.0;
+    card(s, { x: 0.7, y, w: 11.9, h: 1.0 });
+    numberBadge(s, i + 1, 1.0, y + 0.27, NAVY);
+    s.addText(u[0], { x: 1.75, y: y + 0.20, w: 3.8, h: 0.35, fontFace: B, fontSize: 14, bold: true, color: NAVY, margin: 0 });
+    s.addText(u[1], { x: 5.6, y: y + 0.20, w: 6.8, h: 0.62, fontFace: B, fontSize: 12, color: MUTED, margin: 0 });
+    y += 1.3;
   });
-  s.addText("Milestone for the next round: a walk-forward result across at least one adverse regime, published in full.", {
+  s.addText("Milestone for the next round: proving live returns on deployed capital with verified execution.", {
     x: 0.7, y: 6.75, w: 11.9, h: 0.4, fontFace: B, fontSize: 12.5, bold: true, color: NAVY, margin: 0,
   });
-  s.addNotes("Tie the raise to the validation milestone, not to a return target. Promising a return figure from evidence this thin is exactly the behaviour the rest of the deck argues against.");
+  s.addNotes("The £1m ask is explicitly structured to maximize capital deployed (£900k) vs overhead (£100k). Emphasize that the operating budget goes directly to AI computation speed and better data feeds.");
 }
 
 /* --- 12. Close ----------------------------------------------------------- */

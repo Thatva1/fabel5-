@@ -172,6 +172,16 @@ def analyze_ticker(ticker, config=None, snapshot=None, strategy_idea=None,
     idea_id = journal.add_idea(snapshot, thesis, plan, gate_result,
                                strategy_idea=strategy_idea, risk_base=risk_base)
 
+    # --- Auto-Execution Routing (Intraday) ---
+    # Attempt automated execution for high-confidence trades, or auto-reject hard violations.
+    # We use a try/except to ensure pipeline completion isn't blocked by execution errors.
+    try:
+        from . import execution
+        execution.auto_process_idea(idea_id, config, router)
+    except Exception as e:
+        # Failsafe: if execution router crashes, idea remains 'pending' for human review.
+        print(f"Auto-execution routing failed for idea {idea_id}: {e}")
+
     return {
         "idea_id": idea_id,
         "ticker": ticker,

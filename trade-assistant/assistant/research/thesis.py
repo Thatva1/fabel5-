@@ -268,7 +268,7 @@ def build_thesis(snapshot, snapshot_cited, context, config):
     ai_cfg = config.get("ai", {})
     if ai_cfg.get("enabled", True):
         try:
-            return _ai_thesis(snapshot_cited, context, ai_cfg.get("model", "claude-opus-5"),
+            return _ai_thesis(snapshot_cited, context, ai_cfg.get("model", "claude-3-opus-20240229"),
                               build_system_prompt(config))
         except Exception as exc:
             result = _rule_based_thesis(snapshot, context)

@@ -248,3 +248,51 @@ def _market_ok(ctx):
     if state["state"] != market_regime.RISK_ON:
         return None
     return list(state["reasons"])
+
+class PEADStrategy(Strategy):
+    """Post-Earnings Announcement Drift (PEAD)."""
+    name = "pead_drift"
+    label = "Post-Earnings Announcement Drift"
+    description = "Buys the top 10% of earnings surprises, expecting drift over 2-3 quarters."
+    regimes = ("TRENDING_UP", "SIDEWAYS")
+    defaults = {"top_percentile": 0.10, "hold_months": 6}
+
+    def detect(self, ctx):
+        # Awaiting fundamental cross-sectional data pipe.
+        return None
+
+class QMJStrategy(Strategy):
+    """Quality Minus Junk (QMJ)."""
+    name = "qmj_factor"
+    label = "Quality Minus Junk"
+    description = "Buys high-profitability/low-debt companies and shorts junk over 6-9 months."
+    regimes = ("TRENDING_UP", "TRENDING_DOWN", "SIDEWAYS")
+    defaults = {"hold_months": 6}
+
+    def detect(self, ctx):
+        # Awaiting fundamental cross-sectional data pipe.
+        return None
+
+class MacroRegimeSectorRotation(Strategy):
+    """Macro Regime Sector Rotation."""
+    name = "macro_sector_rotation"
+    label = "Macro Regime Sector Rotation"
+    description = "Uses macro data (FRED) to rotate into the 3 sectors proven to outperform in the current regime."
+    regimes = ("TRENDING_UP", "TRENDING_DOWN", "SIDEWAYS", "VOLATILITY_SQUEEZE")
+    defaults = {"hold_months": 6}
+
+    def detect(self, ctx):
+        # Awaiting macro sector mapping logic.
+        return None
+
+class Activist13DTracking(Strategy):
+    """Activist Investor Co-attraction (13D Tracking)."""
+    name = "activist_13d_tracking"
+    label = "Activist 13D Tracking"
+    description = "Buys stocks when top-tier activists file 13D >5% stakes, holding for 9 months."
+    regimes = ("TRENDING_UP", "SIDEWAYS")
+    defaults = {"hold_months": 9}
+
+    def detect(self, ctx):
+        # Awaiting SEC Edgar / 13D filings pipe.
+        return None

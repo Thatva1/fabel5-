@@ -853,7 +853,7 @@ short_rules:
 macro_events: []
 ai:
   enabled: true
-  model: claude-sonnet-5
+  model: claude-3-5-sonnet-20241022
 providers:
   # Interactive Brokers as a DATA source — separate from IBKR as a broker.
   # Fixes three things yfinance cannot: its data is licensed for commercial

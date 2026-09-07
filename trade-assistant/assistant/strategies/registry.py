@@ -15,7 +15,9 @@ from .defensive_seasonal import (HalloweenStrategy, LowVolatilityStrategy,
                                  TurnOfMonthStrategy)
 from .low_beta import LowBetaStrategy
 from .momentum_variants import (DualMomentumStrategy, FiftyTwoWeekHighStrategy,
-                                SectorMomentumStrategy)
+                                SectorMomentumStrategy, PEADStrategy,
+                                QMJStrategy, MacroRegimeSectorRotation,
+                                Activist13DTracking)
 from .reversal import (BandReversionStrategy, LongTermReversalStrategy,
                        ShortTermReversalStrategy)
 from .ts_momentum import TimeSeriesMomentumStrategy
@@ -42,6 +44,11 @@ BUILTIN = (
     # T3 — speculative, kept to be measured rather than argued about
     BandReversionStrategy,
     HalloweenStrategy,
+    # T4 — medium-term positional additions
+    PEADStrategy,
+    QMJStrategy,
+    MacroRegimeSectorRotation,
+    Activist13DTracking,
 )
 
 

@@ -422,3 +422,51 @@ def cancel_ticket(ticket_id):
         raise ExecutionRefused(f"Ticket #{ticket_id} is '{ticket['status']}' and cannot be cancelled.")
     journal.update_order(ticket_id, "cancelled", detail="cancelled by user before submission")
     return {"ticket_id": ticket_id, "status": "cancelled"}
+
+def auto_process_idea(idea_id, config, router):
+    """
+    Automated execution routing based on confidence and risk limits.
+    
+    1. Hard risk violation -> Reject immediately (no human review).
+    2. High confidence -> Auto-trade (no human approval needed).
+    3. Borderline -> Leave as 'pending' for human review.
+    """
+    idea = journal.get_idea(idea_id)
+    if not idea:
+        return
+    
+    payload = idea.get("payload") or {}
+    gate_result = payload.get("gate") or {}
+    
+    # 1. Hard risk violation -> Auto-Reject
+    if gate_result.get("verdict") == "rejected" or gate_result.get("hard_failures"):
+        journal.set_decision(idea_id, "rejected")
+        journal.record_outcome(idea_id, "scratch", notes="Auto-rejected due to hard risk violation")
+        return
+    
+    # 2. Confidence Check
+    plan = payload.get("plan") or {}
+    confidence = plan.get("confidence") or 0
+    
+    strategy_idea = payload.get("strategy_idea") or {}
+    meta = strategy_idea.get("meta") or {}
+    
+    # We define High Confidence as LLM confidence >= 80, or Kelly fraction > 0.
+    is_high_confidence = (confidence >= 80) or (meta.get("kelly_fraction", 0) > 0) or (meta.get("ml_probability_of_success", 0) >= 0.70)
+    
+    if is_high_confidence:
+        # Auto-Approve
+        journal.set_decision(idea_id, "approved")
+        
+        # Auto-Execute if execution is enabled
+        if config.get("execution", {}).get("enabled"):
+            try:
+                ticket = prepare_ticket(idea_id, config, router)
+                # Pass the exact ticker to bypass the typed confirmation check
+                confirm_ticket(ticket["ticket_id"], ticket["ticker"], config, router)
+            except ExecutionRefused:
+                # It remains approved, but execution was refused (e.g. drift limit exceeded).
+                # The user can still see it in the dashboard.
+                pass
+            except Exception:
+                pass

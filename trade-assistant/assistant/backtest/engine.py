@@ -55,6 +55,7 @@ DEFAULTS = {
         "sector_momentum", "dual_momentum", "high_52w",
         "short_reversal", "long_reversal", "turn_of_month",
         "band_reversion", "halloween",
+        "pead_drift", "qmj_factor", "macro_sector_rotation", "activist_13d_tracking",
     ],
     # A market-order fill that drifts toward the stop shrinks the risk it was
     # sized against. Below this fraction of the planned risk the setup is no
