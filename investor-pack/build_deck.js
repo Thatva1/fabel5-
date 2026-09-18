@@ -229,12 +229,12 @@ function footnote(s, text) {
   s.addChart(pres.ChartType.bar, [
     {
       name: "Annual return %",
-      labels: ["Buy & hold", "long_reversal", "4-strategy blend", "ts_momentum", "dual_momentum"],
+      labels: ["Buy & hold", "Mean Reversion", "4-strategy blend", "Trend Following", "Macro Rotation"],
       values: [23.68, 20.18, 19.20, 17.55, 14.07],
     },
     {
       name: "Max drawdown %",
-      labels: ["Buy & hold", "long_reversal", "4-strategy blend", "ts_momentum", "dual_momentum"],
+      labels: ["Buy & hold", "Mean Reversion", "4-strategy blend", "Trend Following", "Macro Rotation"],
       values: [37.76, 22.62, 23.67, 30.61, 28.94],
     },
   ], {
@@ -271,7 +271,7 @@ function footnote(s, text) {
 {
   const s = lightSlide("On risk-adjusted measures, the strategies win", "Results");
   const rows = [
-    ["", "long_reversal", "4-strategy blend", "Buy & hold"],
+    ["", "Mean Reversion", "4-strategy blend", "Buy & hold"],
     ["Annual return", "20.18%", "19.20%", "23.68%"],
     ["Max drawdown", "22.62%", "23.67%", "37.76%"],
     ["Sharpe", "1.30", "1.12", "1.03"],
@@ -298,7 +298,7 @@ function footnote(s, text) {
 
   card(s, { x: 8.55, y: 2.0, w: 4.05, h: 3.05, fill: "FFF8EC" });
   s.addText("The objection we agree with", { x: 8.85, y: 2.22, w: 3.45, h: 0.4, fontFace: H, fontSize: 16, bold: true, color: AMBER, margin: 0 });
-  s.addText("long_reversal buys three-year laggards, over a decade in which beaten-down names came roaring back — precisely the trade it is built to make. 386 trades in one favourable regime is a hypothesis with supporting evidence, not an established edge.", {
+  s.addText("Mean Reversion buys three-year laggards, over a decade in which beaten-down names came roaring back — precisely the trade it is built to make. 386 trades in one favourable regime is a hypothesis with supporting evidence, not an established edge.", {
     x: 8.85, y: 2.68, w: 3.45, h: 2.2, fontFace: B, fontSize: 11.5, color: NAVY, margin: 0,
   });
 

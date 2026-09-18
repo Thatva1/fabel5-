@@ -217,22 +217,22 @@ strategies:
     # and a monthly rotation gated on a per-ticker ADX reading is being filtered
     # twice — once by a measure it never asked for. Its own market-trend overlay
     # is the filter the research actually specifies.
-    regimes: [TRENDING_UP, SIDEWAYS, VOLATILITY_SQUEEZE]
+    regimes: [TRENDING_UP, SIDEWAYS, VOLATILITY_SQUEEZE, TRENDING_DOWN]
     lookback_bars: 252           # the 12 in "12-1": one trading year
     skip_bars: 21                # the 1: last month excluded, it mean-reverts
     top_n: 12                    # hold the top 10-15 of the ranking
     min_universe: 10             # fewer names than this is not a cross-section
     rebalance: weekly
     require_market_trend: true   # the anti-crash overlay; false = the raw 1993 rule
-    max_vol_pct: 60.0            # skip a leader whose own vol has exploded
-    stop_atr: 3.0                # wide: this holds for weeks, not days
-    reward_multiple: 3.0
+    max_vol_pct: 80.0            # skip a leader whose own vol has exploded
+    stop_atr: 2.0                # wide: this holds for weeks, not days
+    reward_multiple: 1.5
   # Time-series momentum / trend-following — Moskowitz, Ooi & Pedersen (2012).
   # Strongest on index ETFs and futures; a result from single mega-cap names is
   # not a test of this paper. Point it at index instruments to test it properly.
   ts_momentum:
     enabled: true
-    regimes: [TRENDING_UP, TRENDING_DOWN, SIDEWAYS, VOLATILITY_SQUEEZE]
+    regimes: [TRENDING_UP, SIDEWAYS, VOLATILITY_SQUEEZE, TRENDING_DOWN]
     # The only strategy here with a short leg, and it is switched off. Measured
     # over ten years on the watchlist: longs +£145,479, shorts -£68,694, and
     # turning shorts off moved portfolio CAGR from 2.93% to 9.13%. The rule now
@@ -244,22 +244,22 @@ strategies:
     rebalance: weekly
     require_ma_agreement: true   # false = the unmodified 2012 rule
     max_vol_pct: 80.0
-    stop_atr: 3.0
-    reward_multiple: 3.0
+    stop_atr: 2.0
+    reward_multiple: 1.5
   # Long-only low-beta / low-volatility tilt — Frazzini & Pedersen (2014),
   # Baker-Bradley-Wurgler (2011). The diversifier: it buys the end of the market
   # momentum ignores, so the two lose money at different times.
   low_beta:
     enabled: true
-    regimes: [TRENDING_UP, SIDEWAYS, VOLATILITY_SQUEEZE]
+    regimes: [TRENDING_UP, SIDEWAYS, VOLATILITY_SQUEEZE, TRENDING_DOWN]
     max_beta: 0.85               # moves 85% as much as its index, or less
     beta_lookback_bars: 252
     max_vol_rank_pct: 40.0       # the calmest 40% of the watchlist
-    max_vol_pct: 30.0            # absolute fallback when there is no universe
+    max_vol_pct: 80.0            # absolute fallback when there is no universe
     require_above_trend: true    # calm is not the same as rising
     rebalance: weekly
-    stop_atr: 2.5
-    reward_multiple: 2.5
+    stop_atr: 2.0
+    reward_multiple: 1.5
 
 # --- Combining the strategies into one algorithm -----------------------------
 # What decides which instruments the book holds, when twelve strategies are all
@@ -291,7 +291,7 @@ strategies:
 # agree about scores near zero and gets no slot — something the priority list
 # could not express at all.
 composite:
-  enabled: false
+  enabled: true
   # Below this score an instrument is not worth a slot. 1.0 is one unopposed
   # strategy, so a floor above it demands genuine agreement and a floor below
   # it lets a lone signal through.
@@ -447,7 +447,7 @@ intraday:
     opening_range_break:
       enabled: true
       range_minutes: 30
-      reward_multiple: 1.0
+      reward_multiple: 1.5
       min_range_pct: 0.15
       max_range_pct: 3.0
     # Fade a stretch from the session VWAP, targeting the VWAP itself. The
@@ -456,7 +456,7 @@ intraday:
     vwap_reversion:
       enabled: true
       stretch_pct: 0.4
-      stop_atr: 1.5
+      stop_atr: 2.0
       atr_minutes: 30
       warmup_minutes: 45
     # Gao, Han, Li & Zhou (2018) — the first half hour predicts the last. Best
@@ -469,7 +469,7 @@ intraday:
       entry_minutes_before_close: 35
       min_move_pct: 0.1
       stop_atr: 2.0
-      reward_multiple: 1.0
+      reward_multiple: 1.5
     # The weakest by evidence, and honest about it: a gap has a CAUSE and this
     # cannot read it. An earnings gap and a sympathy gap look identical in
     # price. The size band is the only filter, so keep max_gap_pct low.
@@ -669,7 +669,7 @@ blend:
 #
 # This does NOT guarantee a mixed book on its own — a strategy still has to
 # fire — but it stops the weakest measured signals outranking the strongest.
-strategy_priority:
+# strategy_priority:
   - long_reversal
   - ts_momentum
   - dual_momentum
