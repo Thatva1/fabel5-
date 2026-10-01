@@ -306,3 +306,35 @@ def test_a_context_without_precomputed_arrays_still_works():
     frame = session([100.0] * 20)
     assert ctx(frame).session_vwap() == pytest.approx(100.0)
     assert ctx(frame).session_atr(30) is not None
+
+
+
+# --- the September additions --------------------------------------------------
+
+def test_an_unwritten_rule_is_not_registered_as_a_strategy():
+    """A class whose detect() returns None is counted, listed and enabled like a
+    working rule. Nine of them once made the library look twice its size."""
+    assert not set(intraday.PLANNED) & set(intraday.REGISTRY)
+    for name, rule in intraday.REGISTRY.items():
+        assert type(rule()).detect is not intraday.IntradayStrategy.detect, name
+
+
+def test_the_volatility_rule_does_not_open_at_the_bell():
+    """It had no has_room check, so it could open with minutes of session left."""
+    closes = [100.0] * 20 + [100.0, 101.5, 99.0, 102.0, 98.5]
+    rule = intraday.HMMRegimeFilterStrategy()
+    params = rule.params_for({})
+    assert rule.detect(ctx(session(closes), params=params)) is not None
+    assert rule.detect(ctx(session(closes), params=params, minutes_to_close=5.0)) is None
+
+
+def test_no_idea_carries_a_win_rate_nobody_measured():
+    """Every Kalman idea was tagged with a Kelly fraction computed from a
+    hardcoded 55% win rate, and the order router read any Kelly above zero as
+    high confidence."""
+    closes = [100 + i * 0.1 for i in range(40)]
+    rule = intraday.KalmanFilterStrategy()
+    idea = rule.detect(ctx(session(closes), params=rule.params_for({})))
+    assert idea is not None and idea.direction == LONG
+    assert "kelly_fraction" not in idea.meta
+

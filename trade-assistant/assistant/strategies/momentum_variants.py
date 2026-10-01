@@ -249,73 +249,148 @@ def _market_ok(ctx):
         return None
     return list(state["reasons"])
 
+
+# --- price-only stand-ins ------------------------------------------------------
+#
+# The four rules below are named after effects that need data this system does
+# not have: earnings dates and surprises (PEAD), profitability and balance-sheet
+# quality (QMJ), a macro model, and SEC 13D filings. Each one substitutes a
+# pattern in price and volume for that data. That makes them hypotheses about
+# price patterns, NOT replications of the papers the names come from — so they
+# carry "(price proxy)" in the label, say what they actually read in the
+# description, and ship switched off in config.yaml until they are measured.
+
+def _proxy_idea(strategy, ctx, reasons, headline, meta=None):
+    """A long at the close with the stop and target `stop_atr` ATRs away.
+
+    Uses the scanner's ATR — the same number every other strategy sizes
+    against — rather than a column on the price frame, which the app never
+    supplies.
+    """
+    p = ctx.params
+    price, atr = ctx.snapshot.get("price"), ctx.snapshot.get("atr")
+    levels = factors.atr_levels(price, atr, LONG, p["stop_atr"], p["reward_multiple"])
+    if levels is None:
+        return []
+    idea = strategy.build(ctx, LONG, entry=price, stop=levels[0], target=levels[1],
+                          reasons=list(ctx.regime.get("reasons", [])) + reasons,
+                          headline=headline, meta=meta)
+    return [idea] if idea else []
+
+
 class PEADStrategy(Strategy):
+    """A volume-spike up-day, standing in for an earnings surprise."""
+
     name = "pead_drift"
-    label = "Post-Earnings Announcement Drift (Proxy)"
-    description = "Uses massive volume gaps (3x average) as a proxy for earnings surprises."
+    label = "Earnings drift (price proxy)"
+    description = ("Buys after an up-day on at least three times normal volume. "
+                   "It cannot see earnings dates or surprises, so any high-volume "
+                   "jump triggers it — news, index changes and rumours included.")
     regimes = ("TRENDING_UP", "SIDEWAYS")
-    defaults = {"stop_atr": 2.0, "reward_multiple": 3.0}
+    defaults = {"volume_multiple": 3.0, "min_jump_pct": 2.0, "volume_lookback_bars": 20,
+                "stop_atr": 2.0, "reward_multiple": 3.0}
 
     def detect(self, ctx):
-        if len(ctx.df) < 20: return None
-        # Proxy: 3x average volume and 2% gap up
-        vol_ma = ctx.df['Volume'].rolling(20).mean().iloc[-2]
-        if ctx.df['Volume'].iloc[-1] > vol_ma * 3 and ctx.df['Close'].iloc[-1] > ctx.df['Close'].iloc[-2] * 1.02:
-            price = ctx.df['Close'].iloc[-1]
-            atr = ctx.df['ATR'].iloc[-1] if 'ATR' in ctx.df else price * 0.02
-            stop = price - (atr * self.params["stop_atr"])
-            target = price + (atr * self.params["stop_atr"] * self.params["reward_multiple"])
-            return [self.build(ctx, LONG, entry=price, stop=stop, target=target, headline="Earnings Drift Proxy")]
-        return None
+        p = ctx.params
+        lookback = int(p["volume_lookback_bars"])
+        if len(ctx.df) < lookback + 2:
+            return []
+        closes, volume = ctx.df["Close"], ctx.df["Volume"]
+        # The average excludes today, so the spike is not measured against itself.
+        usual = float(volume.iloc[-lookback - 1:-1].mean())
+        today, prior = float(closes.iloc[-1]), float(closes.iloc[-2])
+        if not (indicators.is_finite(usual) and usual > 0 and prior > 0):
+            return []          # no volume reported (spot FX) — nothing to compare
+        multiple = float(volume.iloc[-1]) / usual
+        jump = (today / prior - 1) * 100
+        if multiple < float(p["volume_multiple"]) or jump < float(p["min_jump_pct"]):
+            return []
+        return _proxy_idea(
+            self, ctx,
+            [f"Closed up {jump:.1f}% on {multiple:.1f}x its {lookback}-day average volume",
+             "A price-and-volume stand-in for an earnings surprise: the cause of "
+             "the jump is not known to this rule"],
+            headline=f"Up {jump:.1f}% on {multiple:.1f}x volume",
+            meta={"volume_multiple": round(multiple, 2), "jump_pct": round(jump, 2)})
+
 
 class QMJStrategy(Strategy):
+    """Price stretched above its 50-day average, standing in for quality."""
+
     name = "qmj_factor"
-    label = "Quality Minus Junk (Proxy)"
-    description = "Uses low volatility and steady uptrends as a proxy for high-quality."
+    label = "Quality (price proxy)"
+    description = ("Buys when price is more than 5% above its 50-day average. It "
+                   "reads no profitability or balance-sheet data, so this is a "
+                   "trend rule rather than a measure of company quality.")
     regimes = ("TRENDING_UP", "TRENDING_DOWN", "SIDEWAYS")
-    defaults = {"stop_atr": 3.0, "reward_multiple": 2.0}
+    defaults = {"ma_bars": 50, "min_stretch_pct": 5.0,
+                "stop_atr": 3.0, "reward_multiple": 2.0}
 
     def detect(self, ctx):
-        if len(ctx.df) < 50: return None
-        # Proxy: Steady uptrend, no wild swings
-        close = ctx.df['Close'].iloc[-1]
-        ma50 = ctx.df['Close'].rolling(50).mean().iloc[-1]
-        if close > ma50 * 1.05:
-            atr = ctx.df['ATR'].iloc[-1] if 'ATR' in ctx.df else close * 0.02
-            stop = close - (atr * self.params["stop_atr"])
-            target = close + (atr * self.params["stop_atr"] * self.params["reward_multiple"])
-            return [self.build(ctx, LONG, entry=close, stop=stop, target=target, headline="Quality Trend Proxy")]
-        return None
+        p = ctx.params
+        bars = int(p["ma_bars"])
+        closes = ctx.df["Close"].dropna()
+        if len(closes) < bars:
+            return []
+        average = float(closes.tail(bars).mean())
+        if average <= 0:
+            return []
+        stretch = (float(closes.iloc[-1]) / average - 1) * 100
+        if stretch <= float(p["min_stretch_pct"]):
+            return []
+        return _proxy_idea(
+            self, ctx,
+            [f"Price is {stretch:.1f}% above its {bars}-day average",
+             "A trend measure standing in for quality: no fundamentals are read"],
+            headline=f"{stretch:.1f}% above its {bars}-day average",
+            meta={"stretch_pct": round(stretch, 2)})
+
 
 class MacroRegimeSectorRotation(Strategy):
+    """Long whenever the benchmark index is risk-on."""
+
     name = "macro_sector_rotation"
-    label = "Macro Regime Sector Rotation (Proxy)"
-    description = "Buys when SPY is strictly risk-on."
+    label = "Market risk-on (price proxy)"
+    description = ("Buys any instrument while its benchmark index is in an "
+                   "uptrend. It reads no macro data and does not rank sectors, "
+                   "so in practice it is exposure to the market itself.")
     regimes = ("TRENDING_UP", "TRENDING_DOWN", "SIDEWAYS", "VOLATILITY_SQUEEZE")
     defaults = {"stop_atr": 2.5, "reward_multiple": 2.0}
 
     def detect(self, ctx):
-        if len(ctx.df) < 10: return None
-        close = ctx.df['Close'].iloc[-1]
-        atr = ctx.df['ATR'].iloc[-1] if 'ATR' in ctx.df else close * 0.02
-        stop = close - (atr * self.params["stop_atr"])
-        target = close + (atr * self.params["stop_atr"] * self.params["reward_multiple"])
-        return [self.build(ctx, LONG, entry=close, stop=stop, target=target, headline="Macro Proxy")]
+        # Without this check the rule bought every instrument on every bar.
+        verdict = _market_ok(ctx)
+        if verdict is None:
+            return []
+        return _proxy_idea(self, ctx, verdict, headline="Benchmark is risk-on")
+
 
 class Activist13DTracking(Strategy):
+    """A one-day RSI surge, standing in for an activist building a stake."""
+
     name = "activist_13d_tracking"
-    label = "Activist 13D Tracking (Proxy)"
-    description = "Uses sudden momentum spikes in quiet stocks as a proxy for activist accumulation."
+    label = "Activist stake (price proxy)"
+    description = ("Buys when the 14-day RSI jumps from below 40 to above 60 in "
+                   "one session. It reads no 13D filings, so it cannot tell an "
+                   "activist from any other sudden buyer.")
     regimes = ("TRENDING_UP", "SIDEWAYS")
-    defaults = {"stop_atr": 2.0, "reward_multiple": 4.0}
+    defaults = {"rsi_period": 14, "rsi_from_below": 40.0, "rsi_to_above": 60.0,
+                "stop_atr": 2.0, "reward_multiple": 4.0}
 
     def detect(self, ctx):
-        if len(ctx.df) < 14: return None
-        if 'RSI' in ctx.df and ctx.df['RSI'].iloc[-2] < 40 and ctx.df['RSI'].iloc[-1] > 60:
-            price = ctx.df['Close'].iloc[-1]
-            atr = ctx.df['ATR'].iloc[-1] if 'ATR' in ctx.df else price * 0.02
-            stop = price - (atr * self.params["stop_atr"])
-            target = price + (atr * self.params["stop_atr"] * self.params["reward_multiple"])
-            return [self.build(ctx, LONG, entry=price, stop=stop, target=target, headline="Activist Proxy")]
-        return None
-
+        p = ctx.params
+        closes = ctx.df["Close"].dropna()
+        if len(closes) < int(p["rsi_period"]) + 2:
+            return []
+        rsi = indicators.rsi(closes, int(p["rsi_period"]))
+        before, now = float(rsi.iloc[-2]), float(rsi.iloc[-1])
+        if not (indicators.is_finite(before) and indicators.is_finite(now)):
+            return []
+        if not (before < float(p["rsi_from_below"]) and now > float(p["rsi_to_above"])):
+            return []
+        return _proxy_idea(
+            self, ctx,
+            [f"RSI went from {before:.0f} to {now:.0f} in one session",
+             "A momentum-surge stand-in for an activist stake: no filings are read"],
+            headline=f"RSI surged {before:.0f} to {now:.0f}",
+            meta={"rsi_before": round(before, 1), "rsi_now": round(now, 1)})

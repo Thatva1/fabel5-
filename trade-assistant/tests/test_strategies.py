@@ -670,3 +670,93 @@ def test_router_explains_itself_when_nothing_fires():
     result = router.route("TEST", df, snap, {})
     assert result["ideas"] == []
     assert any("no setup met its full rule set" in n for n in result["notes"])
+
+
+# --- the price-only stand-ins --------------------------------------------------
+#
+# These four crashed on every signal for three weeks. The router contained the
+# error by design, so the only symptom was a strategy that never traded — which
+# looks exactly like a strategy with nothing to do.
+
+from assistant.strategies.momentum_variants import (Activist13DTracking,   # noqa: E402
+                                                    MacroRegimeSectorRotation,
+                                                    PEADStrategy, QMJStrategy)
+
+
+@pytest.mark.parametrize("cls", registry.BUILTIN, ids=lambda c: c.name)
+def test_every_registered_strategy_answers_with_a_list(cls):
+    """The contract, checked for the whole registry: detect() returns a list and
+    does not raise, on a series where at least some rules have something to say."""
+    strategy = cls()
+    closes = _uptrend()
+    ctx = _ctx(strategy, closes, cross_section=_universe(closes),
+               benchmark_closes=_rising_benchmark())
+    assert isinstance(strategy.detect(ctx), list)
+
+
+def _one_long(ideas):
+    assert len(ideas) == 1
+    idea = ideas[0]
+    assert idea.direction == "long" and idea.stop < idea.entry < idea.target
+    assert idea.reasons
+    return idea
+
+
+def test_the_earnings_proxy_fires_on_a_high_volume_jump_and_only_then():
+    strategy = PEADStrategy()
+    closes = [100.0 + 0.01 * i for i in range(299)]
+    quiet = [1_000_000] * 299
+    jump = closes + [closes[-1] * 1.03]
+    _one_long(strategy.detect(_ctx(strategy, jump, volumes=quiet + [4_000_000])))
+    # The same jump on ordinary volume, and the same volume on a flat day.
+    assert strategy.detect(_ctx(strategy, jump, volumes=quiet + [1_000_000])) == []
+    assert strategy.detect(_ctx(strategy, closes + [closes[-1]],
+                                volumes=quiet + [4_000_000])) == []
+
+
+def test_the_earnings_proxy_stays_silent_where_no_volume_is_reported():
+    """Spot FX arrives with a volume of zero on every bar."""
+    strategy = PEADStrategy()
+    closes = [1.10] * 299 + [1.14]
+    assert strategy.detect(_ctx(strategy, closes, volumes=[0] * 300)) == []
+
+
+def test_the_quality_proxy_needs_price_stretched_above_its_average():
+    strategy = QMJStrategy()
+    _one_long(strategy.detect(_ctx(strategy, [100.0] * 280 + [112.0] * 20)))
+    assert strategy.detect(_ctx(strategy, [100.0] * 300)) == []
+
+
+def test_the_macro_proxy_checks_the_market_it_claims_to_check():
+    """It used to buy every instrument on every bar without looking."""
+    strategy = MacroRegimeSectorRotation()
+    closes = _uptrend()
+    _one_long(strategy.detect(_ctx(strategy, closes,
+                                   benchmark_closes=_rising_benchmark())))
+    assert strategy.detect(_ctx(strategy, closes,
+                                benchmark_closes=_falling_benchmark())) == []
+    assert strategy.detect(_ctx(strategy, closes)) == []
+
+
+def test_the_activist_proxy_reads_rsi_from_prices_not_from_a_column():
+    """The app's price frame has no RSI column, so a rule that looked for one
+    could never fire outside the one script that added it."""
+    strategy = Activist13DTracking()
+    closes = [100.0 - 0.3 * i for i in range(60)]
+    closes += [closes[-1] + 12.0]
+    ctx = _ctx(strategy, closes)
+    assert "RSI" not in ctx.df
+    idea = _one_long(strategy.detect(ctx))
+    assert idea.meta["rsi_before"] < 40 < 60 < idea.meta["rsi_now"]
+
+
+def test_the_stand_ins_ship_switched_off():
+    """Fixing their crash must not change what the live paper book holds."""
+    from assistant.core.config import load_config
+    config = load_config()
+    for cls in (PEADStrategy, QMJStrategy, MacroRegimeSectorRotation, Activist13DTracking):
+        assert cls().enabled(config) is False, cls.name
+    from assistant.strategies import intraday
+    for name in ("kalman_filter", "ou_process_reversion", "hmm_regime_breakout"):
+        assert intraday.REGISTRY[name]().enabled(config) is False, name
+

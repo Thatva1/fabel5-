@@ -535,240 +535,157 @@ class GapFade(IntradayStrategy):
             reasons=reasons, meta=meta)
 
 
-# --- Institutional Math Helpers ----------------------------------------------
-
-def calculate_kelly_criterion(win_rate: float, reward_risk: float) -> float:
-    """The Kelly Criterion for optimal position sizing.
-    
-    Returns the optimal fraction of the bankroll to risk.
-    In institutional practice, this is often 'Half-Kelly' to manage drawdown volatility.
-    """
-    if reward_risk <= 0: return 0.0
-    kelly = win_rate - ((1 - win_rate) / reward_risk)
-    return max(0.0, kelly)
-
-def calculate_risk_parity(volatilities: list) -> list:
-    """Naive Risk Parity Allocation.
-    
-    Weights are distributed inversely proportional to asset volatility, 
-    so each asset contributes an equal amount of risk to the portfolio.
-    """
-    if not volatilities or sum(volatilities) == 0: return []
-    inv_vols = [1.0 / v if v > 0 else 0 for v in volatilities]
-    total_inv = sum(inv_vols)
-    return [iv / total_inv for iv in inv_vols]
-
-def almgren_chriss_schedule(order_size: int, execution_steps: int) -> list:
-    """Simplified Almgren-Chriss trajectory to minimize market impact.
-    
-    Slices a large institutional order into micro-chunks to be fed into the market 
-    dynamically, hiding the order footprint.
-    """
-    if execution_steps <= 0: return []
-    base_chunk = order_size // execution_steps
-    remainder = order_size % execution_steps
-    return [base_chunk + (1 if i < remainder else 0) for i in range(execution_steps)]
-
-
-# --- Institutional Algorithms ------------------------------------------------
+# --- unmeasured additions ------------------------------------------------------
+#
+# Three rules added after the universe sweep in reports/INTRADAY-REVIEW.md. None
+# has been through research/intraday.py's breakeven-cost measurement, so each
+# ships switched off in config.yaml. The names describe the idea each one
+# reaches for; the descriptions say what the code does, which is simpler.
 
 class KalmanFilterStrategy(IntradayStrategy):
-    """Signal processing via 1D Kalman Filter to smooth microstructure noise."""
+    """Long while price holds above a fixed-gain Kalman smoothing of the session.
+
+    With constant noise settings a one-dimensional Kalman filter settles to a
+    fixed gain, which makes it an exponential moving average — here roughly a
+    ninety-bar one. So this is "price above a slow session average", a trend
+    rule, and it is true on about a third of all bars.
+    """
     name = "kalman_filter"
-    label = "Kalman Filter Trend"
-    description = "Uses a Kalman Filter to extract the true price state and trade clean momentum."
+    label = "Kalman-smoothed trend"
+    description = ("Buys while price has been above a Kalman-smoothed session "
+                   "average for two bars. Long only.")
     max_hold_minutes = 120
     min_minutes_remaining = 30
-    defaults = {"stop_atr": 1.5, "reward_multiple": 1.5, "atr_minutes": 30}
+    defaults = {"stop_atr": 1.5, "reward_multiple": 1.5, "atr_minutes": 30,
+                "measurement_error": 2.0, "process_variance": 1e-3}
 
     def detect(self, ctx):
-        if ctx.bar_count < 10 or not self.has_room(ctx): return None
-        
-        # Simplified 1D Kalman Filter implementation without external heavy libraries
+        if ctx.bar_count < 10 or not self.has_room(ctx):
+            return None
+        p = ctx.params
         prices = ctx.bars["Close"].to_numpy(dtype=float)
-        state_estimate = prices[0]
-        estimate_error = 1.0
-        measurement_error = 2.0
-        process_variance = 1e-3
-        
-        filtered_prices = []
+        estimate, error = prices[0], 1.0
+        filtered = []
         for z in prices:
-            # Predict & Update
-            estimate_error += process_variance
-            kalman_gain = estimate_error / (estimate_error + measurement_error)
-            state_estimate = state_estimate + kalman_gain * (z - state_estimate)
-            estimate_error = (1 - kalman_gain) * estimate_error
-            filtered_prices.append(state_estimate)
-            
-        current_kf = filtered_prices[-1]
-        prev_kf = filtered_prices[-2]
-        
-        atr = ctx.session_atr(ctx.params["atr_minutes"])
-        if not atr: return None
+            error += p["process_variance"]
+            gain = error / (error + p["measurement_error"])
+            estimate += gain * (z - estimate)
+            error *= 1 - gain
+            filtered.append(estimate)
+
+        atr = ctx.session_atr(p["atr_minutes"])
+        if not atr:
+            return None
         price = ctx.price
-        
-        # Trade if price breaks cleanly above the Kalman smoothed line
-        if prev_kf < prices[-2] and current_kf < price:
-            # Calculate Kelly fraction for metadata execution
-            kelly = calculate_kelly_criterion(win_rate=0.55, reward_risk=ctx.params["reward_multiple"])
-            meta = {"kalman_estimate": round(current_kf, 4), "kelly_fraction": round(kelly, 3)}
-            
-            return self.build(ctx, LONG, entry=price, stop=price - (atr * ctx.params["stop_atr"]),
-                              target=price + (atr * ctx.params["stop_atr"] * ctx.params["reward_multiple"]),
-                              headline="Kalman Filter bullish crossover", 
-                              reasons=["Price cleanly broke > KF True State Estimate"],
-                              meta=meta)
-        return None
+        if not (filtered[-2] < prices[-2] and filtered[-1] < price):
+            return None
+        risk = atr * p["stop_atr"]
+        return self.build(
+            ctx, LONG, entry=price, stop=price - risk,
+            target=price + risk * p["reward_multiple"],
+            headline="Price is holding above its Kalman-smoothed average",
+            reasons=[f"Price {price:.2f} has been above the smoothed session "
+                     f"average ({filtered[-1]:.2f}) for two bars"],
+            meta={"kalman_estimate": round(filtered[-1], 4)})
+
 
 class OUProcessStatArbStrategy(IntradayStrategy):
-    """Ornstein-Uhlenbeck mean-reversion process for Intraday Stat Arb."""
+    """Buy a close two standard deviations below the session's average close.
+
+    The idea behind it is an Ornstein-Uhlenbeck process — a price pulled back
+    toward a mean — but nothing here fits one: no reversion speed, no
+    half-life, no test that the session is mean-reverting at all. It is a
+    z-score fade, the same family as VWAPReversion above with a different
+    anchor.
+    """
     name = "ou_process_reversion"
-    label = "OU Process Stat Arb"
-    description = "Trades mean-reversion using OU mathematical half-life."
+    label = "Session z-score reversion"
+    description = ("Buys when price is two standard deviations below the "
+                   "session's average close, targeting that average. Long only.")
     max_hold_minutes = 90
     min_minutes_remaining = 30
-    defaults = {"z_score_threshold": 2.0, "stop_atr": 2.0}
+    defaults = {"z_score_threshold": 2.0, "stop_atr": 2.0, "atr_minutes": 30}
 
     def detect(self, ctx):
-        if ctx.bar_count < 30 or not self.has_room(ctx): return None
+        if ctx.bar_count < 30 or not self.has_room(ctx):
+            return None
+        p = ctx.params
         prices = ctx.bars["Close"].to_numpy(dtype=float)
-        mean_price = prices.mean()
-        std_price = prices.std()
-        if std_price == 0: return None
-        
-        z_score = (ctx.price - mean_price) / std_price
-        atr = ctx.session_atr()
-        if not atr: return None
-        
-        # Applies OU logic to a stationary detrended asset.
-        if z_score < -ctx.params["z_score_threshold"]:
-            return self.build(ctx, LONG, entry=ctx.price, stop=ctx.price - (atr*ctx.params["stop_atr"]),
-                              target=mean_price, headline=f"OU Process Z-Score {z_score:.2f}",
-                              reasons=["Extreme mean deviation detected via OU framework"])
-        return None
+        mean, std = prices.mean(), prices.std()
+        if std == 0:
+            return None
+        z_score = (ctx.price - mean) / std
+        atr = ctx.session_atr(p["atr_minutes"])
+        if not atr or z_score >= -p["z_score_threshold"]:
+            return None
+        return self.build(
+            ctx, LONG, entry=ctx.price, stop=ctx.price - atr * p["stop_atr"],
+            target=mean, headline=f"{abs(z_score):.1f} standard deviations below "
+                                  "the session average",
+            reasons=[f"Price {ctx.price:.2f} is {abs(z_score):.1f} standard "
+                     f"deviations below the session's average close of {mean:.2f}"],
+            meta={"z_score": round(float(z_score), 2)})
+
 
 class HMMRegimeFilterStrategy(IntradayStrategy):
-    """Hidden Markov Model for Regime Detection."""
+    """Buy when short-term volatility jumps relative to the last 100 minutes.
+
+    No hidden Markov model is fitted; the "regime" is a ratio of two standard
+    deviations. It also buys whichever way price is moving, so a volatility
+    spike on the way DOWN triggers a long exactly as one on the way up does.
+    """
     name = "hmm_regime_breakout"
-    label = "HMM Regime Breakout"
-    description = "Trades breakouts only when HMM detects a high-volatility regime."
-    
-    def detect(self, ctx):
-        # Simulates HMM regime detection matrix math.
-        if ctx.bar_count < 20: return None
-        recent_vol = ctx.bars["Close"].tail(5).std()
-        baseline_vol = ctx.bars["Close"].tail(20).std()
-        
-        # Regime 1: High Volatility Expansion State
-        if recent_vol > baseline_vol * 1.5:
-            price = ctx.price
-            atr = ctx.session_atr() or (price * 0.01)
-            return self.build(ctx, LONG, entry=price, stop=price - atr, target=price + atr*2,
-                              headline="HMM High-Vol Regime Detected", reasons=["Vol expansion state identified by HMM proxy"])
-        return None
+    label = "Volatility expansion"
+    description = ("Buys when the last 25 minutes are at least 1.5 times as "
+                   "volatile as the last 100, whichever way price is moving.")
+    defaults ={"fast_minutes": 25, "slow_minutes": 100, "expansion": 1.5,
+                "stop_atr": 1.0, "reward_multiple": 2.0, "atr_minutes": 30}
 
-class MetaLabelingStrategy(IntradayStrategy):
-    """Marcos Lopez de Prado's Meta-Labeling ML Filter."""
-    name = "meta_labeling_filter"
-    label = "Meta-Labeling ML Filter"
-    description = "Uses ML to predict if another strategy's signal will win or lose."
-    
     def detect(self, ctx):
-        # In a production environment, this strategy acts as a decorator/wrapper.
-        # It intercepts primary signals and applies an XGBoost probability threshold.
-        # If ML probability > 60%, it passes the trade. Else, it vetoes.
-        return None
-
-class FamaFrenchIntradayStrategy(IntradayStrategy):
-    """Proxy for Fama-French Multi-Factor Model using Intraday volume factors."""
-    name = "fama_french_intraday"
-    label = "Fama-French Intraday Factor"
-    description = "Ranks intraday assets via Size/Momentum proxies."
-    
-    def detect(self, ctx):
-        # Awaiting fundamental cross-sectional data pipe.
-        return None
-
-class OrderBookImbalanceStrategy(IntradayStrategy):
-    """HFT Order Book Imbalance Microstructure Strategy."""
-    name = "order_book_imbalance"
-    label = "L2 Order Book Imbalance"
-    description = "Fires microseconds before price movement based on Bid/Ask L2 skew."
-    
-    def detect(self, ctx):
-        # Awaiting ctx.order_book (Level 2 data) pipe.
-        if not hasattr(ctx, "order_book"): return None
-        return None
-
-class NLPFinBERTStrategy(IntradayStrategy):
-    """Natural Language Processing via FinBERT for instant sentiment trading."""
-    name = "nlp_finbert_sentiment"
-    label = "FinBERT News Sentiment"
-    description = "Trades instantly on linguistic shifts in news feeds."
-    
-    def detect(self, ctx):
-        # Awaiting ctx.news_sentiment live text pipe.
-        if not hasattr(ctx, "news_sentiment"): return None
-        return None
+        p = ctx.params
+        fast, slow = ctx.bars_for(p["fast_minutes"]), ctx.bars_for(p["slow_minutes"])
+        # has_room was missing, so this opened positions in the final minutes
+        # of the session with no time left to be right or wrong.
+        if ctx.bar_count < slow or not self.has_room(ctx):
+            return None
+        closes = ctx.bars["Close"]
+        recent, baseline = closes.tail(fast).std(), closes.tail(slow).std()
+        if not baseline or not recent > baseline * p["expansion"]:
+            return None
+        atr = ctx.session_atr(p["atr_minutes"])
+        if not atr:
+            return None
+        price, risk = ctx.price, atr * p["stop_atr"]
+        return self.build(
+            ctx, LONG, entry=price, stop=price - risk,
+            target=price + risk * p["reward_multiple"],
+            headline="Short-term volatility has expanded",
+            reasons=[f"The last {p['fast_minutes']} minutes are "
+                     f"{recent / baseline:.1f}x as volatile as the last "
+                     f"{p['slow_minutes']}"],
+            meta={"vol_ratio": round(float(recent / baseline), 2)})
 
 
-class MacroFadeTheFirstMoveStrategy(IntradayStrategy):
-    """AI-Powered 'Fade the First Move' Macro Strategy."""
-    name = "macro_fade_first_move"
-    label = "Macro Fade the First Move"
-    description = "Fades the initial HFT algo spike following a macro data release if LLM analysis contradicts the move."
-    
-    def detect(self, ctx):
-        # Awaiting live macro news + LLM pipeline
-        return None
-
-class IntradayPairTradingStrategy(IntradayStrategy):
-    """Intraday Statistical Pair Trading (Cointegration)."""
-    name = "intraday_pair_trading"
-    label = "Intraday Stat Pair Trading"
-    description = "Shorts overperformer and buys underperformer when a cointegrated pair diverges >2 standard deviations."
-    
-    def detect(self, ctx):
-        # Awaiting cross-sectional pair tracking pipe
-        return None
-
-class MOCImbalanceArbitrageStrategy(IntradayStrategy):
-    """Market On Close (MOC) Imbalance Arbitrage."""
-    name = "moc_imbalance_arb"
-    label = "MOC Imbalance Arbitrage"
-    description = "Buys at 3:45 PM on massive exchange buy imbalances and sells at 4:00 PM."
-    
-    def detect(self, ctx):
-        # Awaiting real-time exchange imbalance feeds (e.g. NYSE/NASDAQ MOC feeds)
-        return None
-
-class ZeroDTEGammaSqueezeStrategy(IntradayStrategy):
-    """0DTE Options Gamma Squeeze Tracking."""
-    name = "zero_dte_gamma_squeeze"
-    label = "0DTE Gamma Squeeze"
-    description = "Buys underlying stock when 0DTE OTM Call volume surges, tracking market maker forced hedging."
-    
-    def detect(self, ctx):
-        # Awaiting live options OPRA flow pipe
-        return None
-
-class VWAPInstitutionalAccumulation(IntradayStrategy):
-    """VWAP Institutional Accumulation (Trend Continuation)."""
-    name = "vwap_institutional_accumulation"
-    label = "VWAP Trend Continuation"
-    description = "Buys low-volume pullbacks to VWAP after a high-volume breakout, riding institutional accumulation."
-    
-    def detect(self, ctx):
-        # Awaiting VWAP and localized volume profile
-        return None
 REGISTRY = {cls.name: cls for cls in (
     OpeningRangeBreak, VWAPReversion, IntradayMomentum, GapFade,
-    KalmanFilterStrategy, OUProcessStatArbStrategy, HMMRegimeFilterStrategy,
-    MetaLabelingStrategy, FamaFrenchIntradayStrategy, OrderBookImbalanceStrategy,
-    NLPFinBERTStrategy, MacroFadeTheFirstMoveStrategy, IntradayPairTradingStrategy,
-    MOCImbalanceArbitrageStrategy, ZeroDTEGammaSqueezeStrategy,
-    VWAPInstitutionalAccumulation
-)}
+    KalmanFilterStrategy, OUProcessStatArbStrategy, HMMRegimeFilterStrategy)}
+
+# Ideas with no implementation, and the input each is waiting for. Kept as a
+# list rather than as classes whose detect() returns None: an empty class in
+# REGISTRY is counted, listed and enabled like a working rule, and nothing on
+# the dashboard distinguishes a strategy that found no setup from one that
+# cannot find any.
+PLANNED = {
+    "meta_labeling_filter": "a trained classifier and a labelled trade history",
+    "fama_french_intraday": "cross-sectional fundamental data",
+    "order_book_imbalance": "Level 2 order-book data (no subscription held)",
+    "nlp_finbert_sentiment": "a live news feed and a sentiment model",
+    "macro_fade_first_move": "a live macro-release calendar and feed",
+    "intraday_pair_trading": "paired instruments in one context, and a short book",
+    "moc_imbalance_arb": "exchange closing-auction imbalance feeds",
+    "zero_dte_gamma_squeeze": "OPRA options flow (no subscription held)",
+    "vwap_institutional_accumulation": "a volume-profile rule, not yet written",
+}
 
 
 def enabled_strategies(config):
