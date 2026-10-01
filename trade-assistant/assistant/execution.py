@@ -12,9 +12,15 @@ Every order must pass all of these, in order:
   6. Confirming requires typing the ticker symbol exactly, and the ticket must
      still be pending (single-use)
 
-Nothing in the research pipeline calls into this module. The scanner cannot
-reach it, the LLM cannot reach it: orders originate only from an explicit
-human click plus a typed confirmation.
+Nothing in the research pipeline places an order through this module unless
+`execution.auto_trade` is switched on. With it off — the default — the scanner
+cannot reach the broker and neither can the LLM: orders originate only from an
+explicit human click plus a typed confirmation.
+
+`auto_process_idea` at the bottom is the one deliberate exception. It skips
+steps 2 and 6 (your approval and your typed confirmation) and nothing else, it
+is off unless config.yaml says otherwise, and it refuses any account not proven
+to be paper.
 """
 from datetime import datetime, timezone
 
@@ -320,7 +326,8 @@ def _recheck_price_at_confirmation(ticket, plan, router):
             f"{float(stop_price):.2f}. The setup is invalidated — nothing was sent.")
 
 
-def confirm_ticket(ticket_id, typed_confirmation, config, router=None):
+def confirm_ticket(ticket_id, typed_confirmation, config, router=None,
+                   confirmed_by="human-confirmed"):
     """Step 2 of 2. Places the order only if the human typed the ticker exactly.
 
     router: used to re-read the price at the moment of placement. prepare_ticket
@@ -381,7 +388,7 @@ def confirm_ticket(ticket_id, typed_confirmation, config, router=None):
         order_type="limit", limit_price=float(ticket["limit_price"]),
         stop_price=float(ticket["stop_price"]) if ticket.get("stop_price") else None,
         currency=ticket["currency"], idea_id=ticket["idea_id"],
-        note=f"From idea #{ticket['idea_id']}, human-confirmed ticket #{ticket_id}")
+        note=f"From idea #{ticket['idea_id']}, {confirmed_by} ticket #{ticket_id}")
 
     try:
         result = broker.place_order(intent)
@@ -423,50 +430,75 @@ def cancel_ticket(ticket_id):
     journal.update_order(ticket_id, "cancelled", detail="cancelled by user before submission")
     return {"ticket_id": ticket_id, "status": "cancelled"}
 
+
+AUTO_TRADE_MIN_CONFIDENCE = 80
+
+
 def auto_process_idea(idea_id, config, router):
+    """Unattended routing of a freshly journalled idea. OFF unless config.yaml
+    sets `execution.auto_trade: true`, and a no-op whenever it is off.
+
+    This is the only code path that reaches the broker without a human click
+    and a typed confirmation, so it is narrower than the manual one:
+
+      * off by default, and it also needs `execution.enabled`
+      * only an idea the risk gate did not reject, whose confidence score
+        reaches `execution.auto_trade_min_confidence`
+      * only on an account positively identified as paper — on anything else
+        the ticket is cancelled and the idea is left for you
+      * every check in prepare_ticket and confirm_ticket still runs: the risk
+        re-check against the live portfolio, the drift limit, the daily
+        circuit breaker, and the single-use ticket
+
+    Returns a short dict saying what happened, or None when it did nothing.
+    An idea it does not trade is left 'pending', exactly as if this function
+    did not exist — it never marks an idea approved unless an order went out,
+    because the journal's approved ideas are the record of YOUR decisions.
     """
-    Automated execution routing based on confidence and risk limits.
-    
-    1. Hard risk violation -> Reject immediately (no human review).
-    2. High confidence -> Auto-trade (no human approval needed).
-    3. Borderline -> Leave as 'pending' for human review.
-    """
+    exec_cfg = config.get("execution", {}) or {}
+    if not (exec_cfg.get("enabled") and exec_cfg.get("auto_trade")):
+        return None
+
     idea = journal.get_idea(idea_id)
-    if not idea:
-        return
-    
+    if not idea or idea["decision"] != "pending":
+        return None
+
     payload = idea.get("payload") or {}
-    gate_result = payload.get("gate") or {}
-    
-    # 1. Hard risk violation -> Auto-Reject
-    if gate_result.get("verdict") == "rejected" or gate_result.get("hard_failures"):
-        journal.set_decision(idea_id, "rejected")
-        journal.record_outcome(idea_id, "scratch", notes="Auto-rejected due to hard risk violation")
-        return
-    
-    # 2. Confidence Check
     plan = payload.get("plan") or {}
+    gate_result = payload.get("gate") or {}
+    if not plan or gate_result.get("verdict") == "rejected" or gate_result.get("hard_failures"):
+        return None
+
+    threshold = float(exec_cfg.get("auto_trade_min_confidence", AUTO_TRADE_MIN_CONFIDENCE))
     confidence = plan.get("confidence") or 0
-    
-    strategy_idea = payload.get("strategy_idea") or {}
-    meta = strategy_idea.get("meta") or {}
-    
-    # We define High Confidence as LLM confidence >= 80, or Kelly fraction > 0.
-    is_high_confidence = (confidence >= 80) or (meta.get("kelly_fraction", 0) > 0) or (meta.get("ml_probability_of_success", 0) >= 0.70)
-    
-    if is_high_confidence:
-        # Auto-Approve
-        journal.set_decision(idea_id, "approved")
-        
-        # Auto-Execute if execution is enabled
-        if config.get("execution", {}).get("enabled"):
-            try:
-                ticket = prepare_ticket(idea_id, config, router)
-                # Pass the exact ticker to bypass the typed confirmation check
-                confirm_ticket(ticket["ticket_id"], ticket["ticker"], config, router)
-            except ExecutionRefused:
-                # It remains approved, but execution was refused (e.g. drift limit exceeded).
-                # The user can still see it in the dashboard.
-                pass
-            except Exception:
-                pass
+    if confidence < threshold:
+        return None
+
+    # prepare_ticket only accepts an approved idea, so the approval is set
+    # first and withdrawn again on every path that does not end in an order.
+    journal.set_decision(idea_id, "approved")
+    ticket = None
+    try:
+        ticket = prepare_ticket(idea_id, config, router)
+        if not ticket["paper"]:
+            raise ExecutionRefused(
+                "Auto-trade only runs on an account proven to be paper, and this "
+                "one is not. The idea is waiting for your own decision.")
+        result = confirm_ticket(
+            ticket["ticket_id"], ticket["ticker"], config, router,
+            confirmed_by="AUTO-TRADED (no human confirmation)")
+    except ExecutionRefused as exc:
+        status = None
+        if ticket is not None:
+            status = (journal.get_order(ticket["ticket_id"]) or {}).get("status")
+            if status == "pending_confirmation":
+                journal.update_order(ticket["ticket_id"], "cancelled",
+                                     detail=f"auto-trade refused: {exc}")
+                status = "cancelled"
+        # Nothing reached the broker, so the decision goes back to being yours.
+        # Any other status means the ticket was claimed and the broker may hold
+        # an order; the idea then stays approved so it is not offered twice.
+        if status in (None, "cancelled"):
+            journal.set_decision(idea_id, "pending")
+        return {"auto_traded": False, "reason": str(exc)}
+    return {"auto_traded": True, "confidence": confidence, **result}

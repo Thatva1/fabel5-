@@ -84,7 +84,7 @@ CONFIG_EXEC_OFF = {**CONFIG_EXEC_ON, "execution": {"enabled": False}}
 
 
 def _seed_idea(decision="approved", verdict="approved_for_review", with_plan=True,
-               shares=50, entry=100.0, risk_amount=900.0, stop=None):
+               shares=50, entry=100.0, risk_amount=900.0, stop=None, confidence=70):
     snapshot = {"ticker": "TEST", "price": entry, "atr": 4.0, "signals": [],
                 "_fundamentals": {"sector": None}}
     thesis = {"source": "claude:test", "conviction": 70, "supports_setup": True,
@@ -92,7 +92,7 @@ def _seed_idea(decision="approved", verdict="approved_for_review", with_plan=Tru
     stop = entry - 18 if stop is None else stop
     plan = ({"direction": "long", "entry": entry, "stop": stop, "target": entry + 45,
              "shares": shares, "position_value": shares * entry, "risk_amount": risk_amount,
-             "confidence": 70, "currency": "USD", "reward_risk": 2.5}
+             "confidence": confidence, "currency": "USD", "reward_risk": 2.5}
             if with_plan else None)
     gate_result = {"verdict": verdict, "hard_failures": [], "soft_flags": [], "exposure": {}}
     idea_id = journal.add_idea(snapshot, thesis, plan, gate_result)
@@ -511,3 +511,85 @@ def test_execution_status_handles_unreachable_gateway():
     # Port 9 (discard) is never an IB Gateway; must degrade, not crash.
     status = execution_status({**CONFIG_EXEC_ON, "execution": {"enabled": True, "port": 9}})
     assert status["enabled"] is True and status["connected"] is False
+
+
+# ---------- Unattended trading is opt-in, and narrower than the manual path ----------
+
+CONFIG_AUTO_ON = {**CONFIG_EXEC_ON,
+                  "execution": {"enabled": True, "port": 7497, "auto_trade": True}}
+
+
+def _auto(idea_id, config, monkeypatch, broker=None):
+    from assistant import execution
+    broker = broker or FakeBroker()
+    monkeypatch.setattr("assistant.broker.factory.get_execution_broker", lambda cfg: broker)
+    return execution.auto_process_idea(idea_id, config, FakeRouter()), broker
+
+
+def test_auto_trade_is_off_unless_the_config_asks_for_it(monkeypatch):
+    """The default. Execution on, a confidence of 95, and still nothing moves:
+    no order, and the idea is still waiting for the human it belongs to."""
+    idea_id = _seed_idea(decision="pending", confidence=95)
+    result, broker = _auto(idea_id, CONFIG_EXEC_ON, monkeypatch)
+    assert result is None
+    assert broker.placed == []
+    assert journal.get_idea(idea_id)["decision"] == "pending"
+
+
+def test_auto_trade_needs_execution_enabled_as_well(monkeypatch):
+    config = {**CONFIG_EXEC_OFF, "execution": {"enabled": False, "auto_trade": True}}
+    idea_id = _seed_idea(decision="pending", confidence=95)
+    result, broker = _auto(idea_id, config, monkeypatch)
+    assert result is None and broker.placed == []
+    assert journal.get_idea(idea_id)["decision"] == "pending"
+
+
+def test_auto_trade_places_one_order_and_says_no_human_confirmed_it(monkeypatch):
+    idea_id = _seed_idea(decision="pending", confidence=85)
+    result, broker = _auto(idea_id, CONFIG_AUTO_ON, monkeypatch)
+    assert result["auto_traded"] is True
+    assert len(broker.placed) == 1
+    # The order's own note is the audit trail at the broker. It must not claim
+    # a confirmation that never happened.
+    assert "AUTO-TRADED" in broker.placed[0].note
+    assert "human-confirmed" not in broker.placed[0].note
+    assert journal.get_idea(idea_id)["decision"] == "approved"
+
+
+def test_auto_trade_leaves_a_middling_idea_for_the_human(monkeypatch):
+    idea_id = _seed_idea(decision="pending", confidence=79)
+    result, broker = _auto(idea_id, CONFIG_AUTO_ON, monkeypatch)
+    assert result is None and broker.placed == []
+    assert journal.get_idea(idea_id)["decision"] == "pending"
+
+
+def test_auto_trade_never_touches_an_idea_the_gate_rejected(monkeypatch):
+    idea_id = _seed_idea(decision="pending", verdict="rejected", confidence=99)
+    result, broker = _auto(idea_id, CONFIG_AUTO_ON, monkeypatch)
+    assert result is None and broker.placed == []
+    assert journal.get_idea(idea_id)["decision"] == "pending"
+
+
+def test_auto_trade_refuses_an_account_not_proven_to_be_paper(monkeypatch):
+    """Unknown resolves to live everywhere else in this file, and here it means
+    the order is not sent and the approval is handed back."""
+    class UnprovenBroker(FakeBroker):
+        is_paper = False
+
+    idea_id = _seed_idea(decision="pending", confidence=95)
+    result, broker = _auto(idea_id, CONFIG_AUTO_ON, monkeypatch, broker=UnprovenBroker())
+    assert result["auto_traded"] is False and "paper" in result["reason"]
+    assert broker.placed == []
+    assert journal.get_idea(idea_id)["decision"] == "pending"
+
+
+def test_a_refused_auto_trade_hands_the_decision_back(monkeypatch):
+    """The live-portfolio re-check still runs. An idea it refuses must not be
+    left marked approved by a human who never saw it."""
+    from assistant import execution
+    idea_id = _seed_idea(decision="pending", confidence=95)
+    monkeypatch.setattr("assistant.broker.factory.get_execution_broker",
+                        lambda cfg: FakeBroker())
+    result = execution.auto_process_idea(idea_id, CONFIG_AUTO_ON, FakeRouter(price=None))
+    assert result["auto_traded"] is False
+    assert journal.get_idea(idea_id)["decision"] == "pending"
