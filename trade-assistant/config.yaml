@@ -217,22 +217,22 @@ strategies:
     # and a monthly rotation gated on a per-ticker ADX reading is being filtered
     # twice — once by a measure it never asked for. Its own market-trend overlay
     # is the filter the research actually specifies.
-    regimes: [TRENDING_UP, SIDEWAYS, VOLATILITY_SQUEEZE, TRENDING_DOWN]
+    regimes: [TRENDING_UP, SIDEWAYS, VOLATILITY_SQUEEZE]
     lookback_bars: 252           # the 12 in "12-1": one trading year
     skip_bars: 21                # the 1: last month excluded, it mean-reverts
     top_n: 12                    # hold the top 10-15 of the ranking
     min_universe: 10             # fewer names than this is not a cross-section
     rebalance: weekly
     require_market_trend: true   # the anti-crash overlay; false = the raw 1993 rule
-    max_vol_pct: 80.0            # skip a leader whose own vol has exploded
-    stop_atr: 2.0                # wide: this holds for weeks, not days
-    reward_multiple: 1.5
+    max_vol_pct: 60.0            # skip a leader whose own vol has exploded
+    stop_atr: 3.0                # wide: this holds for weeks, not days
+    reward_multiple: 3.0
   # Time-series momentum / trend-following — Moskowitz, Ooi & Pedersen (2012).
   # Strongest on index ETFs and futures; a result from single mega-cap names is
   # not a test of this paper. Point it at index instruments to test it properly.
   ts_momentum:
     enabled: true
-    regimes: [TRENDING_UP, SIDEWAYS, VOLATILITY_SQUEEZE, TRENDING_DOWN]
+    regimes: [TRENDING_UP, TRENDING_DOWN, SIDEWAYS, VOLATILITY_SQUEEZE]
     # The only strategy here with a short leg, and it is switched off. Measured
     # over ten years on the watchlist: longs +£145,479, shorts -£68,694, and
     # turning shorts off moved portfolio CAGR from 2.93% to 9.13%. The rule now
@@ -244,22 +244,44 @@ strategies:
     rebalance: weekly
     require_ma_agreement: true   # false = the unmodified 2012 rule
     max_vol_pct: 80.0
-    stop_atr: 2.0
-    reward_multiple: 1.5
+    stop_atr: 3.0
+    reward_multiple: 3.0
   # Long-only low-beta / low-volatility tilt — Frazzini & Pedersen (2014),
   # Baker-Bradley-Wurgler (2011). The diversifier: it buys the end of the market
   # momentum ignores, so the two lose money at different times.
   low_beta:
     enabled: true
-    regimes: [TRENDING_UP, SIDEWAYS, VOLATILITY_SQUEEZE, TRENDING_DOWN]
+    regimes: [TRENDING_UP, SIDEWAYS, VOLATILITY_SQUEEZE]
     max_beta: 0.85               # moves 85% as much as its index, or less
     beta_lookback_bars: 252
     max_vol_rank_pct: 40.0       # the calmest 40% of the watchlist
-    max_vol_pct: 80.0            # absolute fallback when there is no universe
+    max_vol_pct: 30.0            # absolute fallback when there is no universe
     require_above_trend: true    # calm is not the same as rising
     rebalance: weekly
-    stop_atr: 2.0
-    reward_multiple: 1.5
+    stop_atr: 2.5
+    reward_multiple: 2.5
+  # --- Price-only stand-ins, added September 2026 — all OFF --------------
+  # Each is named after an effect that needs data this app does not have
+  # (earnings surprises, company fundamentals, a macro model, 13D filings) and
+  # substitutes a price-and-volume pattern for it. Until 1 October 2026 all four
+  # crashed on every signal and the router swallowed the error, so none has
+  # ever placed a trade — in a backtest or in the paper book. They are off so
+  # that fixing the crash does not also change what the live paper book holds.
+  #
+  # Measured in isolation on the ten-instrument CSV set (see
+  # isolated_backtest.py). That is far too small to conclude anything; switch
+  # one on only after it has been through the full universe study.
+  pead_drift:
+    enabled: false
+  qmj_factor:
+    enabled: false
+  # Fires on nearly every instrument whenever the index is in an uptrend, and
+  # with one position per instrument it would take the slot from rules that
+  # have evidence behind them. The last one to switch on, if ever.
+  macro_sector_rotation:
+    enabled: false
+  activist_13d_tracking:
+    enabled: false
 
 # --- Combining the strategies into one algorithm -----------------------------
 # What decides which instruments the book holds, when twelve strategies are all
@@ -291,7 +313,7 @@ strategies:
 # agree about scores near zero and gets no slot — something the priority list
 # could not express at all.
 composite:
-  enabled: true
+  enabled: false
   # Below this score an instrument is not worth a slot. 1.0 is one unopposed
   # strategy, so a floor above it demands genuine agreement and a floor below
   # it lets a lone signal through.
@@ -447,7 +469,7 @@ intraday:
     opening_range_break:
       enabled: true
       range_minutes: 30
-      reward_multiple: 1.5
+      reward_multiple: 1.0
       min_range_pct: 0.15
       max_range_pct: 3.0
     # Fade a stretch from the session VWAP, targeting the VWAP itself. The
@@ -456,7 +478,7 @@ intraday:
     vwap_reversion:
       enabled: true
       stretch_pct: 0.4
-      stop_atr: 2.0
+      stop_atr: 1.5
       atr_minutes: 30
       warmup_minutes: 45
     # Gao, Han, Li & Zhou (2018) — the first half hour predicts the last. Best
@@ -469,7 +491,7 @@ intraday:
       entry_minutes_before_close: 35
       min_move_pct: 0.1
       stop_atr: 2.0
-      reward_multiple: 1.5
+      reward_multiple: 1.0
     # The weakest by evidence, and honest about it: a gap has a CAUSE and this
     # cannot read it. An earnings gap and a sympathy gap look identical in
     # price. The size band is the only filter, so keep max_gap_pct low.
@@ -479,6 +501,20 @@ intraday:
       max_gap_pct: 4.0
       settle_minutes: 15
       fill_fraction: 0.5
+    # Added September 2026 and never measured against costs — all OFF. A rule
+    # with no entry here defaults to ON, which is how these three were set to
+    # trade in the intraday paper book without anyone choosing that. Switch one
+    # on and run `python run.py intraday --engine` before trusting it.
+    #
+    # True on roughly a third of all bars: "price above a slow session average".
+    kalman_filter:
+      enabled: false
+    # A z-score fade, the same family as vwap_reversion with a different anchor.
+    ou_process_reversion:
+      enabled: false
+    # Buys a volatility spike whichever way price is moving, falls included.
+    hmm_regime_breakout:
+      enabled: false
 
 # --- Paper trading -----------------------------------------------------------
 # The rules trading forward with nobody intervening. `python run.py paper` runs
@@ -669,7 +705,7 @@ blend:
 #
 # This does NOT guarantee a mixed book on its own — a strategy still has to
 # fire — but it stops the weakest measured signals outranking the strongest.
-# strategy_priority:
+strategy_priority:
   - long_reversal
   - ts_momentum
   - dual_momentum
@@ -853,7 +889,7 @@ short_rules:
 macro_events: []
 ai:
   enabled: true
-  model: claude-3-5-sonnet-20241022
+  model: claude-sonnet-5
 providers:
   # Interactive Brokers as a DATA source — separate from IBKR as a broker.
   # Fixes three things yfinance cannot: its data is licensed for commercial
@@ -911,6 +947,17 @@ execution:
   # in this file is ever written by the program — that is what keeps these
   # comments alive.
   enabled: false
+  # Unattended order placement — OFF. When true (and `enabled` is true too), an
+  # idea whose confidence score reaches `auto_trade_min_confidence` is approved
+  # and sent to the broker with NO click and NO typed confirmation from you.
+  # Every other check still runs: the risk gate, the re-check against the live
+  # portfolio, the price-drift limit and the daily circuit breaker below.
+  #
+  # It only ever fires on an account positively identified as PAPER (id starts
+  # with DU). On anything else the idea is left waiting for you. Leave this
+  # false unless you have decided you want the paper account traded for you.
+  auto_trade: false
+  auto_trade_min_confidence: 80
   host: 127.0.0.1
   # The only IB port listening on this machine. The port does NOT decide paper
   # vs live: 7497 is conventionally the paper port, but a live account has been
