@@ -102,7 +102,7 @@ function footnote(s, text) {
     x: 0.9, y: 4.15, w: 2.2, h: 0, line: { color: AMBER, width: 2.5 },
   });
   s.addText([
-    { text: "34 strategies from published papers   ·   528 instruments   ·   8.94 years", options: { breakLine: true } },
+    { text: "12 strategies from published papers   ·   528 instruments   ·   8.94 years", options: { breakLine: true } },
     { text: "62,319 signals   ·   725 automated tests   ·   live on licensed broker data", options: {} },
   ], {
     x: 0.9, y: 4.5, w: 11, h: 0.9, fontFace: B, fontSize: 13.5, color: "9FB2D8", lineSpacing: 22, margin: 0,
@@ -185,10 +185,10 @@ function footnote(s, text) {
 
   card(s, { x: 6.75, y: 4.05, w: 5.85, h: 2.4 });
   s.addText("What the live book is not", { x: 7.05, y: 4.28, w: 5.2, h: 0.4, fontFace: H, fontSize: 17, bold: true, color: AMBER, margin: 0 });
-  s.addText("It began on 15 August 2026. It is evidence that the system runs, prices honestly, and respects its risk limits. However, a few days of execution is not a statistically significant track record.", {
+  s.addText("It is a simulated paper book that began on 15 August 2026. It is evidence that the system runs, prices honestly, and respects its risk limits. A few weeks of paper trading is not a track record, and no real-money order has been placed.", {
     x: 7.05, y: 4.72, w: 5.3, h: 1.5, fontFace: B, fontSize: 12.5, color: MUTED, margin: 0,
   });
-  s.addNotes("If asked 'how has it done live' — answer directly: we have early live execution proving the pipes, but anyone quoting live performance after a few days is telling you something about themselves.");
+  s.addNotes("If asked 'how has it done live' — answer directly: it is a simulated paper book, no real-money order has been placed, and anyone quoting live performance after a few weeks of paper trading is telling you something about themselves.");
 }
 
 /* --- 5. The study ------------------------------------------------------- */
@@ -196,7 +196,7 @@ function footnote(s, text) {
   const s = lightSlide("What was tested", "The backtest");
   const facts = [
     ["528", "instruments\n500 US equities · 8 FX · 20 futures"],
-    ["34", "strategies\neach from a published paper"],
+    ["12", "strategies\neach from a published paper"],
     ["8.94", "years of daily bars"],
     ["62,319", "signals generated"],
   ];
@@ -229,12 +229,12 @@ function footnote(s, text) {
   s.addChart(pres.ChartType.bar, [
     {
       name: "Annual return %",
-      labels: ["Buy & hold", "Mean Reversion", "4-strategy blend", "Trend Following", "Macro Rotation"],
+      labels: ["Buy & hold", "Mean Reversion", "4-strategy blend", "Trend Following", "Dual Momentum"],
       values: [23.68, 20.18, 19.20, 17.55, 14.07],
     },
     {
       name: "Max drawdown %",
-      labels: ["Buy & hold", "Mean Reversion", "4-strategy blend", "Trend Following", "Macro Rotation"],
+      labels: ["Buy & hold", "Mean Reversion", "4-strategy blend", "Trend Following", "Dual Momentum"],
       values: [37.76, 22.62, 23.67, 30.61, 28.94],
     },
   ], {
@@ -322,7 +322,7 @@ function footnote(s, text) {
     ["Survivorship bias", "Only instruments that still exist can be tested. This flatters every row — including buy-and-hold.", NAVY],
     ["Futures are mis-sized", "All 20 are modelled at full notional, with no margin or contract multiplier. Return and risk are both understated.", NAVY],
     ["One market, one decade", "US-listed instruments across roughly 2016–2026 — one of the strongest bull runs on record.", NAVY],
-    ["Unseasoned live track record", "The system has only been executing live trades for a few days. Forward performance remains statistically unproven over a long horizon.", AMBER],
+    ["No real-money track record", "The book is simulated paper trading on a broker paper account. No real-money order has been placed, so forward performance is unproven.", AMBER],
   ];
   let y = 2.12;
   lims.forEach((l, i) => {
