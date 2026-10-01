@@ -1,83 +1,76 @@
-import pandas as pd
-import glob
-import os
+"""Backtest each daily strategy ON ITS OWN on the ten-instrument CSV export.
+
+    python isolated_backtest.py
+
+Isolation means every other strategy is switched off for that run. Putting one
+name at the top of `strategy_priority` is not isolation: the others still
+trade, still take the one slot each instrument has, and block the strategy
+being measured — so its trade count is whatever the rest left over.
+
+A strategy switched off in config.yaml is switched ON for its own run, so an
+unmeasured rule can be looked at here without touching the live paper book.
+
+Ten instruments is a smoke test, not a study. A strategy that ranks an
+instrument against a universe (xs_momentum, dual_momentum, sector_momentum,
+low_volatility, the reversals) has no universe here and will show zero trades.
+That is the data set, not the strategy.
+"""
+import copy
 import csv
-from assistant.backtest import engine, report
+import os
+from multiprocessing import Pool
+
 from assistant.core.config import load_config
 from assistant.strategies import registry
-from assistant.strategies.base import Strategy
+from run_csv_backtest import DATA_DIR, load_csv_prices, run, write_trades
 
-csv_files = glob.glob("/Users/thatvagowda/Desktop/fabel 5/antigravity results and data/Client_Data_Export/**/*Daily*.csv", recursive=True)
+COLUMNS = ["Strategy", "Trades", "Win Rate %", "Expectancy (R)", "P&L"]
 
-prices_dict = {}
-tickers = []
-for f in csv_files:
-    basename = os.path.basename(f)
-    ticker = basename.split("_Daily")[0].replace("_X", "=X").replace("_F", "=F").replace("_L", ".L")
-    df = pd.read_csv(f)
-    df['Date'] = pd.to_datetime(df['Date'], utc=True)
-    df.set_index('Date', inplace=True)
-    df.sort_index(inplace=True)
-    df['ATR'] = df['Close'].rolling(14).std()
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    df['RSI'] = 100 - (100 / (1 + rs))
-    prices_dict[ticker] = df
-    tickers.append(ticker)
 
-config = load_config()
-def price_fn(t): return prices_dict.get(t)
-benchmark = lambda: prices_dict.get("SPY")['Close']
+def isolate(config, name):
+    """A copy of `config` in which `name` is the only strategy switched on."""
+    isolated = copy.deepcopy(config)
+    blocks = isolated.setdefault("strategies", {})
+    for cls in registry.BUILTIN:
+        blocks.setdefault(cls.name, {})
+        blocks[cls.name] = {**(blocks[cls.name] or {}), "enabled": cls.name == name}
+    return isolated
 
-all_strategies = [s.name for s in registry.BUILTIN if issubclass(s, Strategy)]
 
-results = []
-all_trades = []
+def measure(name):
+    """One strategy alone. Loads its own data so it can run in its own process."""
+    out = run(isolate(load_config(), name), load_csv_prices())
+    stats = out.get("by_strategy", {}).get(name) or {}
+    # win_rate_pct is already a percentage; multiplying it by 100 again is what
+    # once printed a win rate of 4,760%.
+    row = {"Strategy": name,
+           "Trades": stats.get("trades", 0),
+           "Win Rate %": stats.get("win_rate_pct") or 0,
+           "Expectancy (R)": round(stats.get("expectancy_r") or 0, 2),
+           "P&L": round(stats.get("pnl") or 0, 2)}
+    return row, [t for t in out.get("trades", []) if t["strategy"] == name]
 
-print(f"Running isolated backtests for {len(all_strategies)} strategies...")
 
-for strat_name in all_strategies:
-    config["strategy_priority"] = [strat_name]
-    result = engine.run_backtest(tickers, config, price_fn, benchmark_fn=benchmark)
-    out = report.build(result, config, period="10y")
-    
-    # Extract only this strategy's stats from the dictionary
-    strat_stats = out.get("by_strategy", {}).get(strat_name)
-            
-    if strat_stats and strat_stats['trades'] > 0:
-        results.append({
-            "Strategy": strat_name,
-            "Trades": strat_stats['trades'],
-            "Win Rate %": round(strat_stats.get('win_rate_pct', 0) * 100, 1),
-            "Expectancy (R)": round(strat_stats.get('expectancy_r', 0), 2),
-            "P&L": round(strat_stats.get('pnl', 0), 2)
-        })
-        strat_trades = [t for t in out.get("trades", []) if t["strategy"] == strat_name]
-        all_trades.extend(strat_trades)
-    else:
-        results.append({
-            "Strategy": strat_name,
-            "Trades": 0,
-            "Win Rate %": 0,
-            "Expectancy (R)": 0,
-            "P&L": 0
-        })
+if __name__ == "__main__":
+    names = [cls.name for cls in registry.BUILTIN]
+    print(f"Running isolated backtests for {len(names)} strategies...", flush=True)
 
-report_path = "/Users/thatvagowda/Desktop/fabel 5/antigravity results and data/Isolated_Strategies_Report.csv"
-if results:
-    with open(report_path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=["Strategy", "Trades", "Win Rate %", "Expectancy (R)", "P&L"])
+    rows, all_trades = [], []
+    # Each run is a couple of minutes of pure computation and shares nothing
+    # with the others, so they run side by side.
+    with Pool(min(len(names), os.cpu_count() or 1)) as pool:
+        for row, trades in pool.imap(measure, names):
+            rows.append(row)
+            all_trades.extend(trades)
+            print(f"  {row['Strategy']:24s} {row['Trades']:4d} trades  "
+                  f"{row['Win Rate %']:5.1f}% wins  {row['Expectancy (R)']:+.2f}R",
+                  flush=True)
+
+    report_path = os.path.join(DATA_DIR, "Isolated_Strategies_Report.csv")
+    with open(report_path, "w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=COLUMNS)
         writer.writeheader()
-        writer.writerows(results)
-    
-trades_path = "/Users/thatvagowda/Desktop/fabel 5/antigravity results and data/Isolated_All_Trades.csv"
-if all_trades:
-    keys = list(all_trades[0].keys())
-    with open(trades_path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=keys, extrasaction='ignore')
-        writer.writeheader()
-        writer.writerows(all_trades)
-        
-print(f"SUCCESS: Wrote {len(results)} rows to {report_path}")
+        writer.writerows(rows)
+    if all_trades:
+        write_trades(all_trades, "Isolated_All_Trades.csv")
+    print(f"Wrote {len(rows)} rows to {report_path}")

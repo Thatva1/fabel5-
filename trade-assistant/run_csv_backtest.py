@@ -1,44 +1,59 @@
-import pandas as pd
+"""Backtest the whole strategy library on the ten-instrument CSV export.
+
+    python run_csv_backtest.py
+
+Reads the daily CSVs under `antigravity results and data/Client_Data_Export`
+and writes every trade to `Backtest_All_Trades.csv` beside them. Ten
+instruments is a smoke test, not a study: most of the library ranks an
+instrument against a universe, and ten mixed assets are not one.
+"""
+import csv
 import glob
 import os
+
+import pandas as pd
+
 from assistant.backtest import engine, report
 from assistant.core.config import load_config
 
-csv_files = glob.glob("/Users/thatvagowda/Desktop/fabel 5/antigravity results and data/Client_Data_Export/**/*Daily*.csv", recursive=True)
+DATA_DIR = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "antigravity results and data"))
 
-prices_dict = {}
-tickers = []
-for f in csv_files:
-    basename = os.path.basename(f)
-    ticker = basename.split("_Daily")[0].replace("_X", "=X").replace("_F", "=F").replace("_L", ".L")
-    if ticker == "CL=F" or ticker == "GC=F":
-        pass
-        
-    df = pd.read_csv(f)
-    df['Date'] = pd.to_datetime(df['Date'], utc=True)
-    df.set_index('Date', inplace=True)
-    df.sort_index(inplace=True)
-    prices_dict[ticker] = df
-    tickers.append(ticker)
 
-config = load_config()
+def load_csv_prices():
+    """{ticker: daily OHLCV frame} for every *Daily* CSV in the export."""
+    pattern = os.path.join(DATA_DIR, "Client_Data_Export", "**", "*Daily*.csv")
+    prices = {}
+    for path in sorted(glob.glob(pattern, recursive=True)):
+        name = os.path.basename(path).split("_Daily")[0]
+        ticker = name.replace("_X", "=X").replace("_F", "=F").replace("_L", ".L")
+        frame = pd.read_csv(path)
+        frame["Date"] = pd.to_datetime(frame["Date"], utc=True)
+        prices[ticker] = frame.set_index("Date").sort_index()
+    return prices
 
-def price_fn(t):
-    return prices_dict.get(t)
 
-result = engine.run_backtest(tickers, config, price_fn, benchmark_fn=lambda: prices_dict.get("SPY")['Close'])
-out = report.build(result, config, period="10y")
+def run(config, prices):
+    """One replay of `config` over `prices`; returns the report dict."""
+    result = engine.run_backtest(list(prices), config, prices.get,
+                                 benchmark_fn=lambda: prices["SPY"]["Close"])
+    return report.build(result, config, period="10y")
 
-import csv
 
-trades = out.get("trades", [])
-csv_path = "/Users/thatvagowda/Desktop/fabel 5/antigravity results and data/Backtest_All_Trades.csv"
-if trades:
-    keys = list(trades[0].keys())
-    with open(csv_path, 'w', newline='') as output_file:
-        dict_writer = csv.DictWriter(output_file, fieldnames=keys, extrasaction='ignore')
-        dict_writer.writeheader()
-        dict_writer.writerows(trades)
-    print(f"SUCCESS: Wrote {len(trades)} trades to {csv_path}")
-else:
-    print("NO TRADES")
+def write_trades(trades, filename):
+    path = os.path.join(DATA_DIR, filename)
+    with open(path, "w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(trades[0].keys()),
+                                extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(trades)
+    return path
+
+
+if __name__ == "__main__":
+    out = run(load_config(), load_csv_prices())
+    trades = out.get("trades", [])
+    if trades:
+        print(f"Wrote {len(trades)} trades to {write_trades(trades, 'Backtest_All_Trades.csv')}")
+    else:
+        print("NO TRADES")

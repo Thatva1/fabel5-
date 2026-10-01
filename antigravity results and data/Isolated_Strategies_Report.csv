@@ -1,17 +1,17 @@
 Strategy,Trades,Win Rate %,Expectancy (R),P&L
 xs_momentum,0,0,0,0
-ts_momentum,372,4760.0,0.25,481526.31
-low_beta,321,4210.0,0.2,154793.82
+ts_momentum,415,47.5,0.21,436805.28
+low_beta,389,39.8,0.12,44634.59
 low_volatility,0,0,0,0
 sector_momentum,0,0,0,0
 dual_momentum,0,0,0,0
-high_52w,86,4650.0,0.19,107853.03
+high_52w,284,43.3,0.2,183325.51
 short_reversal,0,0,0,0
 long_reversal,0,0,0,0
 turn_of_month,0,0,0,0
-band_reversion,26,1150.0,-0.86,-54132.46
+band_reversion,32,12.5,-0.85,-38592.91
 halloween,0,0,0,0
-pead_drift,0,0,0,0
-qmj_factor,0,0,0,0
-macro_sector_rotation,0,0,0,0
-activist_13d_tracking,0,0,0,0
+pead_drift,15,40.0,0.45,36547.84
+qmj_factor,230,51.7,0.31,446356.92
+macro_sector_rotation,824,43.9,0.13,571078.33
+activist_13d_tracking,4,75.0,1.93,48379.32

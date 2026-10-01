@@ -11,7 +11,7 @@ Instead of hiding flawed results to sell a strategy, this platform is designed t
 
 ## Repository Structure
 
-- `trade-assistant/`: The core backtesting engine, strategy definitions, and configuration files (`config.yaml`). Includes scripts for isolated backtesting and environment patching.
+- `trade-assistant/`: The core backtesting engine, strategy definitions, and configuration files (`config.yaml`). Includes scripts for backtesting the library on the CSV export (`run_csv_backtest.py`) and each strategy on its own (`isolated_backtest.py`).
 - `investor-pack/`: Contains the pitch deck (`Trade-Assistant-Investor-Deck.pptx`), full backtest results, email outreach templates, and scripts to regenerate the deck (`build_deck.js`, `write_slide_notes.py`).
 - `antigravity results and data/`: Comprehensive CSV performance reports and isolated strategy data.
 - `Fundraising_Plan.pdf`: Seed and Angel investor contact lists, network strategies, and outreach templates for raising a £2k-£10k to £1M seed round.
