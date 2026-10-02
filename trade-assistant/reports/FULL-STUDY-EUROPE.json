@@ -1,0 +1,360 @@
+{
+  "correlation": {
+    "activist_13d_tracking": {
+      "activist_13d_tracking": 1.0,
+      "macro_sector_rotation": 0.5359
+    },
+    "macro_sector_rotation": {
+      "activist_13d_tracking": 0.5359,
+      "macro_sector_rotation": 1.0
+    }
+  },
+  "blend": {
+    "chosen": [
+      "macro_sector_rotation",
+      "activist_13d_tracking"
+    ],
+    "rejected": {}
+  },
+  "period": "10y",
+  "instruments": 805,
+  "equities": 805,
+  "fx": 0,
+  "futures": 0,
+  "leverage_warning": null,
+  "candidates": 54198,
+  "results": {
+    "xs_momentum": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "ts_momentum": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "low_beta": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "low_volatility": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "sector_momentum": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "dual_momentum": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "high_52w": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "short_reversal": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "long_reversal": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "turn_of_month": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "band_reversion": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "halloween": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "pead_drift": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "qmj_factor": {
+      "trades": 0,
+      "note": "no candidates"
+    },
+    "macro_sector_rotation": {
+      "start_equity": 1001208.64,
+      "final_equity": 1056890.99,
+      "total_return_pct": 5.56,
+      "years": 8.98,
+      "cagr_pct": 0.6,
+      "max_drawdown_pct": 20.66,
+      "max_drawdown_amount": 214665.34,
+      "max_drawdown_peak": 1038857.95,
+      "max_drawdown_trough": 824192.61,
+      "max_drawdown_start": "2018-01-09",
+      "max_drawdown_end": "2020-10-29",
+      "longest_underwater_periods": 852,
+      "longest_underwater_start": "2018-01-09",
+      "longest_underwater_end": "2021-05-06",
+      "pct_of_time_underwater": 98.2,
+      "sharpe": 0.11,
+      "sortino": 0.15,
+      "calmar": 0.03,
+      "volatility_pct": 9.63,
+      "downside_deviation_pct": 7.21,
+      "best_period_pct": 5.87,
+      "worst_period_pct": -4.04,
+      "positive_periods_pct": 45.06,
+      "ulcer_index": 8.74,
+      "gain_to_pain": 1.02,
+      "trades": 7543,
+      "win_rate_pct": 40.3,
+      "marked_to_market": true,
+      "skipped": {
+        "exposure": 25397,
+        "max_positions": 0,
+        "per_market": 20382,
+        "risk_off": 0,
+        "correlation": 0,
+        "daily_cap": 0,
+        "size_too_small": 86,
+        "strategy_share": 0,
+        "ticker_held": 0
+      },
+      "out_of_sample": {
+        "split_date": "2023-01-16",
+        "develop": {
+          "cagr_pct": 0.62,
+          "max_drawdown_pct": 20.66,
+          "sharpe": 0.11,
+          "sortino": 0.15,
+          "calmar": 0.03,
+          "total_return_pct": 3.41,
+          "ulcer_index": 10.19,
+          "gain_to_pain": 1.02,
+          "trades": 3775
+        },
+        "validate": {
+          "cagr_pct": -0.87,
+          "max_drawdown_pct": 12.09,
+          "sharpe": -0.03,
+          "sortino": -0.05,
+          "calmar": -0.07,
+          "total_return_pct": -3.19,
+          "ulcer_index": 6.69,
+          "gain_to_pain": 0.99,
+          "trades": 3816
+        },
+        "verdict": "FAILED",
+        "note": "Profitable in the development period and not in validation \u2014 the configuration is fitted to the first half."
+      }
+    },
+    "activist_13d_tracking": {
+      "start_equity": 1000069.27,
+      "final_equity": 1047117.3,
+      "total_return_pct": 4.7,
+      "years": 8.97,
+      "cagr_pct": 0.51,
+      "max_drawdown_pct": 2.27,
+      "max_drawdown_amount": 22845.5,
+      "max_drawdown_peak": 1004841.67,
+      "max_drawdown_trough": 981996.17,
+      "max_drawdown_start": "2020-01-22",
+      "max_drawdown_end": "2020-10-29",
+      "longest_underwater_periods": 541,
+      "longest_underwater_start": "2020-01-22",
+      "longest_underwater_end": "2022-02-25",
+      "pct_of_time_underwater": 96.9,
+      "sharpe": 0.39,
+      "sortino": 0.57,
+      "calmar": 0.22,
+      "volatility_pct": 1.35,
+      "downside_deviation_pct": 0.92,
+      "best_period_pct": 1.05,
+      "worst_period_pct": -0.58,
+      "positive_periods_pct": 50.2,
+      "ulcer_index": 0.93,
+      "gain_to_pain": 1.07,
+      "trades": 789,
+      "win_rate_pct": 36.12,
+      "marked_to_market": true,
+      "skipped": {
+        "exposure": 0,
+        "max_positions": 0,
+        "per_market": 0,
+        "risk_off": 0,
+        "correlation": 0,
+        "daily_cap": 0,
+        "size_too_small": 1,
+        "strategy_share": 0,
+        "ticker_held": 0
+      },
+      "out_of_sample": {
+        "split_date": "2023-01-16",
+        "develop": {
+          "cagr_pct": 0.01,
+          "max_drawdown_pct": 2.27,
+          "sharpe": 0.02,
+          "sortino": 0.03,
+          "calmar": 0.0,
+          "total_return_pct": 0.07,
+          "ulcer_index": 1.01,
+          "gain_to_pain": 1.0,
+          "trades": 395
+        },
+        "validate": {
+          "cagr_pct": 1.24,
+          "max_drawdown_pct": 1.61,
+          "sharpe": 0.81,
+          "sortino": 1.18,
+          "calmar": 0.77,
+          "total_return_pct": 4.65,
+          "ulcer_index": 0.63,
+          "gain_to_pain": 1.15,
+          "trades": 394
+        },
+        "verdict": "SURVIVED",
+        "note": "Return fell -12300% from development to validation. Consistent enough to take seriously."
+      }
+    },
+    "ALL_COMBINED": {
+      "start_equity": 999948.42,
+      "final_equity": 1065791.75,
+      "total_return_pct": 6.58,
+      "years": 8.98,
+      "cagr_pct": 0.71,
+      "max_drawdown_pct": 10.12,
+      "max_drawdown_amount": 101720.55,
+      "max_drawdown_peak": 1004887.95,
+      "max_drawdown_trough": 903167.4,
+      "max_drawdown_start": "2018-01-09",
+      "max_drawdown_end": "2020-10-29",
+      "longest_underwater_periods": 1601,
+      "longest_underwater_start": "2018-01-09",
+      "longest_underwater_end": "2024-04-03",
+      "pct_of_time_underwater": 97.4,
+      "sharpe": 0.23,
+      "sortino": 0.32,
+      "calmar": 0.07,
+      "volatility_pct": 3.26,
+      "downside_deviation_pct": 2.35,
+      "best_period_pct": 2.23,
+      "worst_period_pct": -1.46,
+      "positive_periods_pct": 51.52,
+      "ulcer_index": 4.23,
+      "gain_to_pain": 1.04,
+      "trades": 2596,
+      "win_rate_pct": 39.45,
+      "marked_to_market": true,
+      "skipped": {
+        "exposure": 0,
+        "max_positions": 0,
+        "per_market": 8808,
+        "risk_off": 0,
+        "correlation": 0,
+        "daily_cap": 0,
+        "size_too_small": 128,
+        "strategy_share": 42666,
+        "ticker_held": 0
+      }
+    },
+    "BUY_AND_HOLD": {
+      "start_equity": 768275.86,
+      "final_equity": 3131446.45,
+      "total_return_pct": 307.59,
+      "years": 9.99,
+      "cagr_pct": 15.1,
+      "max_drawdown_pct": 36.93,
+      "max_drawdown_amount": 554080.13,
+      "max_drawdown_peak": 1500426.44,
+      "max_drawdown_trough": 946346.31,
+      "max_drawdown_start": "2020-02-19",
+      "max_drawdown_end": "2020-03-18",
+      "longest_underwater_periods": 629,
+      "longest_underwater_start": "2021-11-15",
+      "longest_underwater_end": "2024-04-26",
+      "pct_of_time_underwater": 85.8,
+      "sharpe": 0.97,
+      "sortino": 1.38,
+      "calmar": 0.41,
+      "volatility_pct": 15.81,
+      "downside_deviation_pct": 11.1,
+      "best_period_pct": 13.93,
+      "worst_period_pct": -10.77,
+      "positive_periods_pct": 56.39,
+      "ulcer_index": 8.41,
+      "gain_to_pain": 1.2,
+      "label": "Buy & hold, equal weight, 805 instruments",
+      "trades": 805
+    },
+    "BUY_AND_HOLD_EQUITY_ONLY": {
+      "start_equity": 768275.86,
+      "final_equity": 3131446.45,
+      "total_return_pct": 307.59,
+      "years": 9.99,
+      "cagr_pct": 15.1,
+      "max_drawdown_pct": 36.93,
+      "max_drawdown_amount": 554080.13,
+      "max_drawdown_peak": 1500426.44,
+      "max_drawdown_trough": 946346.31,
+      "max_drawdown_start": "2020-02-19",
+      "max_drawdown_end": "2020-03-18",
+      "longest_underwater_periods": 629,
+      "longest_underwater_start": "2021-11-15",
+      "longest_underwater_end": "2024-04-26",
+      "pct_of_time_underwater": 85.8,
+      "sharpe": 0.97,
+      "sortino": 1.38,
+      "calmar": 0.41,
+      "volatility_pct": 15.81,
+      "downside_deviation_pct": 11.1,
+      "best_period_pct": 13.93,
+      "worst_period_pct": -10.77,
+      "positive_periods_pct": 56.39,
+      "ulcer_index": 8.41,
+      "gain_to_pain": 1.2,
+      "label": "Buy & hold, equal weight, 805 instruments",
+      "trades": 805
+    },
+    "BLEND": {
+      "start_equity": 999948.42,
+      "final_equity": 1065791.75,
+      "total_return_pct": 6.58,
+      "years": 8.98,
+      "cagr_pct": 0.71,
+      "max_drawdown_pct": 10.12,
+      "max_drawdown_amount": 101720.55,
+      "max_drawdown_peak": 1004887.95,
+      "max_drawdown_trough": 903167.4,
+      "max_drawdown_start": "2018-01-09",
+      "max_drawdown_end": "2020-10-29",
+      "longest_underwater_periods": 1601,
+      "longest_underwater_start": "2018-01-09",
+      "longest_underwater_end": "2024-04-03",
+      "pct_of_time_underwater": 97.4,
+      "sharpe": 0.23,
+      "sortino": 0.32,
+      "calmar": 0.07,
+      "volatility_pct": 3.26,
+      "downside_deviation_pct": 2.35,
+      "best_period_pct": 2.23,
+      "worst_period_pct": -1.46,
+      "positive_periods_pct": 51.52,
+      "ulcer_index": 4.23,
+      "gain_to_pain": 1.04,
+      "trades": 2596,
+      "win_rate_pct": 39.45,
+      "marked_to_market": true,
+      "skipped": {
+        "exposure": 0,
+        "max_positions": 0,
+        "per_market": 8808,
+        "risk_off": 0,
+        "correlation": 0,
+        "daily_cap": 0,
+        "size_too_small": 128,
+        "strategy_share": 42666,
+        "ticker_held": 0
+      }
+    }
+  }
+}

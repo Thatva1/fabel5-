@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="308" height="248" viewBox="0 0 308 248" font-family="ui-monospace,Menlo,monospace">
+<rect width="308" height="248" fill="#ffffff"/>
+<text x="20" y="34" font-size="17" font-family="Georgia,serif" fill="#14171c">Strategy correlation</text>
+<text x="20" y="56" font-size="11" fill="#6b7280">Correlation of the strategies' own return streams — not of the instruments they hold.</text>
+<text x="212.0" y="120" font-size="9.5" fill="#4a5058" text-anchor="end" transform="rotate(-55 212.0 120)">activist_13d_tracking</text>
+<text x="256.0" y="120" font-size="9.5" fill="#4a5058" text-anchor="end" transform="rotate(-55 256.0 120)">macro_sector_rotation</text>
+<text x="180" y="156.0" font-size="10" fill="#4a5058" text-anchor="end">activist_13d_tracking</text>
+<rect x="190" y="130" width="42" height="42" fill="rgb(200,50,50)" stroke="#e2dfd8"/>
+<text x="211.0" y="156.0" font-size="9.5" text-anchor="middle" fill="#ffffff">1.00</text>
+<rect x="234" y="130" width="42" height="42" fill="rgb(200,119,119)" stroke="#e2dfd8"/>
+<text x="255.0" y="156.0" font-size="9.5" text-anchor="middle" fill="#14171c">0.54</text>
+<text x="180" y="200.0" font-size="10" fill="#4a5058" text-anchor="end">macro_sector_rotation</text>
+<rect x="190" y="174" width="42" height="42" fill="rgb(200,119,119)" stroke="#e2dfd8"/>
+<text x="211.0" y="200.0" font-size="9.5" text-anchor="middle" fill="#14171c">0.54</text>
+<rect x="234" y="174" width="42" height="42" fill="rgb(200,50,50)" stroke="#e2dfd8"/>
+<text x="255.0" y="200.0" font-size="9.5" text-anchor="middle" fill="#ffffff">1.00</text>
+</svg>
