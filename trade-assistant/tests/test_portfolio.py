@@ -219,3 +219,72 @@ def test_no_candidates_produces_a_flat_curve_not_a_crash():
     out = portfolio.simulate([], CONFIG)
     assert out["equity_curve"] == [100000]
     assert out["trades"] == []
+
+
+# --- one strategy's share of the book -------------------------------------------
+
+def _same_day(strategy, tickers, reward_risk=2.0):
+    return [_candidate(ticker=t, strategy=strategy, reward_risk=reward_risk)
+            for t in tickers]
+
+
+def test_one_strategy_cannot_take_the_whole_book():
+    """A paper book ran 72% time-series momentum: it fires on almost anything in
+    a rising market, so with nothing to stop it, it was the book. Each position
+    here is £15,000 and the exposure budget is £60,000, so four fit."""
+    flood = _same_day("ts_momentum", ["A", "B", "C", "D"], reward_risk=3.0)
+    others = _same_day("low_beta", ["E", "F"])
+
+    uncapped = portfolio.simulate(flood + others, CONFIG)
+    assert {t["strategy"] for t in uncapped["trades"]} == {"ts_momentum"}
+
+    capped = portfolio.simulate(flood + others, {
+        **CONFIG, "portfolio": {**CONFIG["portfolio"], "max_strategy_share_pct": 50}})
+    held = [t["strategy"] for t in capped["trades"]]
+    assert held.count("ts_momentum") == 2, "half of a four-position budget"
+    assert held.count("low_beta") == 2, "and the room it left goes to something else"
+    assert capped["skipped"]["strategy_share"] == 2
+
+
+def test_a_named_strategy_can_be_given_its_own_share():
+    flood = _same_day("ts_momentum", ["A", "B", "C", "D"], reward_risk=3.0)
+    others = _same_day("low_beta", ["E", "F", "G"])
+    config = {**CONFIG, "portfolio": {**CONFIG["portfolio"],
+                                      "max_strategy_share_pct": 100,
+                                      "strategy_share_pct": {"ts_momentum": 25}}}
+    held = [t["strategy"] for t in portfolio.simulate(flood + others, config)["trades"]]
+    assert held.count("ts_momentum") == 1 and held.count("low_beta") == 3
+
+
+def test_a_strategy_measured_on_its_own_is_not_throttled_by_the_cap():
+    """The cap balances a mix. A single-strategy run is how each rule is
+    measured, and capping it there would quietly shrink every standalone result
+    to a quarter of the book."""
+    alone = _same_day("ts_momentum", ["A", "B", "C", "D"])
+    capped = {**CONFIG, "portfolio": {**CONFIG["portfolio"], "max_strategy_share_pct": 25}}
+    assert len(portfolio.simulate(alone, capped)["trades"]) == 4
+
+
+def test_a_full_strategy_hands_the_instrument_to_the_next_claimant():
+    """Dropping the instrument instead would leave the book in cash while a
+    second strategy that wanted the same instrument was never asked."""
+    config = {**CONFIG, "strategy_priority": ["ts_momentum", "low_beta"],
+              "portfolio": {**CONFIG["portfolio"], "one_position_per_ticker": True,
+                            "max_strategy_share_pct": 50}}
+    candidates = (_same_day("ts_momentum", ["A", "B"], reward_risk=3.0)
+                  + _same_day("ts_momentum", ["Z"]) + _same_day("low_beta", ["Z"]))
+
+    trades = portfolio.simulate(candidates, config)["trades"]
+    assert {t["ticker"]: t["strategy"] for t in trades} == {
+        "A": "ts_momentum", "B": "ts_momentum", "Z": "low_beta"}
+
+
+def test_one_position_per_instrument_goes_to_the_higher_priority_strategy():
+    config = {**CONFIG, "strategy_priority": ["low_beta", "ts_momentum"],
+              "portfolio": {**CONFIG["portfolio"], "one_position_per_ticker": True}}
+    both = _same_day("ts_momentum", ["Z"], reward_risk=3.0) + _same_day("low_beta", ["Z"])
+
+    trades = portfolio.simulate(both, config)["trades"]
+    assert [(t["ticker"], t["strategy"]) for t in trades] == [("Z", "low_beta")]
+    # Without the switch both open, which is what the per-strategy study needs.
+    assert len(portfolio.simulate(both, CONFIG)["trades"]) == 2

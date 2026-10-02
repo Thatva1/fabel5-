@@ -705,9 +705,28 @@ blend:
 #
 # This does NOT guarantee a mixed book on its own — a strategy still has to
 # fire — but it stops the weakest measured signals outranking the strongest.
+#
+# 2 October 2026 — ts_momentum moved from SECOND to LAST. The Calmar order above
+# was right about quality and wrong about what this list does. ts_momentum
+# signals on about 15,000 instrument-months where dual_momentum signals on
+# 2,500 and long_reversal on 1,700, and nearly every name those two flag is one
+# ts_momentum flags too. Ranked above them it took the name every time, so the
+# paper book ran 72% ts_momentum however good the others were.
+#
+# A list like this has to put the SELECTIVE rules first and the rule that fires
+# on almost everything last, where it fills what nothing else wanted. Measured
+# on the August study's candidates, entering on the monthly rebalance as the
+# paper book does:
+#
+#                       largest strategy   CAGR    max DD   Sharpe
+#   ts_momentum second        71%          5.60%   11.5%    0.96
+#   ts_momentum last          32%          5.53%   11.9%    0.96
+#
+# The same in each half of the history. So this buys a mixed book and costs
+# nothing measurable — and, to be equally plain, it earns nothing measurable
+# either. It is a change to what the book holds, not to what it returns.
 strategy_priority:
   - long_reversal
-  - ts_momentum
   - dual_momentum
   - low_beta
   - turn_of_month
@@ -718,6 +737,7 @@ strategy_priority:
   - xs_momentum
   - band_reversion
   - halloween
+  - ts_momentum
 
 # backtest that flatters itself is worse than none at all.
 backtest:
@@ -831,6 +851,24 @@ portfolio:
   # tool for this job anyway — it measures whether positions actually move
   # together instead of guessing from the exchange they list on.
   max_positions_per_market: 25
+  # The most of the exposure budget any ONE strategy may hold, as a percentage
+  # of it (25 here = 22.5% of equity at a 90% budget). When a strategy is full,
+  # an instrument it would have taken passes to the next strategy in
+  # strategy_priority that flagged it, rather than being dropped.
+  #
+  # A backstop, not the main control. The order of strategy_priority is what
+  # produces a mixed book; this stops any one rule becoming the book again if
+  # the order, the universe or the market changes. On its own, with the old
+  # order, it left ts_momentum at 46% of deployed capital and cost 0.3 points
+  # of CAGR, because the room it freed went to cash or to the next most
+  # frequent rule. With ts_momentum last it changes almost nothing (5.54% CAGR,
+  # 11.7% max drawdown, largest strategy 30%), which is what a backstop should
+  # do. Set to null for no cap.
+  #
+  # To give one strategy its own figure:
+  #   strategy_share_pct:
+  #     ts_momentum: 15
+  max_strategy_share_pct: 25
   max_new_entries_per_day: null   # null = unlimited
   # Tested at 0.8 and it COST return (7.44% -> 6.63%) while drawdown got
   # slightly worse. Left off until there is evidence for it.

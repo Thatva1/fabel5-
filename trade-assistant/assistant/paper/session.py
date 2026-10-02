@@ -30,7 +30,7 @@ from ..core import fx
 from ..core.config import DATA_DIR, load_config
 from ..research import scanner
 from ..risk import kelly, sizing
-from ..strategies import router as strategy_router
+from ..strategies import registry, router as strategy_router
 from ..strategies.cross_section import CrossSection
 from . import screen
 from .book import Book
@@ -529,8 +529,10 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
                 ideas.append(idea)
 
     out["candidates"] = len(ideas)
+    alternates = _claim_order(ideas, config)
     ideas = _rank_candidates(ideas, config)
-    _open_positions(book, ideas, universe_frames, config, cfg, limits, today, out)
+    _open_positions(book, ideas, universe_frames, config, cfg, limits, today, out,
+                    alternates=alternates)
 
     row = book.mark(today, f"rebalanced — {len(out['opened'])} opened, "
                            f"{len(out['closed'])} closed",
@@ -602,6 +604,40 @@ def _rank_candidates(ideas, config):
     winners = [idea for _, idea in best_per_ticker.values()]
     winners.sort(key=lambda i: -(i.reward_risk or 0))
     return _interleave_segments(winners)
+
+
+def _claim_order(ideas, config):
+    """Every idea on each instrument, in the order strategies may claim it.
+
+    _rank_candidates keeps one idea per instrument and throws the rest away.
+    That is fine until the winning strategy has used its share of the book:
+    then the instrument should pass to the next strategy that wanted it, and
+    this is the list of who that is.
+    """
+    priority = {name: rank for rank, name in enumerate(
+        backtest_engine.settings(config)["strategy_priority"])}
+    by_ticker = {}
+    for idea in ideas:
+        by_ticker.setdefault(idea.ticker, []).append(idea)
+    return {ticker: sorted(group, key=lambda i: (priority.get(i.strategy, len(priority)),
+                                                 -(i.reward_risk or 0)))
+            for ticker, group in by_ticker.items()}
+
+
+def _strategy_room(book, strategy, equity, limits, config=None):
+    """Notional this strategy may still add, or None when it is uncapped.
+
+    Uncapped, too, when only one strategy is switched on: a share cap balances
+    a mix, and a book running a single rule has none.
+    """
+    if config is not None and len(registry.enabled_strategies(config)) <= 1:
+        return None
+    cap = portfolio_limits.strategy_cap(strategy, limits, equity)
+    if cap is None:
+        return None
+    held = sum(abs(p["last_price"] * float(p.get("multiplier", 1.0) or 1.0) * p["shares"])
+               for p in book.positions if p.get("strategy") == strategy)
+    return max(0.0, cap - held)
 
 
 def _already_exposed(book, ticker):
@@ -749,10 +785,17 @@ def _group_room(book, ticker, equity, limits):
     return max(0.0, cap - used)
 
 
-def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
-    """Take the best candidates that fit inside the portfolio limits."""
+def _open_positions(book, ideas, frames, config, cfg, limits, today, out,
+                    alternates=None):
+    """Take the best candidates that fit inside the portfolio limits.
+
+    alternates: {ticker: every idea on it, in claim order}. When the strategy
+    that won an instrument has used its share of the book, the instrument goes
+    to the next strategy in that list rather than being skipped.
+    """
     skipped = {"exposure": 0, "max_positions": 0, "correlation": 0,
-               "duplicate_exposure": 0, "size_too_small": 0, "cash": 0}
+               "duplicate_exposure": 0, "size_too_small": 0, "cash": 0,
+               "strategy_share": 0}
     kelly_edges, edge_provenance = (
         _load_kelly_edges() if kelly.settings(config).get("enabled") else ({}, None))
     if kelly_edges:
@@ -800,6 +843,22 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
             skipped["correlation"] += 1
             continue
 
+        # Which strategy takes this instrument. The winner if it has room in
+        # its share of the book, otherwise the next strategy that flagged it.
+        # "Room" means room for a real position: a strategy with less left than
+        # the smallest position worth opening is full.
+        smallest = equity * float(cfg["min_position_pct"]) / 100
+        options = [idea] + [other for other in (alternates or {}).get(idea.ticker, [])
+                            if other is not idea]
+        for option in options:
+            strategy_room = _strategy_room(book, option.strategy, equity, limits, config)
+            if strategy_room is None or strategy_room > smallest:
+                idea = option
+                break
+        else:
+            skipped["strategy_share"] += 1
+            continue
+
         risk_budget = equity * float(limits["risk_per_trade_pct"]) / 100
         max_position = equity * float(limits["max_position_pct"]) / 100
         # Risk per UNIT is a price move times the contract multiplier. Without
@@ -813,6 +872,8 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out):
 
         fill = _slipped(idea.entry, idea.direction, cfg["slippage_bps"], opening=True)
         room = exposure_cap - book.gross_exposure()
+        if strategy_room is not None:
+            room = min(room, strategy_room)
         # The cash cap converts to units through the notional value of one unit.
         unit_notional = fill * multiplier
         group_room = _group_room(book, idea.ticker, equity, limits)

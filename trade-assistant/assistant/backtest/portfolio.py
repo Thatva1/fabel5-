@@ -38,6 +38,16 @@ DEFAULTS = {
     "max_new_entries_per_day": None,  # None = unlimited
     "correlation_threshold": None,    # e.g. 0.8 to reject correlated candidates
     "correlation_lookback": 60,
+    # The most of the exposure budget any ONE strategy may hold, as a percentage
+    # of it. None = no cap, which is how a strategy that fires on almost
+    # everything ends up being the whole book. `strategy_share_pct` overrides
+    # it for named strategies.
+    "max_strategy_share_pct": None,
+    "strategy_share_pct": {},
+    # One position per instrument, claimed in strategy_priority order — what the
+    # live book does. Off by default because the per-strategy study wants each
+    # strategy measured on its own, including on instruments another holds.
+    "one_position_per_ticker": False,
 }
 
 
@@ -51,6 +61,41 @@ def settings(config):
     if cfg["max_position_pct"] is None:
         cfg["max_position_pct"] = account.get("max_position_pct", 15.0)
     return cfg
+
+
+def strategy_cap(strategy, cfg, equity):
+    """The most notional one strategy may hold, in base currency. None = uncapped.
+
+    A share of the EXPOSURE BUDGET rather than of the position count: the count
+    means nothing on the first trade of a new book, and positions are different
+    sizes. Shared with the live book so the two cannot disagree about it.
+    """
+    share = (cfg.get("strategy_share_pct") or {}).get(
+        strategy, cfg.get("max_strategy_share_pct"))
+    if share is None:
+        return None
+    return equity * float(cfg["max_gross_exposure_pct"]) / 100 * float(share) / 100
+
+
+def _claims(candidates, one_per_ticker, priority):
+    """The day's candidates as groups to try in order; at most one per group opens.
+
+    Without one_position_per_ticker every candidate is its own group, best
+    reward:risk first — the original behaviour. With it, a group is everything
+    that fired on one instrument, in the order strategies may claim it, so that
+    when the first strategy has no budget left the instrument passes to the
+    next one instead of being dropped.
+    """
+    ordered = sorted(candidates, key=lambda c: -(c.get("reward_risk") or 0))
+    if not one_per_ticker:
+        return [[c] for c in ordered]
+    groups = {}
+    for candidate in ordered:
+        groups.setdefault(candidate["ticker"], []).append(candidate)
+    last = len(priority)
+    return [sorted(group, key=lambda c: (priority.get(c.get("strategy"), last),
+                                         -(c.get("reward_risk") or 0)))
+            for group in groups.values()]
 
 
 def simulate(candidates, config, market_states=None, returns_lookup=None,
@@ -68,6 +113,15 @@ def simulate(candidates, config, market_states=None, returns_lookup=None,
     cfg = settings(config)
     equity = float(cfg["starting_equity"])
     start_equity = equity
+    one_per_ticker = bool(cfg["one_position_per_ticker"])
+    # A share cap is a statement about a MIX. A run holding one strategy has no
+    # mix to balance, and capping it would only throttle the measurement of
+    # that strategy on its own — every per-strategy study and sweep is one.
+    if len({c.get("strategy") for c in candidates}) <= 1:
+        cfg = {**cfg, "max_strategy_share_pct": None, "strategy_share_pct": {}}
+    from . import engine          # here, not at the top: engine imports nothing of ours
+    priority = {name: rank for rank, name in
+                enumerate(engine.settings(config)["strategy_priority"])}
 
     by_entry = {}
     for candidate in candidates:
@@ -91,7 +145,8 @@ def simulate(candidates, config, market_states=None, returns_lookup=None,
     open_positions = []
     taken, skipped = [], {"exposure": 0, "max_positions": 0, "per_market": 0,
                           "risk_off": 0, "correlation": 0, "daily_cap": 0,
-                          "size_too_small": 0}
+                          "size_too_small": 0, "strategy_share": 0,
+                          "ticker_held": 0}
     curve, curve_dates = [], []
 
     for date in dates:
@@ -110,47 +165,62 @@ def simulate(candidates, config, market_states=None, returns_lookup=None,
         # 2. Open new ones, best reward:risk first — the scarce resource is
         #    exposure, so it should go to the best available setup.
         entries_today = 0
-        for candidate in sorted(by_entry.get(date, []),
-                                key=lambda c: -(c.get("reward_risk") or 0)):
-            cap = cfg["max_new_entries_per_day"]
-            if cap is not None and entries_today >= cap:
-                skipped["daily_cap"] += 1
-                continue
-            if len(open_positions) >= cfg["max_open_positions"]:
-                skipped["max_positions"] += 1
-                continue
+        for claims in _claims(by_entry.get(date, []), one_per_ticker, priority):
+            for candidate in claims:
+                cap = cfg["max_new_entries_per_day"]
+                if cap is not None and entries_today >= cap:
+                    skipped["daily_cap"] += 1
+                    continue
+                if len(open_positions) >= cfg["max_open_positions"]:
+                    skipped["max_positions"] += 1
+                    continue
+                if one_per_ticker and any(p["ticker"] == candidate["ticker"]
+                                          for p in open_positions):
+                    skipped["ticker_held"] += 1
+                    continue
 
-            market = candidate.get("market")
-            if sum(1 for p in open_positions if p.get("market") == market) \
-                    >= cfg["max_positions_per_market"]:
-                skipped["per_market"] += 1
-                continue
+                market = candidate.get("market")
+                if sum(1 for p in open_positions if p.get("market") == market) \
+                        >= cfg["max_positions_per_market"]:
+                    skipped["per_market"] += 1
+                    continue
 
-            multiplier = _market_multiplier(candidate, market_states, config)
-            if multiplier <= 0:
-                skipped["risk_off"] += 1
-                continue
+                multiplier = _market_multiplier(candidate, market_states, config)
+                if multiplier <= 0:
+                    skipped["risk_off"] += 1
+                    continue
 
-            if _too_correlated(candidate, open_positions, cfg, returns_lookup):
-                skipped["correlation"] += 1
-                continue
+                if _too_correlated(candidate, open_positions, cfg, returns_lookup):
+                    skipped["correlation"] += 1
+                    continue
 
-            base_equity = equity if cfg["compound"] else start_equity
-            shares = _size(candidate, base_equity, cfg, multiplier)
-            if shares < 1:
-                skipped["size_too_small"] += 1
-                continue
+                base_equity = equity if cfg["compound"] else start_equity
+                shares = _size(candidate, base_equity, cfg, multiplier)
+                if shares < 1:
+                    skipped["size_too_small"] += 1
+                    continue
 
-            value_base = shares * candidate["entry_price"] * candidate["fx_in"]
-            current = sum(p["value_base"] for p in open_positions)
-            if current + value_base > base_equity * cfg["max_gross_exposure_pct"] / 100:
-                skipped["exposure"] += 1
-                continue
+                value_base = shares * candidate["entry_price"] * candidate["fx_in"]
+                current = sum(p["value_base"] for p in open_positions)
+                if current + value_base > base_equity * cfg["max_gross_exposure_pct"] / 100:
+                    skipped["exposure"] += 1
+                    continue
 
-            position = _open(candidate, shares, value_base, multiplier)
-            open_positions.append(position)
-            cash -= value_base
-            entries_today += 1
+                # The strategy's own budget, checked last so that a strategy
+                # refused here hands the instrument to the next claimant.
+                limit = strategy_cap(candidate.get("strategy"), cfg, base_equity)
+                if limit is not None:
+                    held = sum(p["value_base"] for p in open_positions
+                               if p.get("strategy") == candidate.get("strategy"))
+                    if held + value_base > limit:
+                        skipped["strategy_share"] += 1
+                        continue
+
+                position = _open(candidate, shares, value_base, multiplier)
+                open_positions.append(position)
+                cash -= value_base
+                entries_today += 1
+                break
 
         # 3. Mark to market. Open positions are valued at TODAY's price, so a
         #    position that is 20% underwater shows in the drawdown now rather

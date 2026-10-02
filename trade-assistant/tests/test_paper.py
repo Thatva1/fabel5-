@@ -722,3 +722,57 @@ def test_a_position_marked_on_its_entry_bar_is_not_yet_a_bar_old():
     position = {"bars_held": 0, "bar_date": "2026-08-21"}
     session._age_by_one_bar(position, "2026-08-21")
     assert position["bars_held"] == 0
+
+
+# --- one strategy's share of the book -------------------------------------------
+
+def _share_setup(book_path, share):
+    from assistant.backtest import portfolio
+    from assistant.strategies.base import StrategyIdea
+
+    def idea(ticker, strategy):
+        return StrategyIdea(ticker=ticker, strategy=strategy, strategy_label=strategy,
+                            regime="TRENDING_UP", direction="long", entry=100.0,
+                            stop=95.0, target=115.0, risk_per_share=5.0,
+                            reward_risk=3.0)
+
+    config = {"account": {"portfolio_value": 100_000, "risk_per_trade_pct": 1.0,
+                          "max_position_pct": 15.0},
+              "portfolio": {"max_gross_exposure_pct": 60.0, "max_open_positions": 8,
+                            "max_strategy_share_pct": share},
+              "strategy_priority": ["ts_momentum", "low_beta"], "paper": {}}
+    index = pd.bdate_range("2026-01-01", periods=30)
+    frames = {t: pd.DataFrame({"Close": [100.0 + i * 0.1 for i in range(30)]}, index=index)
+              for t in ("AAA", "BBB", "CCC")}
+    ideas = [idea("AAA", "ts_momentum"), idea("BBB", "ts_momentum"),
+             idea("CCC", "ts_momentum"), idea("CCC", "low_beta")]
+    return (_started(book_path), ideas, frames, config, session.settings(config),
+            portfolio.settings(config))
+
+
+def test_the_live_book_caps_one_strategy_and_passes_the_instrument_on(book_path):
+    """The same rule the backtest applies, so the two cannot disagree. Each
+    position is 15% of the book and the budget is 60%; at a 50% share, two
+    time-series positions fill that strategy and the third instrument goes to
+    the other strategy that flagged it."""
+    book, ideas, frames, config, cfg, limits = _share_setup(book_path, share=50)
+    out = {"opened": []}
+
+    session._open_positions(book, session._rank_candidates(ideas, config), frames,
+                            config, cfg, limits, "2026-02-12", out,
+                            alternates=session._claim_order(ideas, config))
+
+    assert {o["ticker"]: o["strategy"] for o in out["opened"]} == {
+        "AAA": "ts_momentum", "BBB": "ts_momentum", "CCC": "low_beta"}
+
+
+def test_with_no_share_set_the_book_chooses_exactly_as_before(book_path):
+    book, ideas, frames, config, cfg, limits = _share_setup(book_path, share=None)
+    out = {"opened": []}
+
+    session._open_positions(book, session._rank_candidates(ideas, config), frames,
+                            config, cfg, limits, "2026-02-12", out,
+                            alternates=session._claim_order(ideas, config))
+
+    assert [o["strategy"] for o in out["opened"]] == ["ts_momentum"] * 3
+    assert out["skipped"]["strategy_share"] == 0
