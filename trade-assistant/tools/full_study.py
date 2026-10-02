@@ -52,6 +52,9 @@ FORCE_ENABLE = [n for n in os.environ.get("STUDY_ENABLE", "").split(",") if n]
 # The replay is the expensive step and each instrument is independent, so it
 # splits across processes. 1 keeps the original single-process path.
 WORKERS = int(os.environ.get("STUDY_WORKERS", "1"))
+# A saved candidates file to analyse instead of replaying. The replay is most
+# of an hour and every question asked afterwards is minutes on top of it.
+CANDIDATES_IN = os.environ.get("STUDY_CANDIDATES")
 OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "..", "reports", f"FULL-STUDY{_SUFFIX}.json")
 CANDIDATES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -141,25 +144,28 @@ def replay(frames, study_cfg, benchmark, progress):
         pickle.dump({"frames": frames, "config": study_cfg, "benchmark": benchmark},
                     handle)
         snapshot = handle.name
-    trades, done = [], 0
+    by_ticker, done, found = {}, 0, 0
     try:
         with get_context("spawn").Pool(WORKERS, _worker_init, (snapshot,)) as pool:
             # Longest series first, so no process is left holding the slow
             # instruments at the end while the others sit idle.
             order = sorted(frames, key=lambda t: -len(frames[t]))
             for outcome in pool.imap_unordered(_worker_replay, order):
-                trades.extend(outcome["trades"])
+                by_ticker[outcome["ticker"]] = outcome["trades"]
+                found += len(outcome["trades"])
                 done += 1
                 if done % 25 == 0 or done == len(order):
-                    log(f"  {done}/{len(order)} instruments replayed, "
-                        f"{len(trades)} candidates")
+                    log(f"  {done}/{len(order)} instruments replayed, {found} candidates")
     finally:
         os.unlink(snapshot)
-    # imap_unordered returns in completion order; the portfolio simulation
-    # must not depend on which process happened to finish first.
-    trades.sort(key=lambda t: (t.get("entry_date") or "", t.get("ticker") or "",
-                               t.get("strategy") or ""))
-    return trades
+    # Back into UNIVERSE order, instrument by instrument, exactly as the
+    # single-process replay emits them. This is not cosmetic. The portfolio
+    # breaks reward:risk ties by the order candidates arrive, every strategy
+    # targets a fixed multiple of its stop so ties are the rule, and the
+    # universe is listed most liquid first. With a dozen slots that tie-break
+    # decides which names are held: scoring the same trades in alphabetical
+    # order instead moved ts_momentum from 18.5% a year to 10.2%.
+    return [trade for ticker in frames for trade in by_ticker.get(ticker, [])]
 
 
 def main():
@@ -222,7 +228,13 @@ def main():
         if bars % 2000 == 0:
             log(f"  {ticker}: {bars}/{total} bars")
 
-    out = {"trades": replay(frames, study_cfg, benchmark, progress)}
+    if CANDIDATES_IN:
+        with open(CANDIDATES_IN) as handle:
+            out = {"trades": json.load(handle)}
+        log(f"loaded {len(out['trades'])} saved candidates from "
+            f"{os.path.basename(CANDIDATES_IN)} — no replay")
+    else:
+        out = {"trades": replay(frames, study_cfg, benchmark, progress)}
     log(f"replay done in {(time.time() - started) / 60:.1f} min — "
         f"{len(out['trades'])} candidates")
 
@@ -233,8 +245,9 @@ def main():
     # to discover and the entire replay again to fix. Saved first, analysed
     # second.
     os.makedirs(os.path.dirname(CANDIDATES_PATH), exist_ok=True)
-    with open(CANDIDATES_PATH, "w") as handle:
-        json.dump(out["trades"], handle, default=str)
+    if os.path.abspath(CANDIDATES_IN or "") != os.path.abspath(CANDIDATES_PATH):
+        with open(CANDIDATES_PATH, "w") as handle:
+            json.dump(out["trades"], handle, default=str)
     log(f"candidates saved to {os.path.basename(CANDIDATES_PATH)} "
         f"({os.path.getsize(CANDIDATES_PATH) / 1e6:.0f} MB) — "
         "re-analysis no longer needs a replay")
