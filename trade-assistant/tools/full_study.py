@@ -52,6 +52,17 @@ FORCE_ENABLE = [n for n in os.environ.get("STUDY_ENABLE", "").split(",") if n]
 # The replay is the expensive step and each instrument is independent, so it
 # splits across processes. 1 keeps the original single-process path.
 WORKERS = int(os.environ.get("STUDY_WORKERS", "1"))
+# The index the market-trend overlays read. The published study is US-only and
+# uses the S&P 500; a universe elsewhere needs its own.
+BENCHMARK = os.environ.get("STUDY_BENCHMARK", "^GSPC")
+# Run ONLY these strategies, switching every other one off for the run. For a
+# test of one rule, where replaying the whole library would only add time.
+ONLY = [n for n in os.environ.get("STUDY_ONLY", "").split(",") if n]
+# "yfinance" switches the broker feed off for the run, so every series comes
+# from one source. The broker feed returns some futures and currency series too
+# short to use, stalls on index symbols, and makes a run depend on whether
+# Trader Workstation happened to be open.
+FEED = os.environ.get("STUDY_FEED", "")
 # A saved candidates file to analyse instead of replaying. The replay is most
 # of an hour and every question asked afterwards is minutes on top of it.
 CANDIDATES_IN = os.environ.get("STUDY_CANDIDATES")
@@ -184,7 +195,19 @@ def main():
     # denominated futures. Converting into GBP would fold a currency return into
     # every strategy's result and make them incomparable.
     config = {**config, "base_currency": "USD",
-              "scanner": {**config["scanner"], "benchmark": "^GSPC"}}
+              "scanner": {**config["scanner"], "benchmark": BENCHMARK}}
+    if FEED == "yfinance":
+        providers = dict(config.get("providers") or {})
+        providers["ibkr"] = {**(providers.get("ibkr") or {}), "enabled": False}
+        config = {**config, "providers": providers}
+        log("broker feed switched off for this run: every series from Yahoo")
+    if ONLY:
+        blocks = dict(config.get("strategies") or {})
+        for strategy in registry.all_strategies():
+            blocks[strategy.name] = {**(blocks.get(strategy.name) or {}),
+                                     "enabled": strategy.name in ONLY}
+        config = {**config, "strategies": blocks}
+        log(f"running ONLY: {', '.join(ONLY)}")
     router = pipeline.get_router(config)
 
     equities, derivatives = build_universe(config, router)
@@ -210,7 +233,7 @@ def main():
     if warning:
         log(f"NOTE: {warning}")
 
-    benchmark = router.get_prices("^GSPC", period=PERIOD)["Close"]
+    benchmark = router.get_prices(BENCHMARK, period=PERIOD)["Close"]
     calendar = sorted({str(d)[:10] for df in frames.values() for d in df.index})
 
     def price_lookup(ticker, date):

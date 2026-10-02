@@ -1,0 +1,812 @@
+symbol,asset_class,name,exchange,country,currency,market_cap_m,traded_m
+HSBA.L,equity,HSBC Holdings plc,LSE,United Kingdom,GBp,246711,313.15
+SHEL.L,equity,Shell plc,LSE,United Kingdom,GBp,205028,352.72
+RR.L,equity,Rolls-Royce Holdings plc,LSE,United Kingdom,GBp,121573,271.94
+RIO.L,equity,Rio Tinto Group,LSE,United Kingdom,GBp,114758,201.23
+ULVR.L,equity,Unilever PLC,LSE,United Kingdom,GBp,96554,158.51
+BP.L,equity,BP p.l.c.,LSE,United Kingdom,GBp,86194,257.58
+BATS.L,equity,British American Tobacco p.l.c.,LSE,United Kingdom,GBp,85209,134.16
+GSK.L,equity,GSK plc,LSE,United Kingdom,GBp,71305,119.48
+GLEN.L,equity,Glencore plc,LSE,Switzerland,GBp,65848,225.03
+LLOY.L,equity,Lloyds Banking Group plc,LSE,United Kingdom,GBp,59809,148.18
+BARC.L,equity,Barclays PLC,LSE,United Kingdom,GBp,59237,170.49
+NG.L,equity,National Grid plc,LSE,United Kingdom,GBp,57634,114.13
+BA.L,equity,BAE Systems plc,LSE,United Kingdom,GBp,56230,111.8
+NWG.L,equity,NatWest Group plc,LSE,United Kingdom,GBp,52572,141.03
+STAN.L,equity,Standard Chartered PLC,LSE,United Kingdom,GBp,47654,123.24
+REL.L,equity,RELX PLC,LSE,United Kingdom,GBp,43942,105.8
+AAL.L,equity,Anglo American plc,LSE,United Kingdom,GBp,43899,224.95
+LSEG.L,equity,London Stock Exchange Group plc,LSE,United Kingdom,GBp,38918,109.49
+ANTO.L,equity,Antofagasta plc,LSE,United Kingdom,GBp,37482,39.37
+DGE.L,equity,Diageo plc,LSE,United Kingdom,GBp,35627,71.02
+CCEP.L,equity,Coca-Cola Europacific Partners PLC,LSE,United Kingdom,GBp,33749,15.59
+RKT.L,equity,Reckitt Benckiser Group plc,LSE,United Kingdom,GBp,31220,72.64
+SSE.L,equity,SSE plc,LSE,United Kingdom,GBp,29725,66.14
+VOD.L,equity,Vodafone Group Public Limited Company,LSE,United Kingdom,GBp,29376,108.97
+TSCO.L,equity,Tesco PLC,LSE,United Kingdom,GBp,29213,67.07
+HLN.L,equity,Haleon plc,LSE,United Kingdom,GBp,28875,76.58
+EXPN.L,equity,Experian plc,LSE,Ireland,GBp,21593,69.12
+AV.L,equity,Aviva plc,LSE,United Kingdom,GBp,20291,48.91
+AIBG.L,equity,AIB Group plc,LSE,Ireland,GBp,19559,8.38
+BT-A.L,equity,BT Group plc,LSE,United Kingdom,GBp,19343,28.1
+IAG.L,equity,International Consolidated Airlines Group S.A.,LSE,United Kingdom,GBp,19260,48.06
+IMB.L,equity,Imperial Brands PLC,LSE,United Kingdom,GBp,18367,69.78
+NXT.L,equity,NEXT plc,LSE,United Kingdom,GBp,16398,42.59
+CCH.L,equity,Coca-Cola HBC AG,LSE,Switzerland,GBp,15461,29.6
+ABF.L,equity,Associated British Foods plc,LSE,United Kingdom,GBp,12764,15.0
+SGRO.L,equity,SEGRO Plc,LSE,United Kingdom,GBp,12383,59.43
+AAF.L,equity,Airtel Africa Plc,LSE,United Kingdom,GBp,11148,11.26
+ADM.L,equity,Admiral Group plc,LSE,United Kingdom,GBp,10725,25.11
+INF.L,equity,Informa plc,LSE,United Kingdom,GBp,10714,27.89
+UU.L,equity,United Utilities Group PLC,LSE,United Kingdom,GBp,10526,23.68
+DPLM.L,equity,Diploma PLC,LSE,United Kingdom,GBp,10426,53.98
+EDV.L,equity,Endeavour Mining plc,LSE,United Kingdom,GBp,10244,30.26
+SVT.L,equity,Severn Trent PLC,LSE,United Kingdom,GBp,9419,17.82
+SGE.L,equity,The Sage Group plc,LSE,United Kingdom,GBp,8856,29.02
+SDLF.L,equity,Standard Life plc,LSE,United Kingdom,GBp,8704,17.47
+WISE.L,equity,Wise Group plc,LSE,United Kingdom,GBp,8409,13.87
+SN.L,equity,Smith & Nephew plc,LSE,United Kingdom,GBp,8278,27.72
+BNZL.L,equity,Bunzl plc,LSE,United Kingdom,GBp,8258,28.98
+SMIN.L,equity,Smiths Group plc,LSE,United Kingdom,GBp,7881,29.06
+MKS.L,equity,Marks and Spencer Group plc,LSE,United Kingdom,GBp,7835,30.74
+BEZ.L,equity,Beazley plc,LSE,United Kingdom,GBp,7808,51.02
+RTO.L,equity,Rentokil Initial plc,LSE,United Kingdom,GBp,7534,35.99
+IMI.L,equity,IMI plc,LSE,United Kingdom,GBp,7350,24.27
+PSON.L,equity,Pearson plc,LSE,United Kingdom,GBp,7345,21.72
+SBRY.L,equity,J Sainsbury plc,LSE,United Kingdom,GBp,7045,28.12
+CNA.L,equity,Centrica plc,LSE,United Kingdom,GBp,6751,25.86
+WEIR.L,equity,Weir PLC,LSE,United Kingdom,GBp,6698,27.22
+MRO.L,equity,Melrose Industries PLC,LSE,United Kingdom,GBp,5857,19.6
+BGEO.L,equity,Lion Finance Group PLC,LSE,United Kingdom,GBp,5705,9.41
+GAW.L,equity,Games Workshop Group PLC,LSE,United Kingdom,GBp,5680,16.67
+CCC.L,equity,Computacenter plc,LSE,United Kingdom,GBp,5672,19.57
+DCC.L,equity,DCC Energy plc,LSE,Ireland,GBp,5497,39.04
+KGF.L,equity,Kingfisher plc,LSE,United Kingdom,GBp,5367,18.86
+SPX.L,equity,Spirax Group plc,LSE,United Kingdom,GBp,5343,15.16
+LAND.L,equity,Land Securities Group Plc,LSE,United Kingdom,GBp,5095,17.53
+EZJ.L,equity,easyJet plc,LSE,United Kingdom,GBp,5088,47.06
+ITH.L,equity,Ithaca Energy plc,LSE,United Kingdom,GBp,4546,5.18
+BAB.L,equity,Babcock International Group PLC,LSE,United Kingdom,GBp,4520,19.11
+BBY.L,equity,Balfour Beatty plc,LSE,United Kingdom,GBp,4394,12.05
+BTRW.L,equity,Barratt Redrow plc,LSE,United Kingdom,GBp,4384,24.0
+RSW.L,equity,Renishaw plc,LSE,United Kingdom,GBp,4336,6.63
+LMP.L,equity,LondonMetric Property Plc,LSE,United Kingdom,GBp,4185,11.95
+CTEC.L,equity,Convatec Group PLC,LSE,United Kingdom,GBp,4152,15.31
+HWDN.L,equity,Howden Joinery Group Plc,LSE,United Kingdom,GBp,4091,11.9
+WTB.L,equity,Whitbread plc,LSE,United Kingdom,GBp,4078,14.15
+HBR.L,equity,Harbour Energy plc,LSE,United Kingdom,GBp,4031,17.78
+WPP.L,equity,WPP plc,LSE,United Kingdom,GBp,4020,20.26
+SCT.L,equity,Softcat plc,LSE,United Kingdom,GBp,4014,8.31
+BLND.L,equity,British Land Company PLC,LSE,United Kingdom,GBp,3992,14.12
+ROR.L,equity,Rotork plc,LSE,United Kingdom,GBp,3974,35.07
+PSN.L,equity,Persimmon Plc,LSE,United Kingdom,GBp,3974,27.2
+ZEG.L,equity,Zegona Communications plc,LSE,United Kingdom,GBp,3970,8.71
+JD.L,equity,JD Sports Fashion Plc,LSE,United Kingdom,GBp,3755,12.68
+BRBY.L,equity,Burberry Group plc,LSE,United Kingdom,GBp,3620,21.73
+AUTO.L,equity,Autotrader Group plc,LSE,United Kingdom,GBp,3545,16.17
+RS1.L,equity,RS Group plc,LSE,United Kingdom,GBp,3537,7.73
+MNDI.L,equity,Mondi plc,LSE,United Kingdom,GBp,3474,9.78
+FRAS.L,equity,Frasers Group Plc,LSE,United Kingdom,GBp,3442,1.82
+RMV.L,equity,Rightmove plc,LSE,United Kingdom,GBp,3281,21.45
+HIK.L,equity,Hikma Pharmaceuticals PLC,LSE,United Kingdom,GBp,3271,14.38
+IGG.L,equity,IG Group Holdings plc,LSE,United Kingdom,GBp,3263,12.81
+JMAT.L,equity,Johnson Matthey Plc,LSE,United Kingdom,GBp,3050,11.44
+BKG.L,equity,The Berkeley Group Holdings plc,LSE,United Kingdom,GBp,2950,9.07
+TW.L,equity,Taylor Wimpey plc,LSE,United Kingdom,GBp,2809,14.06
+TBCG.L,equity,TBC Bank Group PLC,LSE,United Kingdom,GBp,2792,4.45
+HOC.L,equity,Hochschild Mining plc,LSE,United Kingdom,GBp,2781,8.51
+DRX.L,equity,Drax Group plc,LSE,United Kingdom,GBp,2735,7.6
+MTO.L,equity,Mitie Group plc,LSE,United Kingdom,GBp,2709,20.73
+CWK.L,equity,Cranswick plc,LSE,United Kingdom,GBp,2675,6.33
+ENT.L,equity,Entain Plc,LSE,Isle of Man,GBp,2646,17.89
+JET2.L,equity,Jet2 plc,LSE,United Kingdom,GBp,2577,9.79
+HILS.L,equity,Hill & Smith PLC,LSE,United Kingdom,GBp,2543,6.5
+BME.L,equity,B&M European Value Retail plc,LSE,Jersey,GBp,2523,11.44
+INCH.L,equity,Inchcape plc,LSE,United Kingdom,GBp,2516,6.0
+SHC.L,equity,Shaftesbury Capital PLC,LSE,United Kingdom,GBp,2486,5.79
+TATE.L,equity,Tate & Lyle plc,LSE,United Kingdom,GBp,2476,12.05
+ITV.L,equity,ITV plc,LSE,United Kingdom,GBp,2446,6.99
+QQ.L,equity,QinetiQ Group plc,LSE,United Kingdom,GBp,2428,8.26
+SRP.L,equity,Serco Group plc,LSE,United Kingdom,GBp,2427,5.52
+UTG.L,equity,Unite Group PLC,LSE,United Kingdom,GBp,2369,11.09
+PHP.L,equity,Primary Health Properties Plc,LSE,United Kingdom,GBp,2345,9.33
+BWY.L,equity,Bellway p.l.c.,LSE,United Kingdom,GBp,2344,9.88
+TCAP.L,equity,TP ICAP Group PLC,LSE,Jersey,GBp,2305,4.44
+KLR.L,equity,Keller Group plc,LSE,United Kingdom,GBp,2242,5.76
+ONT.L,equity,Oxford Nanopore Technologies plc,LSE,United Kingdom,GBp,2182,5.14
+OCDO.L,equity,Ocado Group plc,LSE,United Kingdom,GBp,2178,10.17
+HTWS.L,equity,Helios Towers plc,LSE,United Kingdom,GBp,2171,6.36
+PNN.L,equity,Pennon Group Plc,LSE,United Kingdom,GBp,2165,7.2
+CAN.L,equity,Canal+ SA,LSE,France,GBp,2078,1.11
+GRG.L,equity,Greggs plc,LSE,United Kingdom,GBp,2066,9.18
+MGNS.L,equity,Morgan Sindall Group plc,LSE,United Kingdom,GBp,2001,4.54
+GNC.L,equity,Greencore Group plc,LSE,Ireland,GBp,1956,5.56
+DLN.L,equity,Derwent London Plc,LSE,United Kingdom,GBp,1951,4.73
+HMSO.L,equity,Hammerson Plc,LSE,United Kingdom,GBp,1949,4.31
+TRIG.L,equity,The Renewables Infrastructure Group Limited,LSE,United Kingdom,GBp,1779,4.64
+MAB.L,equity,Mitchells & Butlers plc,LSE,United Kingdom,GBp,1749,1.38
+GFTU.L,equity,Grafton Group plc,LSE,Ireland,GBp,1740,3.14
+CMCX.L,equity,CMC Markets Plc,LSE,United Kingdom,GBp,1705,3.25
+OXIG.L,equity,Oxford Instruments plc,LSE,United Kingdom,GBp,1700,6.19
+OSB.L,equity,OSB Group Plc,LSE,United Kingdom,GBp,1671,5.29
+IWG.L,equity,International Workplace Group plc,LSE,Switzerland,GBp,1634,5.52
+SVS.L,equity,Savills plc,LSE,United Kingdom,GBp,1632,6.84
+PFD.L,equity,Premier Foods plc,LSE,United Kingdom,GBp,1616,2.21
+ATYM.L,equity,"Atalaya Mining Copper, S.A.",LSE,Spain,GBp,1604,7.17
+DNLM.L,equity,Dunelm Group plc,LSE,United Kingdom,GBp,1573,4.67
+BYG.L,equity,Big Yellow Group Plc,LSE,United Kingdom,GBp,1564,4.06
+WOSG.L,equity,Watches of Switzerland Group PLC,LSE,United Kingdom,GBp,1556,4.09
+CKN.L,equity,Clarkson PLC,LSE,United Kingdom,GBp,1546,2.94
+BOY.L,equity,Bodycote plc,LSE,United Kingdom,GBp,1542,9.31
+COA.L,equity,Coats Group plc,LSE,United Kingdom,GBp,1540,2.51
+SHAW.L,equity,Shawbrook Group PLC,LSE,United Kingdom,GBp,1523,1.11
+CURY.L,equity,Currys plc,LSE,United Kingdom,GBp,1497,5.12
+CHG.L,equity,Chemring Group PLC,LSE,United Kingdom,GBp,1431,4.87
+SSPG.L,equity,SSP Group plc,LSE,United Kingdom,GBp,1427,4.41
+SRC.L,equity,SigmaRoc plc,LSE,United Kingdom,GBp,1427,5.52
+GNS.L,equity,Genus plc,LSE,United Kingdom,GBp,1418,4.28
+CRN.L,equity,Cairn Homes plc,LSE,Ireland,GBp,1404,1.05
+RPI.L,equity,Raspberry Pi Holdings plc,LSE,United Kingdom,GBp,1388,3.64
+KNOS.L,equity,Kainos Group plc,LSE,United Kingdom,GBp,1385,5.16
+SRE.L,equity,Sirius Real Estate Limited,LSE,Guernsey,GBp,1372,2.68
+YCA.L,equity,Yellow Cake plc,LSE,Jersey,GBp,1358,6.3
+KIE.L,equity,Kier Group plc,LSE,United Kingdom,GBp,1329,4.46
+PAG.L,equity,Paragon Banking Group PLC,LSE,United Kingdom,GBp,1286,2.64
+ENOG.L,equity,Energean plc,LSE,United Kingdom,GBp,1285,3.01
+FAN.L,equity,Volution Group plc,LSE,United Kingdom,GBp,1265,3.36
+VLX.L,equity,Volex plc,LSE,United Kingdom,GBp,1252,7.64
+TPK.L,equity,Travis Perkins plc,LSE,United Kingdom,GBp,1239,3.49
+GPE.L,equity,Great Portland Estates Plc,LSE,United Kingdom,GBp,1238,2.0
+SNR.L,equity,Senior plc,LSE,United Kingdom,GBp,1228,8.28
+FOUR.L,equity,4imprint Group plc,LSE,United Kingdom,GBp,1221,2.38
+GRI.L,equity,Grainger plc,LSE,United Kingdom,GBp,1209,4.58
+MTRO.L,equity,Metro Bank Holdings PLC,LSE,United Kingdom,GBp,1110,1.49
+SAGA.L,equity,Saga plc,LSE,United Kingdom,GBp,1106,3.63
+SAFE.L,equity,Safestore Holdings Plc,LSE,United Kingdom,GBp,1105,3.12
+BREE.L,equity,Breedon Group plc,LSE,United Kingdom,GBp,1090,3.35
+GDWN.L,equity,Goodwin PLC,LSE,United Kingdom,GBp,1085,3.02
+MPE.L,equity,M.P. Evans Group PLC,LSE,United Kingdom,GBp,1075,1.83
+PTEC.L,equity,Playtech plc,LSE,United Kingdom,GBp,1040,2.4
+BYIT.L,equity,Bytes Technology Group plc,LSE,United Kingdom,GBp,1024,3.32
+SUPR.L,equity,Supermarket Income REIT plc,LSE,United Kingdom,GBp,1014,3.05
+HAS.L,equity,Hays plc,LSE,United Kingdom,GBp,1012,3.41
+SQZ.L,equity,Serica Energy plc,LSE,United Kingdom,GBp,1007,3.7
+ZIG.L,equity,Zigup Plc,LSE,United Kingdom,GBp,1003,2.93
+ELM.L,equity,Elementis plc,LSE,United Kingdom,GBp,999,2.3
+SPI.L,equity,Spire Healthcare Group plc,LSE,United Kingdom,GBp,989,6.12
+GAMA.L,equity,Gamma Communications plc,LSE,United Kingdom,GBp,978,9.89
+JDW.L,equity,J D Wetherspoon plc,LSE,United Kingdom,GBp,964,1.98
+FGP.L,equity,FirstGroup plc,LSE,United Kingdom,GBp,939,2.82
+CWR.L,equity,Ceres Power Holdings plc,LSE,United Kingdom,GBp,919,10.08
+PETS.L,equity,Pets at Home Group Plc,LSE,United Kingdom,GBp,914,2.06
+FEVR.L,equity,Fevertree Drinks PLC,LSE,United Kingdom,GBp,904,2.81
+MONY.L,equity,MONY Group plc,LSE,United Kingdom,GBp,884,2.07
+TRST.L,equity,Trustpilot Group plc,LSE,United Kingdom,GBp,883,3.07
+DSCV.L,equity,discoverIE Group plc,LSE,United Kingdom,GBp,817,2.4
+DOM.L,equity,Domino's Pizza Group plc,LSE,United Kingdom,GBp,813,2.61
+VCT.L,equity,Victrex plc,LSE,United Kingdom,GBp,799,2.83
+MOON.L,equity,Moonpig Group PLC,LSE,United Kingdom,GBp,791,3.65
+CSN.L,equity,Chesnara plc,LSE,United Kingdom,GBp,783,2.0
+RNWH.L,equity,Renew Holdings plc,LSE,United Kingdom,GBp,772,1.65
+CVSG.L,equity,CVS Group plc,LSE,United Kingdom,GBp,769,3.37
+VTY.L,equity,Vistry Group PLC,LSE,United Kingdom,GBp,768,6.19
+MGAM.L,equity,Morgan Advanced Materials plc,LSE,United Kingdom,GBp,748,3.08
+IQE.L,equity,IQE plc,LSE,United Kingdom,GBp,729,7.84
+GEN.L,equity,Genuit Group plc,LSE,United Kingdom,GBp,715,3.15
+TUN.L,equity,Tungsten West PLC,LSE,United Kingdom,GBp,703,1.66
+ITM.L,equity,ITM Power Plc,LSE,United Kingdom,GBp,703,2.35
+GFRD.L,equity,Galliford Try Holdings plc,LSE,United Kingdom,GBp,700,2.34
+WKP.L,equity,Workspace Group Plc,LSE,United Kingdom,GBp,688,1.58
+COST.L,equity,Costain Group PLC,LSE,United Kingdom,GBp,687,4.17
+TRN.L,equity,Trainline plc,LSE,United Kingdom,GBp,665,3.97
+APN.L,equity,Applied Nutrition Plc,LSE,United Kingdom,GBp,664,1.98
+PAGE.L,equity,Michael Page Plc,LSE,United Kingdom,GBp,662,2.57
+OXB.L,equity,Oxford Biomedica plc,LSE,United Kingdom,GBp,659,4.15
+RKH.L,equity,Rockhopper Exploration plc,LSE,United Kingdom,GBp,649,1.25
+HFG.L,equity,Hilton Food Group plc,LSE,United Kingdom,GBp,628,1.21
+TEP.L,equity,Telecom Plus Plc,LSE,United Kingdom,GBp,623,3.58
+EVPL.L,equity,everplay group plc,LSE,United Kingdom,GBp,615,3.59
+AMS.L,equity,Advanced Medical Solutions Group plc,LSE,United Kingdom,GBp,615,7.04
+HWG.L,equity,Harworth Group plc,LSE,United Kingdom,GBp,607,4.77
+CBG.L,equity,Close Brothers Group plc,LSE,United Kingdom,GBp,601,2.13
+FTC.L,equity,Filtronic plc,LSE,United Kingdom,GBp,598,3.98
+BAG.L,equity,A.G. BARR p.l.c.,LSE,United Kingdom,GBp,597,1.15
+XPS.L,equity,XPS Pensions Group plc,LSE,United Kingdom,GBp,596,2.61
+ASC.L,equity,ASOS Plc,LSE,United Kingdom,GBp,596,2.15
+HFD.L,equity,Halfords Group plc,LSE,United Kingdom,GBp,559,2.76
+HTG.L,equity,Hunting PLC,LSE,United Kingdom,GBp,555,1.4
+CHRT.L,equity,Cohort plc,LSE,United Kingdom,GBp,555,1.55
+SMWH.L,equity,WH Smith PLC,LSE,United Kingdom,GBp,555,2.12
+AVON.L,equity,Avon Technologies Plc,LSE,United Kingdom,GBp,554,1.58
+ATG.L,equity,Auction Technology Group plc,LSE,United Kingdom,GBp,554,2.08
+FCH.L,equity,Funding Circle Holdings plc,LSE,United Kingdom,GBp,522,2.25
+PINE.L,equity,Pinewood Technologies Group PLC,LSE,United Kingdom,GBp,521,3.63
+RWS.L,equity,RWS Holdings plc,LSE,United Kingdom,GBp,517,3.34
+BMY.L,equity,Bloomsbury Publishing Plc,LSE,United Kingdom,GBp,515,2.24
+TBTG.L,equity,The Beauty Tech Group plc,LSE,United Kingdom,GBp,499,1.89
+ENQ.L,equity,EnQuest PLC,LSE,United Kingdom,GBp,499,1.68
+JSG.L,equity,Johnson Service Group PLC,LSE,United Kingdom,GBp,489,2.3
+ALFA.L,equity,Alfa Financial Software Holdings PLC,LSE,United Kingdom,GBp,461,1.05
+MEGP.L,equity,ME Group International plc,LSE,United Kingdom,GBp,441,1.35
+AT.L,equity,Ashtead Technology Holdings Plc,LSE,United Kingdom,GBp,430,3.36
+THG.L,equity,THG Plc,LSE,United Kingdom,GBp,416,1.3
+BOWL.L,equity,Hollywood Bowl Group plc,LSE,United Kingdom,GBp,414,1.67
+BOKU.L,equity,"Boku, Inc.",LSE,United Kingdom,GBp,409,2.27
+DATA.L,equity,GlobalData Plc,LSE,United Kingdom,GBp,388,1.37
+SREI.L,equity,Schroder Real Estate Investment Trust Limited,LSE,Guernsey,GBp,380,1.34
+PAY.L,equity,PayPoint plc,LSE,United Kingdom,GBp,372,1.09
+STEM.L,equity,SThree plc,LSE,United Kingdom,GBp,362,1.43
+CCR.L,equity,C&C Group plc,LSE,Ireland,GBp,357,1.35
+CRW.L,equity,Craneware plc,LSE,United Kingdom,GBp,349,4.03
+GHH.L,equity,Gooch & Housego PLC,LSE,United Kingdom,GBp,335,5.12
+GBG.L,equity,GB Group plc,LSE,United Kingdom,GBp,331,3.2
+IBST.L,equity,Ibstock plc,LSE,United Kingdom,GBp,323,1.71
+NFG.L,equity,Next 15 Group plc,LSE,United Kingdom,GBp,321,1.19
+YOU.L,equity,YouGov plc,LSE,United Kingdom,GBp,314,1.38
+TTG.L,equity,TT Electronics plc,LSE,United Kingdom,GBp,314,1.01
+SWC.L,equity,The Smarter Web Company Plc,LSE,United Kingdom,GBp,300,1.18
+FORT.L,equity,Forterra plc,LSE,United Kingdom,GBp,299,1.16
+SFOR.L,equity,S4 Capital plc,LSE,United Kingdom,GBp,296,1.03
+FRP.L,equity,FRP Advisory Group plc,LSE,United Kingdom,GBp,283,1.0
+CARD.L,equity,Card Factory plc,LSE,United Kingdom,GBp,271,1.22
+CAML.L,equity,Central Asia Metals plc,LSE,United Kingdom,GBp,261,1.72
+CPI.L,equity,Capita plc,LSE,United Kingdom,GBp,256,1.81
+FUTR.L,equity,Future plc,LSE,United Kingdom,GBp,255,1.33
+NCC.L,equity,NCC Group plc,LSE,United Kingdom,GBp,226,4.77
+CER.L,equity,Cerillion Plc,LSE,United Kingdom,GBp,207,1.18
+MAB1.L,equity,Mortgage Advice Bureau (Holdings) plc,LSE,United Kingdom,GBp,192,1.11
+ABDP.L,equity,AB Dynamics plc,LSE,United Kingdom,GBp,186,1.28
+CRST.L,equity,Crest Nicholson Holdings plc,LSE,United Kingdom,GBp,149,1.49
+RCH.L,equity,Reach plc,LSE,United Kingdom,GBp,146,1.02
+TLW.L,equity,Tullow Oil plc,LSE,United Kingdom,GBp,118,1.2
+MPAL.L,equity,MedPal AI PLC,LSE,United Kingdom,GBp,66,1.32
+80M.L,equity,80 Mile Plc,LSE,United Kingdom,GBp,63,1.22
+SIE.DE,equity,Siemens Aktiengesellschaft,GER,Germany,EUR,215431,261.49
+SAP.DE,equity,SAP SE,GER,Germany,EUR,212281,468.89
+DTE.DE,equity,Deutsche Telekom AG,GER,Germany,EUR,127026,152.68
+ENR.DE,equity,Siemens Energy AG,GER,Germany,EUR,123730,286.06
+IFX.DE,equity,Infineon Technologies AG,GER,Germany,EUR,84000,266.1
+MUV2.DE,equity,Münchener Rückversicherungs-Gesellschaft Aktiengesellschaft in München,GER,Germany,EUR,63989,138.79
+DHL.DE,equity,DHL AG,GER,Germany,EUR,62959,90.5
+MRK.DE,equity,Merck KGaA,GER,Germany,EUR,59521,36.3
+DBK.DE,equity,Deutsche Bank Aktiengesellschaft,GER,Germany,EUR,58136,146.49
+DB1.DE,equity,Deutsche Börse AG,GER,Germany,EUR,51797,84.89
+RWE.DE,equity,RWE Aktiengesellschaft,GER,Germany,EUR,46097,80.52
+RHM.DE,equity,Rheinmetall AG,GER,Germany,EUR,44657,182.51
+EOAN.DE,equity,E.ON SE,GER,Germany,EUR,44475,69.72
+BAYN.DE,equity,Bayer Aktiengesellschaft,GER,Germany,EUR,44150,96.48
+BAS.DE,equity,BASF SE,GER,Germany,EUR,42982,90.62
+SHL.DE,equity,Siemens Healthineers AG,GER,Germany,EUR,42373,35.35
+CBK.DE,equity,Commerzbank AG,GER,Germany,EUR,42315,93.03
+P911.DE,equity,Dr. Ing. h.c. F. Porsche AG,GER,Germany,EUR,39173,20.2
+MBG.DE,equity,Mercedes-Benz Group AG,GER,Germany,EUR,38030,84.53
+VOW3.DE,equity,Volkswagen AG,GER,Germany,EUR,33827,72.29
+BMW.DE,equity,Bayerische Motoren Werke Aktiengesellschaft,GER,Germany,EUR,32515,84.65
+DTG.DE,equity,Daimler Truck Holding AG,GER,Germany,EUR,30925,44.94
+HNR1.DE,equity,Hannover Rück SE,GER,Germany,EUR,30752,33.62
+HOT.DE,equity,HOCHTIEF Aktiengesellschaft,GER,Germany,EUR,30655,25.87
+TLX.DE,equity,Talanx AG,GER,Germany,EUR,30316,16.56
+HEN3.DE,equity,Henkel AG & Co. KGaA,GER,Germany,EUR,29271,26.18
+HEI.DE,equity,Heidelberg Materials AG,GER,Germany,EUR,26089,61.3
+ADS.DE,equity,adidas AG,GER,Germany,EUR,25218,98.42
+HLAG.DE,equity,Hapag-Lloyd Aktiengesellschaft,GER,Germany,EUR,24817,1.85
+22UA.DE,equity,BioNTech SE,GER,Germany,EUR,21616,3.57
+MTX.DE,equity,MTU Aero Engines AG,GER,Germany,EUR,19943,48.7
+SRT3.DE,equity,Sartorius Aktiengesellschaft,GER,Germany,EUR,17360,24.12
+BEI.DE,equity,Beiersdorf Aktiengesellschaft,GER,Germany,EUR,16443,27.19
+KBX.DE,equity,Knorr-Bremse AG,GER,Germany,EUR,15991,14.41
+VNA.DE,equity,Vonovia SE,GER,Germany,EUR,14266,47.8
+SY1.DE,equity,Symrise AG,GER,Germany,EUR,12483,27.65
+DHER.DE,equity,Delivery Hero SE,GER,Germany,EUR,11241,24.17
+FME.DE,equity,Fresenius Medical Care AG,GER,Germany,EUR,10525,30.63
+EVK.DE,equity,Evonik Industries AG,GER,Germany,EUR,9618,26.95
+HAG.DE,equity,Hensoldt AG,GER,Germany,EUR,9164,20.1
+LHA.DE,equity,Deutsche Lufthansa AG,GER,Germany,EUR,9136,31.91
+NDX1.DE,equity,Nordex SE,GER,Germany,EUR,9091,19.43
+TKA.DE,equity,thyssenkrupp AG,GER,Germany,EUR,8719,29.27
+BNR.DE,equity,Brenntag SE,GER,Germany,EUR,8461,14.16
+QIA.DE,equity,Qiagen N.V.,GER,Netherlands,EUR,8343,24.32
+PAH3.DE,equity,Porsche Automobil Holding SE,GER,Germany,EUR,7512,15.58
+NEM.DE,equity,Nemetschek SE,GER,Germany,EUR,7097,15.99
+NDA.DE,equity,Aurubis AG,GER,Germany,EUR,6824,21.35
+RAA.DE,equity,RATIONAL Aktiengesellschaft,GER,Germany,EUR,6532,6.21
+DWNI.DE,equity,Deutsche Wohnen SE,GER,Germany,EUR,6129,1.08
+SHA0.DE,equity,Schaeffler AG,GER,Germany,EUR,5887,5.2
+FRA.DE,equity,Fraport AG,GER,Germany,EUR,5724,8.27
+FPE3.DE,equity,Fuchs SE,GER,Germany,EUR,5591,3.86
+ZAL.DE,equity,Zalando SE,GER,Germany,EUR,5439,27.3
+EVD.DE,equity,CTS Eventim AG & Co. KGaA,GER,Germany,EUR,5323,16.56
+TKMS.DE,equity,TKMS AG & Co KGaA,GER,Germany,EUR,4955,14.77
+G24.DE,equity,Scout24 SE,GER,Germany,EUR,4774,30.42
+KGX.DE,equity,KION GROUP AG,GER,Germany,EUR,4696,11.28
+AIXA.DE,equity,AIXTRON SE,GER,Germany,EUR,4474,25.72
+IOS.DE,equity,IONOS Group SE,GER,Germany,EUR,4351,5.07
+RRTL.DE,equity,RTL Group S.A.,GER,Luxembourg,EUR,4308,2.01
+UTDI.DE,equity,United Internet AG,GER,Germany,EUR,4162,3.69
+R3NK.DE,equity,RENK Group AG,GER,Germany,EUR,3726,17.73
+1SXP.DE,equity,SCHOTT Pharma AG & Co. KGaA,GER,Germany,EUR,3698,1.81
+AG1.DE,equity,AUTO1 Group SE,GER,Germany,EUR,3644,6.47
+OHB.DE,equity,OHB SE,GER,Germany,EUR,3553,5.82
+TUI1.DE,equity,TUI AG,GER,Germany,EUR,3499,20.39
+AMV0.DE,equity,Aumovio SE,GER,Germany,EUR,3482,6.2
+LEG.DE,equity,LEG Immobilien SE,GER,Germany,EUR,3480,13.32
+KRN.DE,equity,Krones AG,GER,Germany,EUR,3324,3.47
+SIX2.DE,equity,Sixt SE,GER,Germany,EUR,3241,2.11
+FIE.DE,equity,Fielmann Group AG,GER,Germany,EUR,3148,2.7
+FTK.DE,equity,flatexDEGIRO SE,GER,Germany,EUR,2921,8.54
+WAF.DE,equity,Siltronic AG,GER,Germany,EUR,2767,9.68
+ELG.DE,equity,Elmos Semiconductor SE,GER,Germany,EUR,2755,4.28
+AFX.DE,equity,Carl Zeiss Meditec AG,GER,Germany,EUR,2740,7.94
+FNTN.DE,equity,freenet AG,GER,Germany,EUR,2702,7.03
+SZG.DE,equity,Salzgitter AG,GER,Germany,EUR,2653,8.09
+BOSS.DE,equity,Hugo Boss AG,GER,Germany,EUR,2619,10.95
+JEN.DE,equity,Jenoptik AG,GER,Germany,EUR,2509,6.03
+SZU.DE,equity,Südzucker AG,GER,Germany,EUR,2422,1.56
+JUN3.DE,equity,Jungheinrich Aktiengesellschaft,GER,Germany,EUR,2322,2.72
+DRW3.DE,equity,Drägerwerk AG & Co. KGaA,GER,Germany,EUR,2195,2.31
+GBF.DE,equity,Bilfinger SE,GER,Germany,EUR,2094,8.02
+TEG.DE,equity,TAG Immobilien AG,GER,Germany,EUR,2051,4.25
+SAX.DE,equity,Ströer SE & Co. KGaA,GER,Germany,EUR,1992,3.05
+DMP.DE,equity,Dermapharm Holding SE,GER,Germany,EUR,1858,1.22
+AT1.DE,equity,Aroundtown SA,GER,Luxembourg,EUR,1777,3.55
+VBK.DE,equity,Verbio SE,GER,Germany,EUR,1700,2.49
+DEZ.DE,equity,DEUTZ Aktiengesellschaft,GER,Germany,EUR,1688,9.93
+WAC.DE,equity,Wacker Neuson SE,GER,Germany,EUR,1612,1.41
+ACT0.DE,equity,AlzChem Group AG,GER,Germany,EUR,1589,3.31
+YSN.DE,equity,secunet Security Networks Aktiengesellschaft,GER,Germany,EUR,1566,1.31
+SMHN.DE,equity,SUSS MicroTec SE,GER,Germany,EUR,1472,7.14
+TNIE.DE,equity,tonies SE,GER,Luxembourg,EUR,1455,1.97
+KSB3.DE,equity,KSB SE & Co. KGaA,GER,Germany,EUR,1420,1.3
+RDC.DE,equity,Redcare Pharmacy NV,GER,Netherlands,EUR,1418,6.05
+BFSA.DE,equity,Befesa S.A.,GER,Luxembourg,EUR,1362,2.48
+HBH.DE,equity,HORNBACH Holding AG & Co. KGaA,GER,Germany,EUR,1342,1.09
+AOF.DE,equity,ATOSS Software SE,GER,Germany,EUR,1320,1.59
+OR.PA,equity,L'Oréal S.A.,PAR,France,EUR,198545,113.75
+MC.PA,equity,"LVMH Moët Hennessy - Louis Vuitton, Société Européenne",PAR,France,EUR,186612,194.79
+SU.PA,equity,Schneider Electric S.E.,PAR,France,EUR,170680,234.09
+TTE.PA,equity,TotalEnergies SE,PAR,France,EUR,164369,259.39
+AIR.PA,equity,Airbus SE,PAR,Netherlands,EUR,149827,181.94
+SAF.PA,equity,Safran SA,PAR,France,EUR,136785,163.77
+RMS.PA,equity,Hermès International Société en commandite par actions,PAR,France,EUR,136112,132.48
+AI.PA,equity,L'Air Liquide S.A.,PAR,France,EUR,108590,127.62
+BNP.PA,equity,BNP Paribas SA,PAR,France,EUR,100898,169.74
+CS.PA,equity,AXA SA,PAR,France,EUR,87964,113.12
+SAN.PA,equity,Sanofi,PAR,France,EUR,84835,140.05
+EL.PA,equity,EssilorLuxottica Société anonyme,PAR,France,EUR,65506,103.53
+DG.PA,equity,Vinci SA,PAR,France,EUR,58992,90.42
+ENGI.PA,equity,Engie SA,PAR,France,EUR,57875,94.54
+ACA.PA,equity,Crédit Agricole S.A.,PAR,France,EUR,51218,69.84
+GLE.PA,equity,Société Générale Société anonyme,PAR,France,EUR,48046,116.2
+HO.PA,equity,Thales S.A.,PAR,France,EUR,45800,53.03
+BN.PA,equity,Danone S.A.,PAR,France,EUR,38079,72.52
+LR.PA,equity,Legrand SA,PAR,France,EUR,37889,79.6
+ORA.PA,equity,Orange S.A.,PAR,France,EUR,37156,69.26
+SGO.PA,equity,Compagnie de Saint-Gobain S.A.,PAR,France,EUR,32769,63.53
+DSY.PA,equity,Dassault Systèmes SE,PAR,France,EUR,27109,38.77
+KER.PA,equity,Kering SA,PAR,France,EUR,25787,64.75
+VIE.PA,equity,Veolia Environnement SA,PAR,France,EUR,22804,47.45
+AM.PA,equity,Dassault Aviation société anonyme,PAR,France,EUR,21727,14.32
+DIM.PA,equity,Sartorius Stedim Biotech S.A.,PAR,France,EUR,20256,18.1
+CAP.PA,equity,Capgemini SE,PAR,France,EUR,18078,65.08
+EN.PA,equity,Bouygues SA,PAR,France,EUR,15558,26.62
+RI.PA,equity,Pernod Ricard SA,PAR,France,EUR,14761,38.75
+ERF.PA,equity,Eurofins Scientific SE,PAR,Luxembourg,EUR,12809,20.44
+URW.PA,equity,Unibail-Rodamco-Westfield SE,PAR,France,EUR,12649,22.55
+BVI.PA,equity,Bureau Veritas SA,PAR,France,EUR,11794,23.76
+IPN.PA,equity,Ipsen S.A.,PAR,France,EUR,11510,14.23
+RXL.PA,equity,Rexel S.A.,PAR,France,EUR,10915,22.48
+CA.PA,equity,Carrefour SA,PAR,France,EUR,10844,29.13
+ADP.PA,equity,Aeroports de Paris SA,PAR,France,EUR,10634,11.59
+BOL.PA,equity,Bolloré SE,PAR,France,EUR,10368,12.88
+AC.PA,equity,Accor SA,PAR,France,EUR,10137,29.14
+GET.PA,equity,Getlink SE,PAR,France,EUR,9998,12.07
+LI.PA,equity,Klépierre SA,PAR,France,EUR,9871,17.42
+FGR.PA,equity,Eiffage SA,PAR,France,EUR,9726,24.13
+BIM.PA,equity,bioMérieux S.A.,PAR,France,EUR,9033,12.47
+SW.PA,equity,Sodexo S.A.,PAR,France,EUR,7858,13.18
+GTT.PA,equity,Gaztransport & Technigaz SA,PAR,France,EUR,7787,18.75
+ABVX.PA,equity,ABIVAX Société Anonyme,PAR,France,EUR,7287,12.79
+RNO.PA,equity,Renault SA,PAR,France,EUR,7142,34.15
+AYV.PA,equity,Ayvens,PAR,France,EUR,7043,7.23
+SPIE.PA,equity,SPIE SA,PAR,France,EUR,6977,17.7
+EDEN.PA,equity,Edenred SE,PAR,France,EUR,6208,16.51
+SOI.PA,equity,Soitec SA,PAR,France,EUR,6108,54.38
+NEX.PA,equity,Nexans S.A.,PAR,France,EUR,5950,22.0
+SCR.PA,equity,SCOR SE,PAR,France,EUR,5667,13.07
+DEC.PA,equity,JCDecaux SE,PAR,France,EUR,5204,4.54
+TE.PA,equity,Technip Energies N.V.,PAR,France,EUR,4857,12.32
+COV.PA,equity,Covivio,PAR,France,EUR,4803,6.17
+VK.PA,equity,Vallourec S.A.,PAR,France,EUR,4762,17.09
+ELIS.PA,equity,Elis SA,PAR,France,EUR,4569,7.25
+GFC.PA,equity,Gecina,PAR,France,EUR,4395,11.77
+ODET.PA,equity,Compagnie de l'Odet,PAR,France,EUR,4223,1.2
+TEP.PA,equity,Teleperformance SE,PAR,France,EUR,4120,18.04
+AKE.PA,equity,Arkema S.A.,PAR,France,EUR,4066,9.84
+FDJU.PA,equity,FDJ United,PAR,France,EUR,3805,9.87
+RUI.PA,equity,Rubis,PAR,France,EUR,3593,4.37
+FR.PA,equity,Valeo SE,PAR,France,EUR,3404,10.62
+SOP.PA,equity,Sopra Steria Group SA,PAR,France,EUR,3156,8.06
+EXENS.PA,equity,Exosens,PAR,France,EUR,3014,4.77
+AF.PA,equity,Air France-KLM SA,PAR,France,EUR,2977,10.79
+SK.PA,equity,SEB SA,PAR,France,EUR,2936,2.81
+FII.PA,equity,Lisi S.A.,PAR,France,EUR,2757,1.91
+ATE.PA,equity,Alten S.A.,PAR,France,EUR,2688,5.51
+BB.PA,equity,Société BIC SA,PAR,France,EUR,2624,2.35
+VCT.PA,equity,Vicat S.A.,PAR,France,EUR,2618,1.91
+ITP.PA,equity,Interparfums SA,PAR,France,EUR,2610,2.04
+VIRP.PA,equity,Virbac SA,PAR,France,EUR,2582,1.62
+OVH.PA,equity,OVH Groupe S.A.,PAR,France,EUR,2468,2.15
+TRI.PA,equity,Trigano S.A.,PAR,France,EUR,2388,1.58
+COFA.PA,equity,COFACE SA,PAR,France,EUR,2350,2.88
+VU.PA,equity,Vusion S.A.,PAR,France,EUR,2175,5.84
+EXA.PA,equity,Exail Technologies,PAR,France,EUR,2108,6.57
+IDL.PA,equity,ID Logistics Group SA,PAR,France,EUR,2050,1.79
+CARM.PA,equity,Carmila S.A.,PAR,France,EUR,1978,1.49
+PLX.PA,equity,Pluxee N.V.,PAR,France,EUR,1921,2.07
+NK.PA,equity,Imerys S.A.,PAR,France,EUR,1903,1.35
+ETL.PA,equity,Eutelsat Communications S.A.,PAR,France,EUR,1791,3.31
+ARG.PA,equity,Argan SA,PAR,France,EUR,1700,1.33
+PLNW.PA,equity,Planisware SAS,PAR,France,EUR,1695,1.78
+SESG.PA,equity,SES S.A.,PAR,Luxembourg,EUR,1695,4.2
+OPM.PA,equity,OPmobility SE,PAR,France,EUR,1686,1.15
+ALHG.PA,equity,Louis Hachette Group S.A.,PAR,France,EUR,1680,1.65
+EMEIS.PA,equity,emeis Société anonyme,PAR,France,EUR,1608,1.8
+FRVIA.PA,equity,Forvia SE,PAR,France,EUR,1582,6.6
+MAU.PA,equity,Etablissements Maurel & Prom S.A.,PAR,France,EUR,1529,1.53
+IPS.PA,equity,Ipsos SA,PAR,France,EUR,1456,3.3
+VIV.PA,equity,Vivendi SE,PAR,France,EUR,1418,3.65
+ERA.PA,equity,ERAMET S.A.,PAR,France,EUR,1266,1.1
+TFI.PA,equity,TF1 SA,PAR,France,EUR,1263,1.25
+DBG.PA,equity,Derichebourg SA,PAR,France,EUR,1260,1.0
+NANO.PA,equity,Nanobiotix S.A.,PAR,France,EUR,1164,3.16
+CLARI.PA,equity,Clariane SE,PAR,France,EUR,1150,1.09
+ICAD.PA,equity,Icade,PAR,France,EUR,1138,1.62
+ROP.SW,equity,Roche Holding AG,EBS,Switzerland,CHF,275442,308.61
+NOVN.SW,equity,Novartis AG,EBS,Switzerland,CHF,221129,317.03
+NESN.SW,equity,Nestlé S.A.,EBS,Switzerland,CHF,192351,238.71
+UBSG.SW,equity,UBS Group AG,EBS,Switzerland,CHF,121031,211.22
+CFR.SW,equity,Compagnie Financière Richemont SA,EBS,Switzerland,CHF,101625,142.66
+ZURN.SW,equity,Zurich Insurance Group AG,EBS,Switzerland,CHF,85499,142.08
+SREN.SW,equity,Swiss Re AG,EBS,Switzerland,CHF,41716,105.23
+LONN.SW,equity,Lonza Group AG,EBS,Switzerland,CHF,39504,75.38
+GALD.SW,equity,Galderma Group AG,EBS,Switzerland,CHF,37438,85.29
+HOLN.SW,equity,Holcim AG,EBS,Switzerland,CHF,35765,64.55
+SCMN.SW,equity,Swisscom AG,EBS,Switzerland,CHF,33101,50.63
+GIVN.SW,equity,Givaudan SA,EBS,Switzerland,CHF,31017,53.22
+SDZ.SW,equity,Sandoz Group AG,EBS,Switzerland,CHF,29648,81.03
+SIKA.SW,equity,Sika AG,EBS,Switzerland,CHF,29489,72.75
+SCHP.SW,equity,Schindler Holding AG,EBS,Switzerland,CHF,27802,26.14
+KNIN.SW,equity,Kuehne + Nagel International AG,EBS,Switzerland,CHF,26662,55.93
+ALC.SW,equity,Alcon Inc.,EBS,Switzerland,CHF,25543,62.94
+SLHN.SW,equity,Swiss Life Holding AG,EBS,Switzerland,CHF,24899,42.8
+VACN.SW,equity,VAT Group AG,EBS,Switzerland,CHF,20959,47.6
+HBAN.SW,equity,Helvetia Baloise Holding AG,EBS,Switzerland,CHF,20298,26.51
+EMSN.SW,equity,EMS-CHEMIE HOLDING AG,EBS,Switzerland,CHF,19483,13.19
+SGSN.SW,equity,SGS SA,EBS,Switzerland,CHF,18673,28.4
+GEBN.SW,equity,Geberit AG,EBS,Switzerland,CHF,17409,37.56
+LISP.SW,equity,Chocoladefabriken Lindt & Sprüngli AG,EBS,Switzerland,CHF,17222,24.92
+AMRZ.SW,equity,Amrize AG,EBS,Switzerland,CHF,16845,45.41
+SOON.SW,equity,Sonova Holding AG,EBS,Switzerland,CHF,14756,34.28
+STMN.SW,equity,Straumann Holding AG,EBS,Switzerland,CHF,14319,31.09
+LOGN.SW,equity,Logitech International S.A.,EBS,Switzerland,CHF,12371,59.29
+BCVN.SW,equity,Banque Cantonale Vaudoise,EBS,Switzerland,CHF,10787,5.91
+BEAN.SW,equity,BELIMO Holding AG,EBS,Switzerland,CHF,9926,14.94
+SPSN.SW,equity,Swiss Prime Site AG,EBS,Switzerland,CHF,9556,12.21
+UHR.SW,equity,The Swatch Group AG,EBS,Switzerland,CHF,9466,17.8
+ACLN.SW,equity,Accelleron Industries AG,EBS,Switzerland,CHF,7082,15.72
+PSPN.SW,equity,PSP Swiss Property AG,EBS,Switzerland,CHF,6486,8.46
+BKW.SW,equity,BKW AG,EBS,Switzerland,CHF,6169,7.23
+AVOL.SW,equity,Avolta AG,EBS,Switzerland,CHF,6040,11.17
+FHZN.SW,equity,Flughafen Zürich AG,EBS,Switzerland,CHF,6008,9.4
+LUKN.SW,equity,Luzerner Kantonalbank AG,EBS,Switzerland,CHF,5972,2.27
+BANB.SW,equity,Bachem Holding AG,EBS,Switzerland,CHF,5942,8.53
+BARN.SW,equity,Barry Callebaut AG,EBS,Switzerland,CHF,5823,10.69
+SQN.SW,equity,Swissquote Group Holding SA,EBS,Switzerland,CHF,5420,17.18
+SUN.SW,equity,Sulzer AG,EBS,Switzerland,CHF,5407,6.65
+SFSN.SW,equity,SFS Group AG,EBS,Switzerland,CHF,5396,4.03
+SIGN.SW,equity,SIG Group AG,EBS,Switzerland,CHF,5116,14.03
+IFCN.SW,equity,INFICON Holding AG,EBS,Switzerland,CHF,4914,8.38
+EFGN.SW,equity,EFG International AG,EBS,Switzerland,CHF,4796,4.29
+GF.SW,equity,Georg Fischer AG,EBS,Switzerland,CHF,4721,14.55
+YPSN.SW,equity,Ypsomed Holding AG,EBS,Switzerland,CHF,4704,5.34
+DKSH.SW,equity,DKSH Holding AG,EBS,Switzerland,CHF,4507,5.26
+EMMN.SW,equity,Emmi AG,EBS,Switzerland,CHF,4488,3.96
+UCG.MI,equity,UniCredit S.p.A.,MIL,Italy,EUR,118902,334.8
+ISP.MI,equity,Intesa Sanpaolo S.p.A.,MIL,Italy,EUR,109877,277.87
+ENEL.MI,equity,Enel SpA,MIL,Italy,EUR,87292,162.2
+ENI.MI,equity,Eni S.p.A.,MIL,Italy,EUR,69377,203.79
+G.MI,equity,Assicurazioni Generali S.p.A.,MIL,Italy,EUR,62458,94.35
+RACE.MI,equity,Ferrari N.V.,MIL,Italy,EUR,60275,147.19
+STMMI.MI,equity,STMicroelectronics N.V.,MIL,Netherlands,EUR,44909,224.83
+PRY.MI,equity,Prysmian S.p.A.,MIL,Italy,EUR,38846,148.6
+BMPS.MI,equity,Banca Monte dei Paschi di Siena S.p.A.,MIL,Italy,EUR,34267,126.21
+PST.MI,equity,Poste Italiane S.p.A.,MIL,Italy,EUR,31626,83.61
+BPE.MI,equity,BPER Banca SpA,MIL,Italy,EUR,28282,84.74
+LDO.MI,equity,Leonardo S.p.a.,MIL,Italy,EUR,27339,95.56
+TEN.MI,equity,Tenaris S.A.,MIL,Luxembourg,EUR,24978,32.07
+BAMI.MI,equity,Banco BPM S.p.A.,MIL,Italy,EUR,22920,73.62
+TPRO.MI,equity,Technoprobe S.p.A.,MIL,Italy,EUR,22450,34.17
+MB.MI,equity,Mediobanca Banca di Credito Finanziario S.p.A.,MIL,Italy,EUR,22107,10.65
+SRG.MI,equity,Snam S.p.A.,MIL,Italy,EUR,18843,32.05
+1CNHI.MI,equity,CNH Industrial N.V.,MIL,United Kingdom,EUR,18783,1.67
+UNI.MI,equity,Unipol Assicurazioni S.p.A.,MIL,Italy,EUR,18497,31.83
+TRN.MI,equity,Terna S.p.A.,MIL,Italy,EUR,18366,33.29
+BMED.MI,equity,Banca Mediolanum S.p.A.,MIL,Italy,EUR,17188,16.99
+STLAM.MI,equity,Stellantis N.V.,MIL,Netherlands,EUR,14627,157.59
+TIT.MI,equity,Telecom Italia S.p.A.,MIL,Italy,EUR,13676,82.01
+FBK.MI,equity,FinecoBank Banca Fineco S.p.A.,MIL,Italy,EUR,13295,32.94
+MONC.MI,equity,Moncler S.p.A.,MIL,Italy,EUR,11886,50.83
+REC.MI,equity,Recordati Industria Chimica e Farmaceutica S.p.A.,MIL,Italy,EUR,10773,16.69
+IG.MI,equity,Italgas S.p.A.,MIL,Italy,EUR,8401,20.76
+CPR.MI,equity,Davide Campari-Milano N.V.,MIL,Italy,EUR,7239,34.13
+PIRC.MI,equity,Pirelli & C. S.p.A.,MIL,Italy,EUR,7128,27.5
+BGN.MI,equity,Banca Generali S.p.A.,MIL,Italy,EUR,7073,11.82
+A2A.MI,equity,A2A S.p.A.,MIL,Italy,EUR,7023,17.81
+CE.MI,equity,Credito Emiliano S.p.A.,MIL,Italy,EUR,7006,2.99
+BZU.MI,equity,Buzzi S.p.A.,MIL,Italy,EUR,6683,17.77
+LTMC.MI,equity,Lottomatica Group S.p.A.,MIL,Italy,EUR,5883,24.81
+INW.MI,equity,Infrastrutture Wireless Italiane S.p.A.,MIL,Italy,EUR,5866,13.72
+DLG.MI,equity,De'Longhi S.p.A.,MIL,Italy,EUR,5818,5.66
+BC.MI,equity,Brunello Cucinelli S.p.A.,MIL,Italy,EUR,5452,20.78
+HER.MI,equity,Hera S.p.A.,MIL,Italy,EUR,5210,14.24
+SOL.MI,equity,SOL S.p.A.,MIL,Italy,EUR,5007,2.2
+NEXI.MI,equity,Nexi S.p.A.,MIL,Italy,EUR,4752,35.46
+REY.MI,equity,Reply S.p.A.,MIL,Italy,EUR,4436,11.31
+FCT.MI,equity,Fincantieri S.p.A.,MIL,Italy,EUR,4359,33.38
+ACE.MI,equity,ACEA S.p.A.,MIL,Italy,EUR,4242,2.91
+MAIRE.MI,equity,Maire S.p.A.,MIL,Italy,EUR,4097,7.33
+IVG.MI,equity,Iveco Group N.V.,MIL,Italy,EUR,3801,8.99
+IP.MI,equity,Interpump Group S.p.A.,MIL,Italy,EUR,3725,6.25
+DIA.MI,equity,DiaSorin S.p.A.,MIL,Italy,EUR,3703,15.51
+DAN.MI,equity,Danieli & C. Officine Meccaniche S.p.A.,MIL,Italy,EUR,3491,3.0
+ERG.MI,equity,ERG S.p.A.,MIL,Italy,EUR,3291,4.54
+CRL.MI,equity,Carel Industries S.p.A.,MIL,Italy,EUR,3212,2.76
+AZN.ST,equity,AstraZeneca PLC,STO,United Kingdom,SEK,2441126,922.56
+ABB.ST,equity,ABB Ltd,STO,Switzerland,SEK,1792262,420.44
+ATCO-A.ST,equity,Atlas Copco AB (publ),STO,Sweden,SEK,1023535,803.85
+NDA-SE.ST,equity,Nordea Bank Abp,STO,Finland,SEK,655503,293.8
+VOLV-B.ST,equity,AB Volvo (publ),STO,Sweden,SEK,640131,913.02
+SWED-A.ST,equity,Swedbank AB (publ),STO,Sweden,SEK,454206,636.92
+SAND.ST,equity,Sandvik AB (publ),STO,Sweden,SEK,454088,648.66
+SEB-A.ST,equity,Skandinaviska Enskilda Banken AB (publ),STO,Sweden,SEK,451342,524.32
+SAAB-B.ST,equity,Saab AB (publ),STO,Sweden,SEK,329977,875.26
+EPI-A.ST,equity,Epiroc AB (publ),STO,Sweden,SEK,318940,354.76
+SHB-A.ST,equity,Svenska Handelsbanken AB (publ),STO,Sweden,SEK,306429,616.8
+ERIC-B.ST,equity,Telefonaktiebolaget LM Ericsson (publ),STO,Sweden,SEK,304031,830.11
+HEXA-B.ST,equity,Hexagon AB (publ),STO,Sweden,SEK,271525,379.84
+HM-B.ST,equity,H & M Hennes & Mauritz AB (publ),STO,Sweden,SEK,254222,298.21
+ALFA.ST,equity,Alfa Laval AB (publ),STO,Sweden,SEK,231876,253.36
+8TRA.ST,equity,Traton SE,STO,Germany,SEK,192200,44.09
+TELIA.ST,equity,Telia Company AB (publ),STO,Sweden,SEK,173917,262.45
+ESSITY-B.ST,equity,Essity AB (publ),STO,Sweden,SEK,173678,323.15
+SOBI.ST,equity,Swedish Orphan Biovitrum AB (publ),STO,Sweden,SEK,148876,149.74
+BOL.ST,equity,Boliden AB (publ),STO,Sweden,SEK,147547,556.66
+EVO.ST,equity,Evolution AB (publ),STO,Sweden,SEK,146527,579.02
+LIFCO-B.ST,equity,Lifco AB (publ),STO,Sweden,SEK,145803,114.16
+LUND-B.ST,equity,L E Lundbergföretagen AB (publ),STO,Sweden,SEK,141236,58.52
+LATO-B.ST,equity,Investment AB Latour (publ),STO,Sweden,SEK,128823,120.4
+SKF-B.ST,equity,AB SKF (publ),STO,Sweden,SEK,125495,275.2
+SKA-B.ST,equity,Skanska AB (publ),STO,Sweden,SEK,115280,179.31
+TEL2-B.ST,equity,Tele2 AB (publ),STO,Sweden,SEK,111559,401.82
+SSAB-A.ST,equity,SSAB AB (publ),STO,Sweden,SEK,100110,61.32
+TREL-B.ST,equity,Trelleborg AB (publ),STO,Sweden,SEK,99270,136.01
+INDT.ST,equity,Indutrade AB (publ),STO,Sweden,SEK,94214,102.4
+ADDT-B.ST,equity,Addtech AB (publ.),STO,Sweden,SEK,92812,116.28
+STE-R.ST,equity,Stora Enso Oyj,STO,Finland,SEK,92442,29.09
+NIBE-B.ST,equity,NIBE Industrier AB (publ),STO,Sweden,SEK,89594,280.86
+SECU-B.ST,equity,Securitas AB (publ),STO,Sweden,SEK,87927,182.51
+SAVE.ST,equity,Nordnet AB (publ),STO,Sweden,SEK,85985,92.5
+SCA-B.ST,equity,Svenska Cellulosa Aktiebolaget SCA (publ),STO,Sweden,SEK,84000,207.97
+ALIV-SDB.ST,equity,"Autoliv, Inc.",STO,Sweden,SEK,82612,59.49
+SAGA-B.ST,equity,AB Sagax (publ),STO,Sweden,SEK,76977,104.36
+BEIJ-B.ST,equity,Beijer Ref AB (publ),STO,Sweden,SEK,73668,124.48
+MYCR.ST,equity,Mycronic AB (publ),STO,Sweden,SEK,69946,89.21
+GETI-B.ST,equity,Getinge AB (publ),STO,Sweden,SEK,67112,140.28
+AZA.ST,equity,Avanza Bank Holding AB (publ),STO,Sweden,SEK,61793,88.98
+SECT-B.ST,equity,Sectra AB (publ),STO,Sweden,SEK,55912,43.33
+AXFO.ST,equity,Axfood AB (publ),STO,Sweden,SEK,54878,119.45
+BALD-B.ST,equity,Fastighets AB Balder (publ),STO,Sweden,SEK,52790,129.66
+CAST.ST,equity,Castellum AB (publ),STO,Sweden,SEK,52175,152.13
+HOLM-B.ST,equity,Holmen AB (publ),STO,Sweden,SEK,48891,61.87
+LAGR-B.ST,equity,Lagercrantz Group AB (publ),STO,Sweden,SEK,48282,51.17
+AAK.ST,equity,AAK AB (publ.),STO,Sweden,SEK,47721,134.38
+SWEC-B.ST,equity,Sweco AB (publ),STO,Sweden,SEK,45914,37.16
+SAN.MC,equity,"Banco Santander, S.A.",MCE,Spain,EUR,171174,246.03
+ITX.MC,equity,"Industria de Diseño Textil, S.A.",MCE,Spain,EUR,165843,82.57
+IBE.MC,equity,"Iberdrola, S.A.",MCE,Spain,EUR,138935,174.79
+BBVA.MC,equity,"Banco Bilbao Vizcaya Argentaria, S.A.",MCE,Spain,EUR,130575,166.68
+CABK.MC,equity,"CaixaBank, S.A.",MCE,Spain,EUR,83589,69.34
+ELE.MC,equity,"Endesa, S.A.",MCE,Spain,EUR,42609,29.14
+AENA.MC,equity,"Aena S.M.E., S.A.",MCE,Spain,EUR,38400,31.58
+FER.MC,equity,Ferrovial N.V.,MCE,Netherlands,EUR,34182,41.2
+REP.MC,equity,"Repsol, S.A.",MCE,Spain,EUR,30878,93.18
+NTGY.MC,equity,"Naturgy Energy Group, S.A.",MCE,Spain,EUR,27273,49.26
+ACS.MC,equity,"ACS, Actividades de Construcción y Servicios, S.A.",MCE,Spain,EUR,24779,45.37
+AMS.MC,equity,"Amadeus IT Group, S.A.",MCE,Spain,EUR,22175,37.75
+TEF.MC,equity,"Telefónica, S.A.",MCE,Spain,EUR,18652,34.19
+SAB.MC,equity,"Banco de Sabadell, S.A.",MCE,Spain,EUR,16431,61.25
+CLNX.MC,equity,"Cellnex Telecom, S.A.",MCE,Spain,EUR,14928,31.99
+BKT.MC,equity,"Bankinter, S.A.",MCE,Spain,EUR,14186,19.13
+MAP.MC,equity,"Mapfre, S.A.",MCE,Spain,EUR,12891,7.8
+ANA.MC,equity,"Acciona, S.A.",MCE,Spain,EUR,11364,19.26
+IDR.MC,equity,"Indra Sistemas, S.A.",MCE,Spain,EUR,10410,54.03
+PUIG.MC,equity,"Puig Brands, S.A.",MCE,Spain,EUR,9936,8.83
+UNI.MC,equity,"Unicaja Banco, S.A.",MCE,Spain,EUR,8562,12.74
+RED.MC,equity,"Redeia Corporación, S.A.",MCE,Spain,EUR,7986,13.69
+MRL.MC,equity,"MERLIN Properties SOCIMI, S.A.",MCE,Spain,EUR,7498,12.09
+ANE.MC,equity,"Corporación Acciona Energías Renovables, S.A.",MCE,Spain,EUR,7121,4.63
+GRF.MC,equity,"Grifols, S.A.",MCE,Spain,EUR,6489,14.4
+LOG.MC,equity,"Logista Integral, S.A.",MCE,Spain,EUR,4578,4.59
+ENG.MC,equity,"Enagás, S.A.",MCE,Spain,EUR,4339,10.46
+ACX.MC,equity,"Acerinox, S.A.",MCE,Spain,EUR,4303,11.46
+FDR.MC,equity,"Fluidra, S.A.",MCE,Spain,EUR,3287,5.91
+SCYR.MC,equity,"Sacyr, S.A.",MCE,Spain,EUR,3168,9.19
+CIRSA.MC,equity,"Cirsa Enterprises, S.A.",MCE,Spain,EUR,3097,4.75
+CIE.MC,equity,"CIE Automotive, S.A.",MCE,Spain,EUR,3054,1.88
+COL.MC,equity,"Colonial SFL, Socimi S. A.",MCE,Spain,EUR,3035,5.24
+ROVI.MC,equity,"Laboratorios Farmaceuticos Rovi, S.A.",MCE,Spain,EUR,2936,6.57
+VID.MC,equity,"Vidrala, S.A.",MCE,Spain,EUR,2899,2.78
+CAF.MC,equity,"Construcciones y Auxiliar de Ferrocarriles, S.A.",MCE,Spain,EUR,2637,2.08
+ENO.MC,equity,"Elecnor, S.A.",MCE,Spain,EUR,2592,1.81
+DIA.MC,equity,"Distribuidora Internacional de Alimentación, S.A.",MCE,Spain,EUR,2534,1.74
+VIS.MC,equity,"Viscofan, S.A.",MCE,Spain,EUR,2409,4.51
+MEL.MC,equity,"Meliá Hotels International, S.A.",MCE,Spain,EUR,2254,2.29
+ASML.AS,equity,ASML Holding N.V.,AMS,Netherlands,EUR,634917,977.82
+INGA.AS,equity,ING Groep N.V.,AMS,Netherlands,EUR,87341,163.55
+PRX.AS,equity,Prosus N.V.,AMS,Netherlands,EUR,72181,106.16
+ASM.AS,equity,ASM International NV,AMS,Netherlands,EUR,46122,154.39
+MT.AS,equity,ArcelorMittal S.A.,AMS,Luxembourg,EUR,43100,91.09
+HEIA.AS,equity,Heineken N.V.,AMS,Netherlands,EUR,38581,52.08
+ABN.AS,equity,ABN AMRO Bank N.V.,AMS,Netherlands,EUR,34187,70.92
+AD.AS,equity,Koninklijke Ahold Delhaize N.V.,AMS,Netherlands,EUR,27524,79.84
+ADYEN.AS,equity,Adyen N.V.,AMS,Netherlands,EUR,27128,113.17
+UMG.AS,equity,Universal Music Group N.V.,AMS,Netherlands,EUR,25633,48.89
+DSFIR.AS,equity,DSM-Firmenich AG,AMS,Switzerland,EUR,23516,70.22
+PHIA.AS,equity,Koninklijke Philips N.V.,AMS,Netherlands,EUR,20790,35.22
+NN.AS,equity,NN Group N.V.,AMS,Netherlands,EUR,19940,39.88
+HEIO.AS,equity,Heineken Holding N.V.,AMS,Netherlands,EUR,17871,10.26
+BESI.AS,equity,BE Semiconductor Industries N.V.,AMS,Netherlands,EUR,16206,94.86
+WKL.AS,equity,Wolters Kluwer N.V.,AMS,Netherlands,EUR,15086,83.9
+KPN.AS,equity,Koninklijke KPN N.V.,AMS,Netherlands,EUR,14855,40.44
+ASRNL.AS,equity,ASR Nederland N.V.,AMS,Netherlands,EUR,14407,30.25
+AGN.AS,equity,Aegon Ltd.,AMS,Netherlands,EUR,11218,31.65
+AKZA.AS,equity,Akzo Nobel N.V.,AMS,Netherlands,EUR,9715,25.49
+MICC.AS,equity,The Magnum Ice Cream Company N.V.,AMS,Netherlands,EUR,9329,16.89
+INPST.AS,equity,InPost S.A.,AMS,Luxembourg,EUR,7789,11.7
+CTPNV.AS,equity,CTP N.V.,AMS,Netherlands,EUR,6196,2.55
+RAND.AS,equity,Randstad N.V.,AMS,Netherlands,EUR,6072,17.71
+SBMO.AS,equity,SBM Offshore N.V.,AMS,Netherlands,EUR,5729,15.7
+IMCD.AS,equity,IMCD N.V.,AMS,Netherlands,EUR,5622,14.65
+VPK.AS,equity,Koninklijke Vopak N.V.,AMS,Netherlands,EUR,5486,5.28
+AALB.AS,equity,Aalberts N.V.,AMS,Netherlands,EUR,4523,10.37
+ARCAD.AS,equity,Arcadis NV,AMS,Netherlands,EUR,3372,6.83
+BAMNB.AS,equity,Koninklijke BAM Groep nv,AMS,Netherlands,EUR,3247,8.69
+APAM.AS,equity,Aperam S.A.,AMS,Luxembourg,EUR,3041,4.81
+VLK.AS,equity,Van Lanschot Kempen NV,AMS,Netherlands,EUR,2850,2.94
+HEIJM.AS,equity,Koninklijke Heijmans N.V.,AMS,Netherlands,EUR,2444,7.2
+TWEKA.AS,equity,TKH Group N.V.,AMS,Netherlands,EUR,2169,4.08
+LIGHT.AS,equity,Signify N.V.,AMS,Netherlands,EUR,1872,9.16
+BFIT.AS,equity,Basic-Fit N.V.,AMS,Netherlands,EUR,1847,3.76
+FAST.AS,equity,Fastned B.V.,AMS,Netherlands,EUR,1793,1.42
+HAVAS.AS,equity,Havas N.V.,AMS,France,EUR,1715,1.43
+LKFT.AS,equity,Lakefront Biotherapeutics NV,AMS,Belgium,EUR,1680,2.4
+ECMPA.AS,equity,Eurocommercial Properties N.V.,AMS,Netherlands,EUR,1412,1.39
+NOVO-B.CO,equity,Novo Nordisk A/S,CPH,Denmark,DKK,1098376,1127.21
+MAERSK-B.CO,equity,A.P. Møller - Mærsk A/S,CPH,Denmark,DKK,349121,362.73
+DANSKE.CO,equity,Danske Bank A/S,CPH,Denmark,DKK,296552,304.44
+DSV.CO,equity,DSV A/S,CPH,Denmark,DKK,286289,621.97
+VWS.CO,equity,Vestas Wind Systems A/S,CPH,Denmark,DKK,195205,420.3
+NSIS-B.CO,equity,Novozymes A/S,CPH,Denmark,DKK,194052,229.02
+ORSTED.CO,equity,Ørsted A/S,CPH,Denmark,DKK,184222,154.93
+GMAB.CO,equity,Genmab A/S,CPH,Denmark,DKK,140850,260.21
+COLO-B.CO,equity,Coloplast A/S,CPH,Denmark,DKK,92964,136.87
+TRYG.CO,equity,Tryg A/S,CPH,Denmark,DKK,85452,85.9
+DEMANT.CO,equity,Demant A/S,CPH,Denmark,DKK,66222,90.79
+JYSK.CO,equity,Jyske Bank A/S,CPH,Denmark,DKK,60278,93.21
+ALSYDB.CO,equity,AL Sydbank A/S,CPH,Denmark,DKK,59366,99.52
+PNDORA.CO,equity,Pandora A/S,CPH,Denmark,DKK,59212,197.42
+ALK-B.CO,equity,ALK-Abelló A/S,CPH,Denmark,DKK,44731,38.06
+ISS.CO,equity,ISS A/S,CPH,Denmark,DKK,44189,75.71
+HLUN-B.CO,equity,H. Lundbeck A/S,CPH,Denmark,DKK,43337,25.16
+RILBA.CO,equity,Ringkjøbing Landbobank A/S,CPH,Denmark,DKK,43300,46.52
+ROCK-B.CO,equity,Rockwool A/S,CPH,Denmark,DKK,39338,113.24
+FLS.CO,equity,FLSmidth & Co. A/S,CPH,Denmark,DKK,29621,66.95
+TRMD-A.CO,equity,TORM plc,CPH,United Kingdom,DKK,26607,81.39
+ALMB.CO,equity,Alm. Brand A/S,CPH,Denmark,DKK,22134,17.18
+RBREW.CO,equity,Royal Unibrew A/S,CPH,Denmark,DKK,19160,51.06
+SCHO.CO,equity,Aktieselskabet Schouw & Co.,CPH,Denmark,DKK,17875,19.54
+ZEAL.CO,equity,Zealand Pharma A/S,CPH,Denmark,DKK,17762,99.42
+NOKIA.HE,equity,Nokia Oyj,HEL,Finland,EUR,52672,171.41
+KNEBV.HE,equity,KONE Oyj,HEL,Finland,EUR,26391,33.08
+NESTE.HE,equity,Neste Oyj,HEL,Finland,EUR,24178,39.0
+SAMPO.HE,equity,Sampo Oyj,HEL,Finland,EUR,23200,30.61
+FORTUM.HE,equity,Fortum Oyj,HEL,Finland,EUR,21193,26.57
+WRT1V.HE,equity,Wärtsilä Oyj Abp,HEL,Finland,EUR,17303,30.39
+METSO.HE,equity,Metso Oyj,HEL,Finland,EUR,14020,20.29
+UPM.HE,equity,UPM-Kymmene Oyj,HEL,Finland,EUR,13104,30.65
+ORNBV.HE,equity,Orion Oyj,HEL,Finland,EUR,11342,12.9
+KESKOB.HE,equity,Kesko Oyj,HEL,Finland,EUR,9138,11.62
+KCR.HE,equity,Konecranes Plc,HEL,Finland,EUR,7338,10.41
+ELISA.HE,equity,Elisa Oyj,HEL,Finland,EUR,5871,16.44
+VALMT.HE,equity,Valmet Oyj,HEL,Finland,EUR,5077,11.86
+HIAB.HE,equity,Hiab Oyj,HEL,Finland,EUR,3701,4.41
+MANTA.HE,equity,Mandatum Oyj,HEL,Finland,EUR,3044,6.7
+HUH1V.HE,equity,Huhtamäki Oyj,HEL,Finland,EUR,2830,6.75
+KEMIRA.HE,equity,Kemira Oyj,HEL,Finland,EUR,2476,3.39
+KALMAR.HE,equity,Kalmar Oyj,HEL,Finland,EUR,2421,1.83
+OUT1V.HE,equity,Outokumpu Oyj,HEL,Finland,EUR,2373,5.25
+VAIAS.HE,equity,Vaisala Oyj,HEL,Finland,EUR,2231,1.89
+TYRES.HE,equity,Nokian Renkaat Oyj,HEL,Finland,EUR,2135,6.24
+TIETO.HE,equity,Tieto Oyj,HEL,Finland,EUR,2000,5.88
+LUMO.HE,equity,Lumo Kodit Oyj,HEL,Finland,EUR,1854,2.82
+IQMX.HE,equity,IQM Quantum Computers Oyj,HEL,Finland,EUR,1719,1.78
+SANOMA.HE,equity,Sanoma Oyj,HEL,Finland,EUR,1576,3.47
+EQNR.OL,equity,Equinor ASA,OSL,Norway,NOK,954574,1076.57
+DNB.OL,equity,DNB Bank ASA,OSL,Norway,NOK,439531,416.01
+KOG.OL,equity,Kongsberg Gruppen ASA,OSL,Norway,NOK,270920,388.19
+AKRBP.OL,equity,Aker BP ASA,OSL,Norway,NOK,213439,312.97
+TEL.OL,equity,Telenor ASA,OSL,Norway,NOK,173310,261.88
+NHY.OL,equity,Norsk Hydro ASA,OSL,Norway,NOK,157419,266.89
+VAR.OL,equity,Vår Energi ASA,OSL,Norway,NOK,126310,288.39
+MOWI.OL,equity,Mowi ASA,OSL,Norway,NOK,106196,202.43
+YAR.OL,equity,Yara International ASA,OSL,Norway,NOK,105763,212.66
+AKER.OL,equity,Aker ASA,OSL,Norway,NOK,102919,156.97
+SUBC.OL,equity,Subsea 7 S.A.,OSL,Luxembourg,NOK,94530,106.44
+ORK.OL,equity,Orkla ASA,OSL,Norway,NOK,87973,132.43
+SB1NO.OL,equity,SpareBank 1 Sør-Norge ASA,OSL,Norway,NOK,82274,35.08
+STB.OL,equity,Storebrand ASA,OSL,Norway,NOK,80129,92.32
+SALM.OL,equity,SalMar ASA,OSL,Norway,NOK,78273,105.72
+WAWI.OL,equity,Wallenius Wilhelmsen ASA,OSL,Norway,NOK,77893,64.19
+AUTO.OL,equity,AutoStore Holdings Ltd.,OSL,Norway,NOK,54675,113.5
+CMBTO.OL,equity,Cmb.Tech NV,OSL,Belgium,NOK,54668,57.26
+VEND.OL,equity,Vend Marketplaces ASA,OSL,Norway,NOK,41505,107.76
+WWI.OL,equity,Wilh. Wilhelmsen Holding ASA,OSL,Norway,NOK,39090,12.97
+HAUTO.OL,equity,Höegh Autoliners ASA,OSL,Norway,NOK,38160,106.39
+NOD.OL,equity,Nordic Semiconductor ASA,OSL,Norway,NOK,37364,157.86
+SBNOR.OL,equity,Sparebanken Norge,OSL,Norway,NOK,35378,22.51
+PROT.OL,equity,Protector Forsikring ASA,OSL,Norway,NOK,34737,36.29
+DOFG.OL,equity,DOF Group ASA,OSL,Norway,NOK,31474,36.2
+ABI.BR,equity,Anheuser-Busch InBev SA/NV,BRU,Belgium,EUR,127757,108.03
+ARGX.BR,equity,argenx SE,BRU,Netherlands,EUR,50708,62.92
+UCB.BR,equity,UCB SA,BRU,Belgium,EUR,38952,47.84
+ELI.BR,equity,Elia Group SA/NV,BRU,Belgium,EUR,12868,11.28
+LOTB.BR,equity,Lotus Bakeries NV,BRU,Belgium,EUR,9804,8.25
+ACKB.BR,equity,Ackermans & Van Haaren NV,BRU,Belgium,EUR,8578,7.21
+DIE.BR,equity,D'Ieteren Group SA,BRU,Belgium,EUR,8566,7.71
+SYENS.BR,equity,Syensqo SA/NV,BRU,Belgium,EUR,7913,11.01
+TUB.BR,equity,Financière de Tubize SA,BRU,Belgium,EUR,7763,3.02
+AED.BR,equity,Aedifica NV/SA,BRU,Belgium,EUR,5108,6.43
+UMI.BR,equity,Umicore SA,BRU,Belgium,EUR,5097,9.7
+WDP.BR,equity,Warehouses De Pauw SA,BRU,Belgium,EUR,4537,8.11
+DEME.BR,equity,DEME Group NV,BRU,Belgium,EUR,4344,1.52
+COLR.BR,equity,Colruyt Group N.V.,BRU,Belgium,EUR,4076,1.27
+AZE.BR,equity,Azelis Group NV,BRU,Belgium,EUR,2826,2.89
+MELE.BR,equity,Melexis NV,BRU,Belgium,EUR,2737,3.07
+SOLB.BR,equity,Solvay SA,BRU,Belgium,EUR,2576,7.59
+SHUR.BR,equity,Shurgard Self Storage Ltd,BRU,Luxembourg,EUR,2166,1.88
+VGP.BR,equity,VGP NV,BRU,Belgium,EUR,1967,1.59
+PROX.BR,equity,Proximus PLC,BRU,Belgium,EUR,1909,1.56
+EBS.VI,equity,Erste Group Bank AG,VIE,Austria,EUR,44128,35.04
+OMV.VI,equity,OMV Aktiengesellschaft,VIE,Austria,EUR,22993,20.26
+BG.VI,equity,BAWAG Group AG,VIE,Austria,EUR,13613,19.17
+STR.VI,equity,Strabag SE,VIE,Austria,EUR,11937,4.28
+ATS.VI,equity,AT & S Austria Technologie & Systemtechnik Aktiengesellschaft,VIE,Austria,EUR,8664,28.98
+ANDR.VI,equity,Andritz AG,VIE,Austria,EUR,8134,7.62
+VOE.VI,equity,Voestalpine AG,VIE,Austria,EUR,7599,9.8
+UQA.VI,equity,UNIQA Insurance Group AG,VIE,Austria,EUR,5310,2.0
+EVN.VI,equity,EVN AG,VIE,Austria,EUR,5127,1.26
+DOC.VI,equity,DO & CO Aktiengesellschaft,VIE,Austria,EUR,2120,2.62
+WIE.VI,equity,Wienerberger AG,VIE,Austria,EUR,1820,6.71
+MMK.VI,equity,Mayr-Melnhof Karton AG,VIE,Austria,EUR,1333,1.39
+POS.VI,equity,PORR AG,VIE,Austria,EUR,1243,1.95
+PAL.VI,equity,Palfinger AG,VIE,Austria,EUR,1017,1.02
+EDP.LS,equity,"EDP, S.A.",LIS,Portugal,EUR,19847,36.57
+BCP.LS,equity,"Banco Comercial Português, S.A.",LIS,Portugal,EUR,16920,51.53
+GALP.LS,equity,"Galp Energia, SGPS, S.A.",LIS,Portugal,EUR,15704,33.04
+EDPR.LS,equity,"EDP Renewables, S.A.",LIS,Spain,EUR,13532,11.24
+JMT.LS,equity,"Jerónimo Martins, SGPS, S.A.",LIS,Portugal,EUR,10646,24.31
+SON.LS,equity,"Sonae, SGPS, S.A.",LIS,Portugal,EUR,3967,3.01
+NOS.LS,equity,"NOS, S.G.P.S., S.A.",LIS,Portugal,EUR,2752,2.63
+RENE.LS,equity,"REN - Redes Energéticas Nacionais, SGPS, S.A.",LIS,Portugal,EUR,2348,2.45
+NVG.LS,equity,"The Navigator Company, S.A.",LIS,Portugal,EUR,2253,2.43
+ALTR.LS,equity,"Altri, SGPS, S.A.",LIS,Portugal,EUR,944,1.1
