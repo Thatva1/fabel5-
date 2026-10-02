@@ -21,81 +21,91 @@ def create_pdf(filename):
     h2 = styles['CustomHeading2']
     p_style = styles['CustomNormal']
 
+    # Every entry below was checked against the firm's OWN website on
+    # 2 October 2026. Anything that could not be confirmed there — most phone
+    # numbers, several e-mail addresses and some named people — was removed
+    # rather than left in on trust. People move; re-check before sending.
+    def firm(title, lines):
+        Story.append(Paragraph(title, h2))
+        Story.append(Paragraph("<br/>".join(lines), p_style))
+        Story.append(Spacer(1, 10))
+
+    Story.append(Paragraph(
+        "<i>Checked against each firm's own website on 2 October 2026. Details that "
+        "could not be confirmed there were removed. Most of these firms ask founders "
+        "to apply through a form, not by e-mail or phone, so the route they state is "
+        "listed first.</i>", p_style))
+    Story.append(Spacer(1, 10))
+
     # --- SECTION 1: ANGEL INVESTORS ---
-    Story.append(Paragraph("Angel Investors & Networks (£2,000 - £10,000 Tickets)", h1))
-    
-    Story.append(Paragraph("1. SFC Capital", h2))
-    Story.append(Paragraph("<b>Address:</b> Citibase Holborn, Fox Court, 14 Grays Inn Rd, London, WC1X 8HN<br/>"
-                           "<b>Phone:</b> 0333 335 5834<br/>"
-                           "<b>Email:</b> info@sfccapital.com<br/>"
-                           "<b>People to contact:</b> Stephen Page, Joseph Zipfel, Ed Stevenson", p_style))
-    Story.append(Spacer(1, 10))
+    Story.append(Paragraph("Angel Investors &amp; Networks (£2,000 - £10,000 Tickets)", h1))
 
-    Story.append(Paragraph("2. Angel Investment Network", h2))
-    Story.append(Paragraph("<b>Address:</b> Suite 16, Parsons Green House, 27-31 Parsons Green Lane, London, SW6 4HH<br/>"
-                           "<b>Phone:</b> (Contact via platform/email)<br/>"
-                           "<b>Email:</b> info@angelinvestmentnetwork.co.uk<br/>"
-                           "<b>People to contact:</b> Mike Lebus, James Badgett, Sam Louis", p_style))
+    firm("1. SFC Capital", [
+        "<b>What it is:</b> SEIS and EIS seed fund. States it invests £100k-£300k for 10%-20%.",
+        "<b>How to apply:</b> register at portal.sfccapital.com/register/startup",
+        "<b>Requirement stated:</b> the company must qualify for SEIS.",
+        "<b>Address:</b> Fox Court, 14 Grays Inn Rd, London, WC1X 8HN",
+        "<b>Email:</b> info@sfccapital.com",
+    ])
+    firm("2. Angel Investment Network", [
+        "<b>What it is:</b> an online platform where founders post a pitch to registered angels. It is not itself an investor.",
+        "<b>How to apply:</b> create a pitch with the online form at angelinvestmentnetwork.co.uk",
+        "<b>Address / phone / email:</b> none shown on its website.",
+    ])
+    firm("3. Odin", [
+        "<b>What it is:</b> a platform for running SPVs and angel syndicates. It is not itself an investor; it is a tool for collecting money from angels you have already found.",
+        "<b>Founders:</b> Patrick Ryan, Mary Lin",
+        "<b>Email:</b> hello@joinodin.com",
+        "<b>Website:</b> joinodin.com",
+    ])
+    firm("4. Envestors", [
+        "<b>What it is:</b> investment network and platform.",
+        "<b>How to apply:</b> envestors.envestry.com/raising",
+        "<b>People (from its website):</b> Oliver Woolley, Co-founder &amp; Executive Chair; Scott Haughton, Co-Founder &amp; Chief Operating Officer",
+        "<b>Address shown on its website:</b> Envestors Limited, c/o Ballards LLP, Oakmoore Court, Kingswood Road, Hampton Lovett, Droitwich Spa, WR9 0QH",
+    ])
+    firm("5. Angel Academe", [
+        "<b>What it is:</b> an EIS fund and angel network that backs female founders.",
+        "<b>How to apply:</b> angelacademe.com/founders",
+        "<b>Note:</b> a separate organisation from Newable. The two were listed together in the earlier version of this plan by mistake.",
+    ])
+    firm("6. Newable", [
+        "<b>Address:</b> 140 Aldersgate Street, London EC1A 4HY",
+        "<b>Phone:</b> 020 7260 3100",
+        "<b>Note:</b> its website now describes buying established regulated businesses. No angel-network application route is shown there, so confirm it still funds start-ups before approaching.",
+    ])
     Story.append(Spacer(1, 10))
-    
-    Story.append(Paragraph("3. Odin (Angel Syndicate Platform)", h2))
-    Story.append(Paragraph("<b>Address:</b> London (Remote/Platform first)<br/>"
-                           "<b>Phone:</b> (Contact via platform)<br/>"
-                           "<b>Email:</b> hello@joinodin.com<br/>"
-                           "<b>People to contact:</b> Mary Lin, Patrick Ryan", p_style))
-    Story.append(Spacer(1, 10))
-    
-    Story.append(Paragraph("4. Envestors", h2))
-    Story.append(Paragraph("<b>Address:</b> 3rd Floor, 60 Cannon Street, London, EC4N 6NP<br/>"
-                           "<b>Phone:</b> +44 (0) 20 7240 0202<br/>"
-                           "<b>Email:</b> info@envestors.co.uk<br/>"
-                           "<b>People to contact:</b> Oliver Woolley, Scott Haughton", p_style))
-    Story.append(Spacer(1, 10))
-
-    Story.append(Paragraph("5. Newable Ventures / Angel Academe", h2))
-    Story.append(Paragraph("<b>Address:</b> 140 Aldersgate St, Barbican, London EC1A 4HY<br/>"
-                           "<b>Phone:</b> +44 (0) 20 7253 2222<br/>"
-                           "<b>Email:</b> ventures@newable.co.uk<br/>"
-                           "<b>People to contact:</b> Simon Hopkins, Sarah Turner", p_style))
-    Story.append(Spacer(1, 20))
 
     # --- SECTION 2: INSTITUTIONAL VCS ---
-    Story.append(Paragraph("Institutional VCs & Accelerators (£1 Million+ Tickets)", h1))
-    
-    Story.append(Paragraph("1. Seedcamp", h2))
-    Story.append(Paragraph("<b>Address:</b> 16 Great Queen Street, London, WC2B 5AH<br/>"
-                           "<b>Phone:</b> +44 20 3936 2828<br/>"
-                           "<b>Email:</b> info@seedcamp.com<br/>"
-                           "<b>People to contact:</b> Reshma Sohoni, Carlos Eduardo Espinal, Tom Wilson", p_style))
-    Story.append(Spacer(1, 10))
+    Story.append(Paragraph("Institutional VCs &amp; Accelerators (£1 Million+ Tickets)", h1))
 
-    Story.append(Paragraph("2. Founders Factory", h2))
-    Story.append(Paragraph("<b>Address:</b> Level 7, Arundel Street Building, 180 Strand, London, WC2R 3DA<br/>"
-                           "<b>Phone:</b> (Contact via platform/email)<br/>"
-                           "<b>Email:</b> hello@foundersfactory.com<br/>"
-                           "<b>People to contact:</b> Brent Hoberman, Henry Lane Fox, Louis Warner", p_style))
+    firm("1. Seedcamp", [
+        "<b>How to apply:</b> the \"Pitch Us\" page at seedcamp.com",
+        "<b>Address:</b> 12 Little Portland Street, London W1W 8BJ",
+        "<b>People (from its website):</b> Reshma Sohoni, Co-Founder &amp; Managing Partner; Carlos Eduardo Espinal, Managing Partner; Tom Wilson, Partner",
+    ])
+    firm("2. Founders Factory", [
+        "<b>Address:</b> 180 Strand, 2 Arundel Street, London WC2R 3DA",
+        "<b>People (from the Founders Forum Group website):</b> Brent Hoberman, Co-Founder &amp; Executive Chair; Henry Lane Fox, Co-Founder and CEO of Founders Factory",
+        "<b>Website:</b> foundersfactory.com",
+    ])
+    firm("3. LocalGlobe (Phoenix Court)", [
+        "<b>Address:</b> Phoenix Court, 2 Brill Place, London NW1 1DX",
+        "<b>People (from its website):</b> Robin Klein, Saul Klein",
+        "<b>Website:</b> phoenixcourt.vc (localglobe.vc redirects there). Contact page: phoenixcourt.vc/contact",
+    ])
+    firm("4. Balderton Capital", [
+        "<b>How to approach:</b> its website asks founders to contact a member of the investment team directly, through balderton.com/team",
+        "<b>Address:</b> The Stables, 28 Britannia Street, London WC1X 9JF",
+        "<b>Phone:</b> +44 (0) 20 7016 6800",
+        "<b>People (from its website):</b> Bernard Liautaud, Managing Partner; Suranga Chandratillake, Partner",
+    ])
+    firm("5. Octopus Ventures", [
+        "<b>How to apply:</b> the pitch forms at octopusventures.com/contact (one for pre-seed, one for seed and later)",
+        "<b>Address:</b> 33 Holborn, London EC1N 2HT",
+        "<b>People (from its website):</b> Erin Platts, CEO",
+    ])
     Story.append(Spacer(1, 10))
-    
-    Story.append(Paragraph("3. LocalGlobe", h2))
-    Story.append(Paragraph("<b>Address:</b> Phoenix Court, 2 Brill Place, London NW1 1DX<br/>"
-                           "<b>Phone:</b> (Contact via email or intro)<br/>"
-                           "<b>Email:</b> info@localglobe.vc<br/>"
-                           "<b>People to contact:</b> Robin Klein, Saul Klein, Suzanne Ashkoo", p_style))
-    Story.append(Spacer(1, 10))
-
-    Story.append(Paragraph("4. Balderton Capital", h2))
-    Story.append(Paragraph("<b>Address:</b> 28B King John Court, London EC2A 3EZ<br/>"
-                           "<b>Phone:</b> +44 20 7016 6800<br/>"
-                           "<b>Email:</b> Contact via founders portal on website<br/>"
-                           "<b>People to contact:</b> Suranga Chandratillake, Bernard Liautaud", p_style))
-    Story.append(Spacer(1, 10))
-
-    Story.append(Paragraph("5. Octopus Ventures", h2))
-    Story.append(Paragraph("<b>Address:</b> 33 Holborn, London EC1N 2HT<br/>"
-                           "<b>Phone:</b> +44 800 316 2295<br/>"
-                           "<b>Email:</b> hello@octopusventures.com<br/>"
-                           "<b>People to contact:</b> Alliott Cole, Zihao Xu", p_style))
-    Story.append(Spacer(1, 20))
 
     # --- SECTION 3: SOCIAL MEDIA TEMPLATES ---
     Story.append(Paragraph("Social Media Connection Notes", h1))
