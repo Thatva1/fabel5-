@@ -41,6 +41,40 @@ from .book import Book
 
 BOOK_PATH = os.path.join(DATA_DIR, "intraday_book.json")
 
+
+def ledger_for(path):
+    """The closed-trade ledger that belongs to the intraday book at `path`."""
+    return os.path.splitext(path)[0] + "_closed.jsonl"
+
+
+def load_book(path=None):
+    """The intraday book, attached to ITS OWN closed-trade ledger.
+
+    Every reader and writer of this book must come through here. A plain
+    `Book.load` leaves the book pointing at the daily ledger, so its first save
+    files the day's intraday trades under the daily book — and from then on
+    both journals report the two books added together, which is the one thing
+    they exist to keep apart.
+    """
+    path = path or BOOK_PATH
+    book = Book.load(path)
+    book.ledger_path = ledger_for(path)
+    return book
+
+
+def closed_on(book, day):
+    """Every trade this book closed on `day`, not just the ones still inline.
+
+    A save keeps only a short tail of closed trades in the book and moves the
+    rest to the ledger. Counting the tail alone means the daily trade limit can
+    never be reached and the daily loss limit forgets the morning's losses.
+    """
+    rows = book.closed
+    if book.ledger_path:
+        from . import closed_archive
+        rows = closed_archive.merged(book, book.ledger_path)
+    return [row for row in rows if str(row.get("exit_date", ""))[:10] == day]
+
 DEFAULTS = {
     "risk_per_trade_pct": 0.25,
     "max_position_pct": 5.0,
@@ -134,7 +168,7 @@ def run(config, frames, *, prev_closes=None, now=None, book_path=None,
     moment = now or _now()
     path = book_path or BOOK_PATH
     owns_book = book is None
-    book = book if book is not None else Book.load(path)
+    book = book if book is not None else load_book(path)
 
     out = {"at": moment.isoformat(timespec="seconds"), "opened": [], "closed": [],
            "notes": [], "phase": {}, "realised": 0.0, "costs": 0.0}
@@ -252,8 +286,8 @@ def _open_positions(book, frames, prev_closes, cfg, spreads, moment, out):
 
     # A hard stop on the day, checked before anything opens. An intraday book
     # can lose a month in an afternoon and the only reliable defence is to stop.
-    banked = sum(row.get("pnl") or 0.0 for row in book.closed
-                 if str(row.get("exit_date", ""))[:10] == day)
+    today = closed_on(book, day)
+    banked = sum(row.get("pnl") or 0.0 for row in today)
     floor = -abs(float(cfg["max_daily_loss_pct"])) / 100 * (book.starting_equity or equity)
     if banked <= floor:
         out["notes"].append(
@@ -261,8 +295,7 @@ def _open_positions(book, frames, prev_closes, cfg, spreads, moment, out):
             f"{floor:,.0f}. Nothing further opens today.")
         return
 
-    taken_today = sum(1 for row in book.closed
-                      if str(row.get("exit_date", ""))[:10] == day)
+    taken_today = len(today)
     if taken_today >= int(cfg["max_trades_per_day"]):
         out["notes"].append(f"Trade limit for the day reached ({taken_today}).")
         return

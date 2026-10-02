@@ -42,7 +42,6 @@ from datetime import datetime, timezone
 from ..core import market_clock
 from ..providers import bulk
 from . import intraday_book, intraday_watchlist
-from .book import Book
 
 
 def _now():
@@ -161,7 +160,14 @@ def tick(config, *, now=None, book_path=None, book=None, force=False):
     moment = now or _now()
     out = {"at": moment.isoformat(timespec="seconds"), "notes": []}
 
-    book = book if book is not None else Book.load(book_path or intraday_book.BOOK_PATH)
+    # Whoever loads the book saves it. This pass used to load the book itself
+    # and then hand it to `intraday_book.run` as though a caller had supplied
+    # it — and `run` only saves a book it loaded. So every pass of the live
+    # loop started from an empty book, opened positions, reported them, and
+    # threw the book away: 78 passes in one day, nothing ever written to disk.
+    owns_book = book is None
+    path = book_path or intraday_book.BOOK_PATH
+    book = book if book is not None else intraday_book.load_book(path)
     held = [p["ticker"] for p in book.positions]
 
     venues = {market_clock.venue_for(t) for t in held} or {"US"}
@@ -185,14 +191,33 @@ def tick(config, *, now=None, book_path=None, book=None, force=False):
     # every single thing that is open.
     symbols = list(dict.fromkeys(list(held) + list(working["symbols"])))
 
+    # Held positions lead the list, so a pass that runs out of time has priced
+    # what it holds before anything it merely might buy.
+    budget = _bar_minutes(config) * 60 * 0.6
     started = time.monotonic()
     frames, missing, pacing = bulk.intraday_history_ibkr(
         symbols, bar_size=_bar_size(config),
-        duration=_live_duration(config), config=config)
+        duration=_live_duration(config), config=config, max_seconds=budget)
     out["fetch_seconds"] = round(time.monotonic() - started, 1)
     out["fetched"] = len(frames)
     out["missing"] = len(missing)
     out["pacing"] = pacing
+
+    # A pass that began before the laptop slept wakes up holding a clock
+    # reading from hours ago. Trading on it would size the bell from the wrong
+    # time — opening positions after the close that nothing then comes back
+    # for until the next session. It is abandoned; the next pass has the right
+    # time. Only checked on the real clock: a caller that supplied `now` is
+    # replaying history and has no wall clock to be late against.
+    if now is None:
+        late = (_now() - moment).total_seconds()
+        if late > _bar_minutes(config) * 60:
+            out["error"] = (
+                f"This pass took {late / 60:.0f} minutes of wall-clock time "
+                f"against a {_bar_minutes(config)}-minute bar — the machine "
+                f"slept, or the connection stalled. Abandoned without trading; "
+                f"the next pass runs on the current time.")
+            return out
 
     unpriced = [t for t in held if t not in frames]
     if unpriced:
@@ -211,6 +236,8 @@ def tick(config, *, now=None, book_path=None, book=None, force=False):
     prev_closes = _previous_closes(frames, moment)
     result = intraday_book.run(config, frames, prev_closes=prev_closes, now=moment,
                                book_path=book_path, book=book)
+    if owns_book:
+        book.save(path)
 
     # MERGE, do not overwrite. A plain update() replaced this pass's notes with
     # the book's, and those notes are the only place two things are ever said:
@@ -223,7 +250,6 @@ def tick(config, *, now=None, book_path=None, book=None, force=False):
 
     # The loop must finish inside its own bar or every signal it produces is one
     # bar late — and nothing else in the output would say so.
-    budget = _bar_minutes(config) * 60 * 0.6
     if out["fetch_seconds"] > budget:
         out["notes"].append(
             f"This pass took {out['fetch_seconds']:.0f}s against a "

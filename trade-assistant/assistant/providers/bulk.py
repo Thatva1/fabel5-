@@ -338,7 +338,8 @@ def _cache_slot(cache_dir, symbol, bar_size, duration):
 
 
 def intraday_history_ibkr(symbols, bar_size="5 mins", duration=None, config=None,
-                          progress_cb=None, pace=None, cache_dir=None):
+                          progress_cb=None, pace=None, cache_dir=None,
+                          max_seconds=None):
     """{symbol: intraday OHLCV} from IBKR over ONE held-open connection.
 
     The sibling of `ohlcv_history_ibkr`, and it exists for the same reason: the
@@ -363,6 +364,13 @@ def intraday_history_ibkr(symbols, bar_size="5 mins", duration=None, config=None
     stops. Starting from a fixed sleep would either be far too slow for a small
     batch or far too fast for a large one, and the limit is not documented in a
     form worth hard-coding.
+
+    `max_seconds` is a budget for the whole call, for a caller that has a clock
+    to keep. Once it is spent the remaining symbols are returned as missing
+    rather than waited for. Without it a connection that has gone quiet — the
+    laptop slept mid-pass, Gateway lost its upstream — costs a full request
+    timeout PER SYMBOL, so one five-minute pass over 60 names can hold the
+    loop for an hour, and every pass due in that hour is refused.
     """
     import pandas as pd
 
@@ -414,8 +422,15 @@ def intraday_history_ibkr(symbols, bar_size="5 mins", duration=None, config=None
         pass        # older client without the event; adaptive pacing degrades off
 
     out, missing, throttled = {}, [], 0
+    deadline = (time.monotonic() + float(max_seconds)) if max_seconds else None
+    out_of_time = False
     try:
         for index, symbol in enumerate(dict.fromkeys(symbols), start=1):
+            if deadline is not None and time.monotonic() > deadline:
+                out_of_time = True
+                missing.extend(s for s in dict.fromkeys(symbols)
+                               if s not in out and s not in missing)
+                break
             before = paced["hits"]
 
             slot = _cache_slot(cache_dir, symbol, bar_size, duration) if cache_dir else None
@@ -497,4 +512,5 @@ def intraday_history_ibkr(symbols, bar_size="5 mins", duration=None, config=None
     return out, missing, {"pacing_violations": paced["hits"],
                           "throttled_symbols": throttled,
                           "final_gap_seconds": round(gap, 2),
-                          "from_cache": cached_hits}
+                          "from_cache": cached_hits,
+                          "out_of_time": out_of_time}

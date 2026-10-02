@@ -67,6 +67,12 @@ class Book:
         # it holds a level, and a level does not say whether a rise came from a
         # winner being banked or from an open position drifting up.
         self.daily = list(state.get("daily", []))
+        # Which closed-trade ledger this book writes to and reads its history
+        # from. None means the daily one. Not saved with the book: it is a fact
+        # about which book this is, set by whoever loads it. Without it a
+        # second book flushes its closed trades into the daily ledger on every
+        # save, and both journals then report the two books added together.
+        self.ledger_path = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -85,7 +91,7 @@ class Book:
         if archive_closed:
             try:
                 from . import closed_archive
-                closed_archive.flush(self)
+                closed_archive.flush(self, self.ledger_path)
             except Exception:
                 pass        # a failed archive must never fail the save
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -339,7 +345,7 @@ class Book:
         # a win rate improve simply because old losses scrolled out of the book.
         try:
             from . import closed_archive
-            history = closed_archive.merged(self)
+            history = closed_archive.merged(self, self.ledger_path)
         except Exception:
             history = list(self.closed)
         wins = [c for c in history if (c.get("pnl") or 0) > 0]

@@ -424,7 +424,7 @@ def api_paper_journal():
     # endpoint because the record's SHAPE is identical — what was opened, why,
     # and what it did — and duplicating the reporting would let the two drift.
     which = (request.args.get("book") or "daily").lower()
-    book = (Book.load(intraday_book.BOOK_PATH) if which == "intraday"
+    book = (intraday_book.load_book() if which == "intraday"
             else Book.load())
     if not book.started:
         return jsonify({"started": False, "book": which,
@@ -531,10 +531,9 @@ def api_intraday():
     """
     from ..core import market_clock
     from ..paper import intraday_book, intraday_watchlist
-    from ..paper.book import Book
     from . import scheduler
 
-    book = Book.load(intraday_book.BOOK_PATH)
+    book = intraday_book.load_book()
     working = intraday_watchlist.load()
     cfg = intraday_book.settings(load_config())
 
@@ -623,14 +622,13 @@ def api_intraday_prepare():
 def api_intraday_close():
     """Go flat now, by hand. The same escape hatch the daily book has."""
     from ..paper import intraday_book, manual
-    from ..paper.book import Book
 
     payload = request.get_json(silent=True) or {}
     tickers = payload.get("tickers") or []
     if not tickers and not payload.get("all"):
         return jsonify({"error": "Name at least one ticker, or pass all: true."}), 400
 
-    book = Book.load(intraday_book.BOOK_PATH)
+    book = intraday_book.load_book()
     if not book.started or not book.positions:
         return jsonify({"error": "The intraday book holds no open positions."}), 400
 
