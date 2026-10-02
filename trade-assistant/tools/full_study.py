@@ -12,10 +12,14 @@ Every strategy is measured against the SAME buy-and-hold of the SAME universe,
 unlevered, so "did the timing add anything" is separable from "was this a good
 set of instruments to own".
 """
+import csv
 import json
 import os
+import pickle
 import sys
+import tempfile
 import time
+from multiprocessing import get_context
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -31,7 +35,23 @@ EQUITY_SLOTS = int(os.environ.get("STUDY_EQUITIES", "200"))
 # "mixed"  — equities with FX and futures added alongside
 # "macro"  — FX, futures and cash macro ETFs ONLY, competing against each other
 MODE = os.environ.get("STUDY_MODE", "mixed")
-_SUFFIX = "" if MODE == "mixed" else f"-{MODE.upper()}"
+# STUDY_TAG names a run that must not replace the published one. Everything it
+# writes carries the tag — including KELLY-EDGES and the correlation files,
+# which the live book sizes from and which a side study has no business
+# rewriting.
+TAG = os.environ.get("STUDY_TAG", "")
+_TAG_SUFFIX = f"-{TAG}" if TAG else ""
+_SUFFIX = ("" if MODE == "mixed" else f"-{MODE.upper()}") + _TAG_SUFFIX
+# A CSV with a `symbol` and an `asset_class` column: replay exactly these
+# instruments instead of re-screening. Re-screening months later returns a
+# different universe, and two studies on different universes cannot be compared.
+UNIVERSE_FILE = os.environ.get("STUDY_UNIVERSE")
+# Strategies to switch on for this run only, whatever config.yaml says. This is
+# how a rule that ships disabled gets measured without touching the live book.
+FORCE_ENABLE = [n for n in os.environ.get("STUDY_ENABLE", "").split(",") if n]
+# The replay is the expensive step and each instrument is independent, so it
+# splits across processes. 1 keeps the original single-process path.
+WORKERS = int(os.environ.get("STUDY_WORKERS", "1"))
 OUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "..", "reports", f"FULL-STUDY{_SUFFIX}.json")
 CANDIDATES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -68,6 +88,11 @@ def build_universe(config, router):
     excludes them — a ranking whose twelfth-best name is up 183% can never
     select a currency pair that moved 8%.
     """
+    if UNIVERSE_FILE:
+        with open(UNIVERSE_FILE) as handle:
+            rows = list(csv.DictReader(handle))
+        return ([r["symbol"] for r in rows if r["asset_class"] == "equity"],
+                [r["symbol"] for r in rows if r["asset_class"] != "equity"])
     if MODE == "macro":
         return [], markets.macro_universe()
     equities, _, _ = screen.tradable_universe(config, router)
@@ -78,8 +103,77 @@ def build_universe(config, router):
     return chosen, markets.symbols()
 
 
+_WORKER = {}
+
+
+def _worker_init(snapshot_path):
+    """Load the price snapshot once per process and build the cross-section.
+
+    A fresh process rather than a fork: forking after the network and numeric
+    libraries have started is unreliable on macOS, and a worker that dies
+    mid-replay looks like an instrument with no trades.
+    """
+    from assistant.strategies.cross_section import CrossSection
+    with open(snapshot_path, "rb") as handle:
+        _WORKER.update(pickle.load(handle))
+    _WORKER["cross_section"] = CrossSection.from_frames(_WORKER["frames"])
+
+
+def _worker_replay(ticker):
+    outcome = engine.backtest_ticker(
+        ticker, _WORKER["frames"][ticker], _WORKER["config"], _WORKER["benchmark"],
+        None, unsized=True, cross_section=_WORKER["cross_section"])
+    notes = []
+    base = _WORKER["config"].get("base_currency", "USD")
+    engine.convert_trades(outcome["trades"], base, base, None, notes)
+    return outcome
+
+
+def replay(frames, study_cfg, benchmark, progress):
+    """Every instrument, bar by bar. Same result with one process or many: each
+    instrument is replayed independently against the same shared cross-section,
+    which is exactly what engine.run_backtest does in sequence."""
+    if WORKERS <= 1:
+        return engine.run_backtest(list(frames), study_cfg, lambda t: frames[t],
+                                   benchmark_fn=lambda: benchmark,
+                                   progress_cb=progress, unsized=True)["trades"]
+    with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as handle:
+        pickle.dump({"frames": frames, "config": study_cfg, "benchmark": benchmark},
+                    handle)
+        snapshot = handle.name
+    trades, done = [], 0
+    try:
+        with get_context("spawn").Pool(WORKERS, _worker_init, (snapshot,)) as pool:
+            # Longest series first, so no process is left holding the slow
+            # instruments at the end while the others sit idle.
+            order = sorted(frames, key=lambda t: -len(frames[t]))
+            for outcome in pool.imap_unordered(_worker_replay, order):
+                trades.extend(outcome["trades"])
+                done += 1
+                if done % 25 == 0 or done == len(order):
+                    log(f"  {done}/{len(order)} instruments replayed, "
+                        f"{len(trades)} candidates")
+    finally:
+        os.unlink(snapshot)
+    # imap_unordered returns in completion order; the portfolio simulation
+    # must not depend on which process happened to finish first.
+    trades.sort(key=lambda t: (t.get("entry_date") or "", t.get("ticker") or "",
+                               t.get("strategy") or ""))
+    return trades
+
+
 def main():
     config = load_config()
+    if FORCE_ENABLE:
+        known = {s.name for s in registry.all_strategies()}
+        unknown = [n for n in FORCE_ENABLE if n not in known]
+        if unknown:
+            raise SystemExit(f"STUDY_ENABLE names unknown strategies: {unknown}")
+        blocks = dict(config.get("strategies") or {})
+        for name in FORCE_ENABLE:
+            blocks[name] = {**(blocks.get(name) or {}), "enabled": True}
+        config = {**config, "strategies": blocks}
+        log(f"switched on for this run only: {', '.join(FORCE_ENABLE)}")
     # USD throughout: US equities, FX quoted against the dollar and dollar-
     # denominated futures. Converting into GBP would fold a currency return into
     # every strategy's result and make them incomparable.
@@ -128,9 +222,7 @@ def main():
         if bars % 2000 == 0:
             log(f"  {ticker}: {bars}/{total} bars")
 
-    out = engine.run_backtest(list(frames), study_cfg, lambda t: frames[t],
-                              benchmark_fn=lambda: benchmark, progress_cb=progress,
-                              unsized=True)
+    out = {"trades": replay(frames, study_cfg, benchmark, progress)}
     log(f"replay done in {(time.time() - started) / 60:.1f} min — "
         f"{len(out['trades'])} candidates")
 
@@ -229,8 +321,8 @@ def main():
     correlation, chosen, rejected = {}, [], {}
     if aligned:
         correlation = blend.correlation_matrix(aligned)
-        blend.write_matrix_csv(correlation, _report("STRATEGY-CORRELATION.csv"))
-        blend.write_heatmap_svg(correlation, _report("STRATEGY-CORRELATION.svg"))
+        blend.write_matrix_csv(correlation, _report(f"STRATEGY-CORRELATION{_TAG_SUFFIX}.csv"))
+        blend.write_heatmap_svg(correlation, _report(f"STRATEGY-CORRELATION{_TAG_SUFFIX}.svg"))
 
         # Edges measured on the OUT-OF-SAMPLE half only. Kelly refuses an
         # in-sample estimate, and this is where that refusal is honoured: the
@@ -251,7 +343,7 @@ def main():
         for name, why in rejected.items():
             log(f"  rejected {name}: {why}")
 
-        with open(_report("KELLY-EDGES.json"), "w") as handle:
+        with open(_report(f"KELLY-EDGES{_TAG_SUFFIX}.json"), "w") as handle:
             json.dump({"split_date": split_date,
                        "out_of_sample_returns": oos,
                        "means": oos_means,
