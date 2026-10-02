@@ -2403,6 +2403,25 @@ function intradayBanner(d) {
           Every one closes before its own venue's bell.</div>`
       : `<div class="callout ok">${GLYPH.ok} <b>Flat.</b> Nothing is held.</div>`;
 
+  /* Whether the loop is actually trading, said where it will be read. A green
+     "Flat" over a loop that failed its last pass, or has been stuck on one for
+     five hours, is true and useless: the book is flat because nothing ran. */
+  const l = d.loop || {};
+  const newest = (l.last || [])[0];
+  const overdue = l.enabled && l.next_tick
+    ? (Date.now() - Date.parse(l.next_tick)) / 60000 : 0;
+  const trouble = overdue > 10
+    ? `No pass has run since it was due at ${esc(l.next_tick)} — ${Math.round(overdue)} minutes ago.
+       ${l.running ? 'One is stuck waiting on the broker.' : 'The computer was probably asleep.'}
+       Nothing trades, and nothing is closed, while this is so.`
+    : newest && !newest.ok
+      ? `The last pass failed, so nothing was traded: ${esc(newest.detail)}`
+      : '';
+  const loopNote = trouble
+    ? `<div class="callout bad" style="margin-bottom:10px"><b>${GLYPH.fail} The loop is not trading.</b>
+        <div class="muted" style="margin-top:6px">${trouble}</div></div>`
+    : '';
+
   return `<div class="card">
     <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap">
       <div>${rows}</div>
@@ -2412,7 +2431,7 @@ function intradayBanner(d) {
         ${open ? `<button class="btn btn-primary" onclick="confirmIntradayClose()">Go flat</button>` : ''}
       </div>
     </div>
-    <div style="margin-top:14px">${flat}</div>
+    <div style="margin-top:14px">${loopNote}${flat}</div>
     <div id="intradayMsg" class="prov" style="margin-top:8px"></div>
   </div>`;
 }
