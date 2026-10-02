@@ -263,6 +263,18 @@ def _paper_reset(argv):
     shutil.copy2(BOOK_PATH, archive)
     os.remove(BOOK_PATH)
     print(f"Archived to {os.path.basename(archive)}")
+
+    # The closed-trade ledger belongs to the book it was written by. Left in
+    # place, the new book's journal and every performance figure would open
+    # with the old book's trades already in them — which defeats the reset, and
+    # is how 17 mis-priced London trades would have followed a clean book
+    # around. Renamed beside the archived book, never deleted.
+    from assistant.paper import closed_archive
+    ledger = closed_archive.ARCHIVE_PATH
+    if os.path.exists(ledger):
+        kept = f"{ledger}-archived-{stamp}"
+        os.replace(ledger, kept)
+        print(f"Closed-trade ledger archived to {os.path.basename(kept)}")
     print("New book starts on the next `python run.py paper` run.")
 
 

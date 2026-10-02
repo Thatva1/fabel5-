@@ -141,3 +141,34 @@ def test_archive_stats_summarise_the_whole_record(tmp_path):
     assert s["trades"] == 2 and s["wins"] == 1 and s["losses"] == 1
     assert s["realised_pnl"] == 60.0
     assert s["first_exit"] == "2026-08-01" and s["last_exit"] == "2026-08-05"
+
+
+# -- reset -----------------------------------------------------------------
+
+def test_a_reset_takes_the_ledger_with_the_book(monkeypatch):
+    """A fresh book must start with an empty history. The ledger used to stay
+    behind, so the new book's journal opened with the old book's trades in it —
+    including seventeen London shares entered in pence and closed in pounds,
+    which is a 99% loss that never happened."""
+    import os
+
+    import run
+    from assistant.core import config as config_module
+    from assistant.paper import book as book_module
+
+    tmp = config_module.DATA_DIR
+    book_path = os.path.join(tmp, "paper_book.json")
+    monkeypatch.setattr(book_module, "BOOK_PATH", book_path)
+    # Never the real ledger: _paper_reset moves whatever this points at.
+    assert closed_archive.ARCHIVE_PATH.startswith(tmp)
+
+    book_with([trade("VOD.L", pnl=-13_311.0)]).save()
+    assert len(closed_archive.load()) == 1
+
+    run._paper_reset(["--yes"])
+
+    assert not os.path.exists(book_path)
+    assert closed_archive.merged(Book()) == []
+    kept = [name for name in os.listdir(tmp)
+            if name.startswith("closed_trades.jsonl-archived-")]
+    assert len(kept) == 1      # archived beside the book, not deleted
