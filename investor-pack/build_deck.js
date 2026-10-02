@@ -390,29 +390,30 @@ function footnote(s, text) {
 {
   const s = lightSlide("The ask", "Funding");
   card(s, { x: 0.7, y: 2.0, w: 11.9, h: 1.5, fill: NAVY });
-  s.addText("£1,000,000 to scale the live system", {
+  s.addText("£1,000,000 to build and prove the platform", {
     x: 1.1, y: 2.32, w: 11.1, h: 0.5, fontFace: H, fontSize: 27, bold: true, color: WHITE, margin: 0,
   });
-  s.addText("The majority of capital is deployed to trading, keeping overhead deliberately lean.", {
+  s.addText("All of it funds the company. No investor money is traded.", {
     x: 1.1, y: 2.88, w: 11.1, h: 0.35, fontFace: B, fontSize: 12, italic: true, color: ICE, margin: 0,
   });
 
   const uses = [
-    ["£900,000 — Exchange Investment", "Capital directly invested into the exchange to provide the primary trading capital for the system's live operation."],
-    ["£100,000 — Official Work & Data", "Allocated to acquiring quicker, higher-quality data for bettering the system, and upgrading AI infrastructure to increase computation speed."],
+    ["Research validation", "Walk-forward testing across regimes, honest futures sizing, and re-running the study against the questions raised above."],
+    ["Data", "Market-data subscriptions the account does not hold — spot FX, and options data for a defined-risk hedging sleeve."],
+    ["Forward record", "Continuous paper trading with published, provenance-stamped results and closed trades."],
   ];
-  let y = 3.85;
+  let y = 3.75;
   uses.forEach((u, i) => {
-    card(s, { x: 0.7, y, w: 11.9, h: 1.0 });
-    numberBadge(s, i + 1, 1.0, y + 0.27, NAVY);
-    s.addText(u[0], { x: 1.75, y: y + 0.20, w: 3.8, h: 0.35, fontFace: B, fontSize: 14, bold: true, color: NAVY, margin: 0 });
-    s.addText(u[1], { x: 5.6, y: y + 0.20, w: 6.8, h: 0.62, fontFace: B, fontSize: 12, color: MUTED, margin: 0 });
-    y += 1.3;
+    card(s, { x: 0.7, y, w: 11.9, h: 0.86 });
+    numberBadge(s, i + 1, 1.0, y + 0.2, NAVY);
+    s.addText(u[0], { x: 1.66, y: y + 0.12, w: 2.9, h: 0.35, fontFace: B, fontSize: 14, bold: true, color: NAVY, margin: 0 });
+    s.addText(u[1], { x: 4.5, y: y + 0.12, w: 7.8, h: 0.62, fontFace: B, fontSize: 11.5, color: MUTED, margin: 0 });
+    y += 1.0;
   });
-  s.addText("Milestone for the next round: proving live returns on deployed capital with verified execution.", {
+  s.addText("Milestone for the next round: a walk-forward result across at least one adverse regime, published in full.", {
     x: 0.7, y: 6.75, w: 11.9, h: 0.4, fontFace: B, fontSize: 12.5, bold: true, color: NAVY, margin: 0,
   });
-  s.addNotes("The £1m ask is explicitly structured to maximize capital deployed (£900k) vs overhead (£100k). Emphasize that the operating budget goes directly to AI computation speed and better data feeds.");
+  s.addNotes("The money builds and validates the platform; none of it is traded. Tie the raise to the validation milestone, not to a return target. Promising a return figure from evidence this thin is exactly the behaviour the rest of the deck argues against. Be ready to justify £1,000,000 line by line.");
 }
 
 /* --- 12. Close ----------------------------------------------------------- */

@@ -16,9 +16,9 @@ Built 2026-08-17. Everything here is derived from measured results in
 
 ## Before you send anything
 
-**1. Fill in slide 11.** It contains `£[AMOUNT]` and `[N] months`. The deck does
-not make sense with the brackets still in it. See `slide-notes/slide-11-the-ask.md`
-for how to arrive at a number you can defend.
+**1. Check slide 11.** It asks for £1,000,000 to build and prove the platform,
+with none of it traded. See `slide-notes/slide-11-the-ask.md` for how to defend
+that number line by line, and change it if you cannot.
 
 **2. Read `slide-notes/slide-06-...` and `slide-08-...` first.** Those two cover
 the material that will decide the meeting: that buy-and-hold beat the strategies

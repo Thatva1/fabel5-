@@ -339,13 +339,16 @@ for profitability.
 
     (11, "The ask", """
 ## BEFORE YOU SEND THIS DECK
-Slide 11 contains **`£[AMOUNT]`** and **`[N]` months**. Replace both. The deck
-will not make sense with the brackets still in it.
+Slide 11 asks for **£1,000,000 to build and prove the platform**, and says that
+none of it is traded. Keep it that way. Asking investors for money to trade
+with is a regulated activity in the UK and a different business from this one;
+if that ever becomes the plan, it needs FCA-authorised advice first and a
+different deck.
 
-To set the number: cost out the four roadmap items on slide 10 — mostly your own
-time, plus market-data subscriptions (spot FX and options), plus compute for the
-walk-forward. Give a figure you can justify line by line, because you will be
-asked to.
+Be ready to justify the figure line by line, because you will be asked to: cost
+out the four roadmap items on slide 10 — mostly your own time, plus market-data
+subscriptions (spot FX and options), plus compute for the walk-forward. If the
+lines do not add up to £1,000,000, change the number rather than the lines.
 
 ## What this slide claims
 That the money buys validation, not growth.
