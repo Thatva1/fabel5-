@@ -67,6 +67,11 @@ class Book:
         # it holds a level, and a level does not say whether a rise came from a
         # winner being banked or from an open position drifting up.
         self.daily = list(state.get("daily", []))
+        # Orders chosen at a rebalance and waiting for the next open. The book
+        # decides WHAT to buy from a bar's close, which it can only see once
+        # that bar has finished; it buys at the following open, as the backtest
+        # does. Only these orders are filled. Nothing is chosen at the open.
+        self.pending = list(state.get("pending", []))
         # Which closed-trade ledger this book writes to and reads its history
         # from. None means the daily one. Not saved with the book: it is a fact
         # about which book this is, set by whoever loads it. Without it a
@@ -118,6 +123,7 @@ class Book:
             "last_rebalance_at": self.last_rebalance_at,
             "as_of": self.as_of,
             "daily": self.daily,
+            "pending": self.pending,
         }
 
     @property
@@ -136,6 +142,9 @@ class Book:
 
     def is_held(self, ticker):
         return any(p["ticker"] == ticker for p in self.positions)
+
+    def is_pending(self, ticker):
+        return any(o["ticker"] == ticker for o in self.pending)
 
     def open_position(self, *, ticker, direction, shares, price, stop, target,
                       strategy, regime, date, headline="", meta=None,
@@ -358,6 +367,7 @@ class Book:
             "cash": round(self.cash or 0.0, 2),
             "exposure_pct": round(self.market_value() / equity * 100, 1) if equity else 0.0,
             "open_positions": len(self.positions),
+            "pending_orders": len(self.pending),
             "closed_trades": len(history),
             "win_rate_pct": round(len(wins) / len(history) * 100, 1) if history else None,
             "max_drawdown_pct": round(worst, 2),

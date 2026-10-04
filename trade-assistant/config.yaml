@@ -591,6 +591,20 @@ paper:
   # ranking. Keyed on the exact symbol set, so re-screening invalidates it.
   # Set to 0 to always re-fetch.
   universe_history_cache_hours: 8
+  # How a position is bought, since 4 October 2026.
+  #   next_open    — a rebalance CHOOSES the stocks from the last finished
+  #                  day's close and queues them as orders. They are bought at
+  #                  the next market open, and ONLY they are: if one opens past
+  #                  its stop, or so close to it that its risk has more than
+  #                  halved, it is cancelled and its room stays empty until the
+  #                  next rebalance. Nothing is chosen at the open.
+  #   signal_close — the old behaviour: buy at the close the signal came from.
+  #                  Nobody can trade at a close they only see once it has
+  #                  printed, which made every paper fill slightly better than
+  #                  a real one.
+  # The dashboard's Paper tab lists the orders waiting for the open.
+  fill: next_open
+  order_expiry_days: 5        # an order with no new price for this long is dropped
   # MUST match backtest.max_holding_bars (40). It was 10, and that single
   # number is why nothing ever reached a target.
   #
@@ -801,11 +815,10 @@ backtest:
 # rebalance (paper.rebalance_every). The checks live in backtest/portfolio.py
 # and the paper session calls the same functions, so they cannot drift apart.
 #
-# ONE DELIBERATE DIFFERENCE. The paper book fills a new position at the close
-# of the bar its signal came from; the backtest fills at the next bar's open
-# (backtest.entry_timing). The paper fill is the optimistic one — nobody can
-# trade at a close they only learn once it has printed — so the backtest does
-# not copy it. If anything should change, it is the paper book.
+# Fills match too, since 4 October: both choose from a bar's close and buy at
+# the next open (paper.fill: next_open, backtest.entry_timing: next_open), and
+# both refuse a fill past the stop or one that has more than halved the risk
+# the position was sized on.
 # Without these the backtest sizes every instrument against the whole book, so
 # running 90 instruments quietly holds ~14 positions at once — about 2x leverage
 # the live risk gate would refuse. Leverage should be a decision, not an accident.

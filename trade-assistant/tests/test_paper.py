@@ -764,8 +764,10 @@ def test_the_live_book_caps_one_strategy_and_passes_the_instrument_on(book_path)
                             config, cfg, limits, "2026-02-12", out,
                             alternates=session._claim_order(ideas, config))
 
-    assert {o["ticker"]: o["strategy"] for o in out["opened"]} == {
+    # Chosen at the rebalance, queued for the next open.
+    assert {o["ticker"]: o["strategy"] for o in out["queued"]} == {
         "AAA": "ts_momentum", "BBB": "ts_momentum", "CCC": "low_beta"}
+    assert out["opened"] == [] and [o["ticker"] for o in book.pending] == ["AAA", "BBB", "CCC"]
 
 
 def test_with_no_share_set_the_book_chooses_exactly_as_before(book_path):
@@ -776,7 +778,7 @@ def test_with_no_share_set_the_book_chooses_exactly_as_before(book_path):
                             config, cfg, limits, "2026-02-12", out,
                             alternates=session._claim_order(ideas, config))
 
-    assert [o["strategy"] for o in out["opened"]] == ["ts_momentum"] * 3
+    assert [o["strategy"] for o in out["queued"]] == ["ts_momentum"] * 3
     assert out["skipped"]["strategy_share"] == 0
 
 
@@ -810,3 +812,109 @@ def test_the_session_says_when_the_strategy_ranking_is_due(tmp_path):
     assert session._strategy_ranking_age_days(str(fresh)) < \
         session._strategy_ranking_age_days(str(old))
     assert session._strategy_ranking_age_days(str(tmp_path / "missing.json")) is None
+
+
+# --- filling at the next open ---------------------------------------------------
+
+def _order_book(book_path, equity=100_000):
+    """A started book holding nothing, and the frames for one rising share."""
+    book = _started(book_path, equity)
+    index = pd.bdate_range("2026-01-05", periods=3)
+    frames = {"AAA": pd.DataFrame({"Open": [100.0, 101.0, 104.0],
+                                   "High": [101.0, 103.0, 106.0],
+                                   "Low": [99.0, 100.5, 103.0],
+                                   "Close": [100.5, 102.0, 105.0]}, index=index)}
+    return book, frames
+
+
+def _queued(ticker="AAA", signal_bar="2026-01-05", stop=95.0, signal_price=100.5,
+            shares=10, strategy="ts_momentum"):
+    return {"ticker": ticker, "direction": "long", "strategy": strategy,
+            "regime": "TRENDING_UP", "headline": "", "meta": {},
+            "stop": stop, "target": 130.0, "signal_price": signal_price,
+            "signal_bar": signal_bar, "queued_on": signal_bar, "shares": shares,
+            "multiplier": 1.0, "notional": shares * signal_price,
+            "capital": shares * signal_price, "risk_budget": 1000.0,
+            "sized_by": "fixed_risk"}
+
+
+def _fill(book, frames, today="2026-01-07"):
+    from assistant.backtest import portfolio
+    config = {"account": {"portfolio_value": 100_000, "risk_per_trade_pct": 1.0,
+                          "max_position_pct": 15.0}, "paper": {}}
+    out = {"opened": [], "closed": [], "cancelled": [], "realised_today": 0.0,
+           "costs_today": 0.0}
+    session._fill_pending(book, frames, config, session.settings(config),
+                          portfolio.settings(config), today, out)
+    return out
+
+
+def test_an_order_fills_at_the_open_after_its_signal_bar(book_path):
+    """Chosen from the 5th's close, bought at the 6th's open — the price a real
+    order placed overnight would get, which is what the backtest assumes."""
+    book, frames = _order_book(book_path)
+    book.pending = [_queued()]
+    out = _fill(book, frames)
+
+    assert book.pending == []
+    position = book.positions[0]
+    assert position["entry_date"] == "2026-01-06"
+    assert position["entry_price"] == pytest.approx(101.0 * 1.0005)   # open + slippage
+    assert position["last_price"] == 105.0                                 # marked to today
+    assert [o["ticker"] for o in out["opened"]] == ["AAA"]
+
+
+def test_only_the_queued_stocks_are_bought(book_path):
+    """Two orders, one cancelled at the open: its room is NOT handed to some
+    other stock. The open is not where anything is chosen."""
+    book, frames = _order_book(book_path)
+    frames["BBB"] = frames["AAA"].copy()
+    frames["BBB"]["Open"] = [100.0, 90.0, 92.0]      # gaps below its stop at the open
+    book.pending = [_queued("AAA"), _queued("BBB", stop=95.0)]
+    out = _fill(book, frames)
+
+    assert [p["ticker"] for p in book.positions] == ["AAA"]
+    assert [(c["ticker"], c["reason"]) for c in out["cancelled"]] == [
+        ("BBB", "opened beyond its stop")]
+    assert book.pending == []
+
+
+def test_an_open_too_close_to_the_stop_is_not_taken(book_path):
+    """The backtest's rule: if the fill leaves under half the risk the trade was
+    sized on, it is a different trade."""
+    book, frames = _order_book(book_path)
+    frames["AAA"]["Open"] = [100.0, 96.5, 104.0]     # stop 95: 1.5 of a planned 5.5
+    book.pending = [_queued()]
+    out = _fill(book, frames)
+    assert book.positions == []
+    assert "too close to its stop" in out["cancelled"][0]["reason"]
+
+
+def test_an_order_waits_until_its_next_open_has_happened(book_path):
+    book, frames = _order_book(book_path)
+    book.pending = [_queued(signal_bar="2026-01-07")]   # the latest bar: no open after it yet
+    _fill(book, frames, today="2026-01-07")
+    assert book.positions == [] and len(book.pending) == 1
+
+
+def test_bars_after_the_fill_are_checked_for_exits(book_path):
+    """Filled on the 6th; the 7th's low went through the stop. The book was not
+    running that day, but the stop was live at the broker, so it exits."""
+    book, frames = _order_book(book_path)
+    frames["AAA"]["Low"] = [99.0, 100.5, 94.0]
+    book.pending = [_queued()]
+    out = _fill(book, frames)
+    assert book.positions == []
+    assert [c["reason"] for c in out["closed"]] == ["stop"]
+
+
+def test_queued_orders_take_their_room_in_the_book(book_path):
+    """A second rebalance the same morning must not choose the same room
+    twice: a queued order counts against every limit as if it were held."""
+    book, _ = _order_book(book_path)
+    book.pending = [_queued(shares=500)]                 # 50,250 of notional reserved
+    view = session._Reserved(book)
+    assert len(view.positions) == 1
+    assert view.gross_exposure() == pytest.approx(500 * 100.5)
+    assert view.cash == pytest.approx(book.cash - 500 * 100.5)
+

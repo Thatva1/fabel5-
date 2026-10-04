@@ -2100,6 +2100,23 @@ async function loadPaper() {
       <div id="newsPanel"></div>
     </div>
 
+    ${(d.pending || []).length ? `<div class="card">
+      <div class="label">Orders for the next open</div>
+      <div class="meta" style="margin:4px 0 8px">Chosen at the last rebalance from the latest closing prices. Only these are bought, at the next market open. An order that opens past its stop, or too close to it, is cancelled and nothing replaces it.</div>
+      <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;opacity:.6">
+        <th>Instrument</th><th>Strategy</th><th class="num" style="text-align:right">Units</th>
+        <th class="num" style="text-align:right">Signal price</th><th class="num" style="text-align:right">Stop</th>
+        <th class="num" style="text-align:right">Target</th><th class="num" style="text-align:right">Notional</th><th>Chosen on</th>
+      </tr></thead><tbody>${d.pending.map(o => `<tr>
+        <td><b>${esc(o.ticker)}</b></td><td>${esc(o.strategy || '')}</td>
+        <td class="num" style="text-align:right">${o.shares ?? '—'}</td>
+        <td class="num" style="text-align:right">${money(o.signal_price)}</td>
+        <td class="num" style="text-align:right">${money(o.stop)}</td>
+        <td class="num" style="text-align:right">${money(o.target)}</td>
+        <td class="num" style="text-align:right">${money(o.notional)}</td>
+        <td>${esc(o.signal_bar || '')}</td></tr>`).join('')}</tbody></table>
+    </div>` : ''}
+
     <div class="card">
       <div class="label">Recently closed</div>
       <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;opacity:.6">

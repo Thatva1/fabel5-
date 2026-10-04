@@ -45,6 +45,15 @@ DEFAULTS = {
     # position cannot affect the result but still pays commission and occupies
     # a slot — the sliver left when the exposure cap is nearly full.
     "min_position_pct": 0.5,   # smaller floor so 30 positions can fit
+    # next_open    — a rebalance CHOOSES from the last finished bar and queues
+    #                orders; they fill at the following bar's open. What the
+    #                backtest models, and what a real order could get.
+    # signal_close — buy at the close the signal was computed from. Nobody can:
+    #                that close is only known once it has printed.
+    "fill": "next_open",
+    # Days an order may wait for its next open before it is dropped — a
+    # suspended share, or a feed that has stopped updating one instrument.
+    "order_expiry_days": 5,
 }
 
 
@@ -366,6 +375,7 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
     out = {"date": today, "started_fresh": not book.closed and not book.positions,
            "universe": 0, "universe_from_cache": None, "screen": None,
            "rebalanced": False, "opened": [], "closed": [], "skipped": {},
+           "queued": [], "cancelled": [],
            "realised_today": 0.0, "costs_today": 0.0,
            "notes": []}
 
@@ -407,12 +417,14 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
 
     # --- 2. Mark open positions and take exits ---------------------------
     held = [p["ticker"] for p in book.positions]
+    waiting = [o["ticker"] for o in book.pending if o["ticker"] not in held]
     frames = {}
     mark_source = None
-    if held:
-        report_stage(f"marking {len(held)} open positions")
+    if held or waiting:
+        report_stage(f"marking {len(held)} open positions"
+                     + (f" and {len(waiting)} orders waiting for the open" if waiting else ""))
         mark_out = {}
-        frames = _fetch(held, "6mo", config, "marks", mark_out)
+        frames = _fetch(held + waiting, "6mo", config, "marks", mark_out)
         out.setdefault("notes", []).extend(mark_out.get("notes", []))
         # Captured separately from the universe fetch below. Both write
         # price_source into the same report dict, and the universe fetch ran
@@ -457,6 +469,11 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
                               "pnl": position["pnl"], "r": position["r_multiple"]})
 
     # --- 3. Rebalance, if this is a rebalance day ------------------------
+    # Orders the last rebalance queued, filled at the open that followed it.
+    # After the exits above, so capital a stop released is available, as it is
+    # to the backtest on the same day.
+    _fill_pending(book, frames, config, cfg, limits, today, out)
+
     due = (_rebalance_due(book, today, config) if rebalance_override is None
            else rebalance_override)
     if not due:
@@ -471,8 +488,9 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
         book.save(book_path) if book_path else book.save()
         out.update({"equity": row["equity"], "summary": book.summary()})
         out["notes"].append(
-            "Not a rebalance day. Open positions were marked and exits taken; "
-            "no new positions are opened between rebalances by design.")
+            "Not a rebalance day. Open positions were marked, exits taken, and "
+            "orders queued at the last rebalance filled at the open; nothing new "
+            "is chosen between rebalances.")
         return out
 
     out["rebalanced"] = True
@@ -513,7 +531,7 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
     ideas = []
     scan_cfg = config.get("scanner", {}) or {}
     for ticker, df in universe_frames.items():
-        if book.is_held(ticker):
+        if book.is_held(ticker) or book.is_pending(ticker):
             continue
         try:
             snapshot = scanner.scan_ticker(ticker, df, scan_cfg,
@@ -778,14 +796,165 @@ def _group_room(book, ticker, equity, limits):
     return max(0.0, cap - used)
 
 
+class _Reserved:
+    """The book as its limits must see it while orders wait for the open.
+
+    A queued order has spent no cash and holds no position, but its place in
+    the book is taken: counting it as absent would let the next rebalance, the
+    same morning, choose the same room twice. Each queued order is treated as
+    a position at its signal price for every limit — the count, the exposure
+    budget, the strategy's share, the exposure group, correlation, cash.
+    """
+
+    def __init__(self, book):
+        self.book = book
+        self.positions = list(book.positions) + [self._as_position(o) for o in book.pending]
+        self.cash = (book.cash or 0.0) - sum(o.get("capital", 0.0) for o in book.pending)
+
+    @staticmethod
+    def _as_position(order):
+        return {"ticker": order["ticker"], "strategy": order["strategy"],
+                "last_price": order["signal_price"], "shares": order["shares"],
+                "multiplier": order.get("multiplier", 1.0)}
+
+    def equity(self):
+        return self.book.equity()
+
+    def gross_exposure(self):
+        return self.book.gross_exposure() + sum(
+            abs(o["signal_price"] * float(o.get("multiplier", 1.0) or 1.0) * o["shares"])
+            for o in self.book.pending)
+
+    def add(self, order):
+        self.positions.append(self._as_position(order))
+        self.cash -= order.get("capital", 0.0)
+
+
+def _fill_pending(book, frames, config, cfg, limits, today, out):
+    """Fill the queued orders at the open after the bar they were chosen on.
+
+    Exactly the stocks the rebalance chose, and only those. An order that
+    cannot fill is cancelled and its room stays empty until the next
+    rebalance: nothing is picked at the open to replace it, because the open is
+    not where anything is decided. The checks are the backtest's — a fill past
+    the stop is not taken, and neither is one so close to the stop that the
+    risk the position was sized on has more than halved. Bars after the fill
+    are walked for exits exactly as the backtest walks them; the fill bar
+    itself is not, because nobody knows which part of a day's range came
+    before the open fill and which after.
+    """
+    if not book.pending:
+        return
+    min_risk = float(backtest_engine.settings(config)["min_risk_fraction"])
+    expiry = int(cfg.get("order_expiry_days", 5))
+    still_waiting = []
+    for order in book.pending:
+        ticker, direction = order["ticker"], order["direction"]
+        df = frames.get(ticker)
+        dates = [str(d)[:10] for d in df.index] if df is not None and len(df) else []
+        later = [i for i, d in enumerate(dates) if d > order["signal_bar"]]
+        if not later:
+            try:
+                age = (datetime.strptime(today, "%Y-%m-%d")
+                       - datetime.strptime(order["queued_on"], "%Y-%m-%d")).days
+            except (TypeError, ValueError):
+                age = 0
+            if age > expiry:
+                out["cancelled"].append({"ticker": ticker, "strategy": order["strategy"],
+                                         "reason": f"no price after its signal in {age} days"})
+            else:
+                still_waiting.append(order)
+            continue
+
+        index = later[0]
+        bar = df.iloc[index]
+        raw_open = bar["Open"]
+        opening = float(raw_open) if raw_open == raw_open else 0.0     # NaN is not an open
+        multiplier = float(order.get("multiplier", 1.0) or 1.0)
+        reason, shares, fill, actual, commission = None, 0, None, 0.0, 0.0
+        if opening <= 0:
+            reason = "no opening price"
+        elif ((direction == "long" and opening <= order["stop"])
+              or (direction == "short" and opening >= order["stop"])):
+            reason = "opened beyond its stop"
+        else:
+            fill = _slipped(opening, direction, cfg["slippage_bps"], opening=True)
+            planned = abs(order["signal_price"] - order["stop"])
+            actual = abs(fill - order["stop"])
+            if planned <= 0 or actual < planned * min_risk:
+                reason = "opened too close to its stop to be the trade that was sized"
+        if reason is None:
+            equity = book.equity()
+            room = min(float(order["notional"]),
+                       equity * float(limits["max_gross_exposure_pct"]) / 100
+                       - book.gross_exposure())
+            shares = sizing.position_size_by_value(
+                order["risk_budget"], actual * multiplier, room, fill * multiplier)
+            commission = simulator.cost_config_for(ticker, config).get(
+                "commission_per_trade", 0.0)
+            if shares < 1 or shares * fill * multiplier < \
+                    equity * float(cfg["min_position_pct"]) / 100:
+                reason = "too small at the opening price"
+            elif markets.capital_required(ticker, fill, shares) + commission > (book.cash or 0.0):
+                reason = "not enough cash at the open"
+        if reason:
+            out["cancelled"].append({"ticker": ticker, "strategy": order["strategy"],
+                                     "reason": reason, "open": round(opening, 4)})
+            continue
+
+        fill_date = dates[index]
+        book.open_position(
+            ticker=ticker, direction=direction, shares=shares, price=fill,
+            stop=order["stop"], target=order["target"], strategy=order["strategy"],
+            regime=order.get("regime"), date=fill_date, headline=order.get("headline", ""),
+            meta={**(order.get("meta") or {}), "signal_bar": order["signal_bar"],
+                  "signal_price": order["signal_price"], "queued_on": order["queued_on"]},
+            price_source=out.get("price_source"), bar_date=fill_date)
+        book.cash -= commission
+        position = book.positions[-1]
+        position["last_price"] = float(bar["Close"])
+        out["costs_today"] += commission
+        out["opened"].append({"ticker": ticker, "strategy": order["strategy"],
+                              "shares": shares, "price": round(fill, 4),
+                              "stop": order["stop"], "headline": order.get("headline", ""),
+                              "sized_by": order.get("sized_by"), "filled_on": fill_date,
+                              "notional": round(shares * fill * multiplier, 2)})
+
+        for later_index in range(index + 1, len(df)):
+            next_bar = df.iloc[later_index]
+            position["last_price"] = float(next_bar["Close"])
+            _age_by_one_bar(position, dates[later_index])
+            hit, level = _exit_reason(position, next_bar)
+            if hit is None and position["bars_held"] >= int(cfg["max_holding_bars"]):
+                hit, level = "time", float(next_bar["Close"])
+            if hit:
+                book.close_position(position, _slipped(level, direction, cfg["slippage_bps"],
+                                                       opening=False),
+                                    dates[later_index], hit)
+                book.cash -= commission
+                out["realised_today"] += position["pnl"] or 0.0
+                out["costs_today"] += commission
+                out["closed"].append({"ticker": ticker, "reason": hit,
+                                      "pnl": position["pnl"], "r": position["r_multiple"]})
+                break
+    book.pending = still_waiting
+
+
 def _open_positions(book, ideas, frames, config, cfg, limits, today, out,
                     alternates=None):
     """Take the best candidates that fit inside the portfolio limits.
+
+    With paper.fill: next_open (the default) nothing is bought here: each
+    chosen candidate becomes an order in book.pending, sized from its signal
+    price and filled by _fill_pending at the next open.
 
     alternates: {ticker: every idea on it, in claim order}. When the strategy
     that won an instrument has used its share of the book, the instrument goes
     to the next strategy in that list rather than being skipped.
     """
+    queueing = cfg.get("fill", "next_open") == "next_open"
+    view = _Reserved(book) if queueing else book
+    out.setdefault("queued", [])
     skipped = {"exposure": 0, "max_positions": 0, "correlation": 0,
                "duplicate_exposure": 0, "size_too_small": 0, "cash": 0,
                "strategy_share": 0}
@@ -811,7 +980,7 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out,
 
     for idea in ideas:
         equity = book.equity()
-        if len(book.positions) >= int(limits["max_open_positions"]):
+        if len(view.positions) >= int(limits["max_open_positions"]):
             skipped["max_positions"] += 1
             continue
 
@@ -820,7 +989,7 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out,
         # cap read off the margin would let a book carry ten times the exposure
         # it thinks it has.
         exposure_cap = equity * float(limits["max_gross_exposure_pct"]) / 100
-        if book.gross_exposure() >= exposure_cap:
+        if view.gross_exposure() >= exposure_cap:
             skipped["exposure"] += 1
             continue
 
@@ -829,14 +998,14 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out,
         # spot sterling against the sterling future measures 0.12 correlation
         # because the two series close on different boundaries, so the cap below
         # waves both through and the book doubles its position without knowing.
-        if _already_exposed(book, idea.ticker):
+        if _already_exposed(view, idea.ticker):
             skipped["duplicate_exposure"] += 1
             continue
 
         # The same correlation cap the portfolio simulator applies. Six mega-cap
         # tech names bought on one rebalance is one bet with six tickets.
         candidate = {"ticker": idea.ticker, "entry_date": today}
-        open_like = [{"ticker": p["ticker"]} for p in book.positions]
+        open_like = [{"ticker": p["ticker"]} for p in view.positions]
         if portfolio_limits._too_correlated(candidate, open_like, limits, returns.get):
             skipped["correlation"] += 1
             continue
@@ -849,7 +1018,7 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out,
         options = [idea] + [other for other in (alternates or {}).get(idea.ticker, [])
                             if other is not idea]
         for option in options:
-            strategy_room = _strategy_room(book, option.strategy, equity, limits, config)
+            strategy_room = _strategy_room(view, option.strategy, equity, limits, config)
             if strategy_room is None or strategy_room > smallest:
                 idea = option
                 break
@@ -869,12 +1038,12 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out,
             continue
 
         fill = _slipped(idea.entry, idea.direction, cfg["slippage_bps"], opening=True)
-        room = exposure_cap - book.gross_exposure()
+        room = exposure_cap - view.gross_exposure()
         if strategy_room is not None:
             room = min(room, strategy_room)
         # The cash cap converts to units through the notional value of one unit.
         unit_notional = fill * multiplier
-        group_room = _group_room(book, idea.ticker, equity, limits)
+        group_room = _group_room(view, idea.ticker, equity, limits)
 
         shares = None
         if kelly.settings(config).get("enabled"):
@@ -906,8 +1075,31 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out,
         commission = cost.get("commission_per_trade", 0.0)
         # Cash needed is the CAPITAL, which is margin for a future.
         needed = markets.capital_required(idea.ticker, fill, shares) + commission
-        if needed > (book.cash or 0):
+        if needed > (view.cash or 0):
             skipped["cash"] += 1
+            continue
+
+        if queueing:
+            order = {
+                "ticker": idea.ticker, "direction": idea.direction,
+                "strategy": idea.strategy, "regime": idea.regime,
+                "headline": idea.headline, "meta": dict(idea.meta or {}),
+                "stop": idea.stop, "target": idea.target,
+                "signal_price": idea.entry,
+                "signal_bar": (str(frames[idea.ticker].index[-1])[:10]
+                               if idea.ticker in frames else today),
+                "queued_on": today,
+                "queued_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "shares": shares, "multiplier": multiplier,
+                "notional": round(value, 2),
+                "capital": round(needed - commission, 2),
+                "risk_budget": round(risk_budget, 2), "sized_by": sized_by,
+            }
+            book.pending.append(order)
+            view.add(order)
+            out["queued"].append({"ticker": idea.ticker, "strategy": idea.strategy,
+                                  "shares": shares, "signal_price": idea.entry,
+                                  "stop": idea.stop, "notional": round(value, 2)})
             continue
 
         book.open_position(

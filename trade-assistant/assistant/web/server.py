@@ -334,6 +334,12 @@ def api_paper():
         "summary": book.summary(),
         "gross_exposure": round(book.gross_exposure(), 2),
         "positions": positions,
+        # Chosen at the last rebalance, bought at the next open. Shown so the
+        # reader can see exactly what will be bought before it is.
+        "pending": [{k: o.get(k) for k in ("ticker", "direction", "strategy", "shares",
+                                           "signal_price", "stop", "target", "notional",
+                                           "signal_bar", "queued_on", "headline")}
+                    for o in book.pending],
         "closed": book.closed[-25:][::-1],
         "curve": book.curve[-120:],
         "sessions": book.sessions[-10:][::-1],

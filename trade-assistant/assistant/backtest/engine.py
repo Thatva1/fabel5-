@@ -282,6 +282,14 @@ def backtest_ticker(ticker, df, config, benchmark_closes=None, progress_cb=None,
                 result["missed_fills"] += 1
                 continue
 
+            # A fill already past the stop is not a trade: the setup was
+            # invalidated before it opened. The paper book refuses it at the
+            # open too, so both count it as not taken.
+            if ((idea.direction == "long" and entry_price <= idea.stop)
+                    or (idea.direction == "short" and entry_price >= idea.stop)):
+                result["skipped_risk_collapsed"] += 1
+                continue
+
             # The plan's risk is what the position was sized and judged against.
             # If the fill moved toward the stop, this is a different trade.
             planned_risk = abs(idea.entry - idea.stop)

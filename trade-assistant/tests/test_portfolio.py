@@ -349,6 +349,9 @@ def test_the_shipped_config_backtests_the_book_the_paper_trader_runs():
     assert replay["max_holding_bars"] == paper["max_holding_bars"]
     assert config["backtest"]["costs"]["slippage_bps"] == paper["slippage_bps"]
     assert portfolio.PAPER_MIN_POSITION_PCT == session.DEFAULTS["min_position_pct"]
+    # Both choose from a close and buy at the next open.
+    assert paper["fill"] == "next_open"
+    assert replay["entry_timing"] == "next_open"
 
 
 def test_new_positions_open_only_when_the_book_would_rebalance():
