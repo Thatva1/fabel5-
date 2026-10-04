@@ -690,60 +690,58 @@ blend:
 # edge without waiting months. Assumptions are deliberately pessimistic: a
 # Which strategy claims a ticker when several fire on it.
 #
-# This decides the whole character of the book and was not being chosen on
-# evidence. The order below used to be, effectively, the order the strategies
-# were written — which put xs_momentum (measured Calmar 0.22, the
-# second-weakest of the twelve) FIRST and long_reversal (Calmar 0.89, the
-# strongest by a wide margin) NINTH.
+# Contention is per ticker: the highest-ranked strategy that fires on an
+# instrument takes it, and when that strategy has used its share of the book
+# (portfolio.max_strategy_share_pct) the instrument passes down this list.
 #
-# Contention is per ticker: the highest-priority strategy that fires on an
-# instrument takes it and the rest get nothing. ts_momentum sits high and fires
-# on almost anything in a rising market, so it claimed 43 of 46 positions and
-# the eleven other strategies were, in practice, switched off.
+# RANKED BY MEASURED EDGE PER TRADE, 4 October 2026, out of sample.
+#   Edge is a strategy's average trade in each calendar month minus the average
+#   trade of an unselective long in an uptrend in the same month (R, before
+#   costs). It scores each signal on its own, so how often a rule fires and how
+#   much cash its book holds drop out — the two things that made the earlier
+#   Calmar ordering put ts_momentum, which fires on almost everything, near the
+#   top until it was moved last by hand. Here it simply ranks eighth.
 #
-# Ordered by measured Calmar from reports/share/results-1m.csv — return per
-# unit of worst drawdown, over 8.94 years and 528 instruments:
+#   Measured on the 811-company UK and European run, data no strategy was
+#   chosen on (reports/EUROPE-LIBRARY-TEST.md, reports/STRATEGY-EDGES.json):
 #
-#   long_reversal 0.89 · ts_momentum 0.57 · dual_momentum 0.49 · low_beta 0.47
-#   turn_of_month 0.39 · short_reversal 0.36 · sector_momentum 0.34
-#   high_52w 0.30 · low_volatility 0.30 · xs_momentum 0.22
-#   band_reversion 0.16 · halloween 0.11
+#     band_reversion  +0.21R  t 3.3   │  ts_momentum     +0.09R  t 2.7
+#     low_volatility  +0.14R  t 3.0   │  low_beta        +0.08R  t 2.0
+#     halloween       +0.13R  t 3.1   │  short_reversal  +0.08R  t 1.6
+#     long_reversal   +0.11R  t 1.7   │  turn_of_month   +0.05R  t 1.3
+#     dual_momentum   +0.10R  t 2.4   │  xs_momentum     +0.03R  t 0.7
+#     high_52w        +0.09R  t 3.0   │  sector_momentum  not measurable there
 #
-# This does NOT guarantee a mixed book on its own — a strategy still has to
-# fire — but it stops the weakest measured signals outranking the strongest.
+#   One caution the number cannot show: band_reversion leads because it buys
+#   sharp falls, which happen in the months when everything else is losing, so
+#   it loses LESS than the baseline. After costs it earns about +0.01R a trade
+#   and its book lost money. First place here is what the measure says, not a
+#   recommendation to favour it.
 #
-# 2 October 2026 — ts_momentum moved from SECOND to LAST. The Calmar order above
-# was right about quality and wrong about what this list does. ts_momentum
-# signals on about 15,000 instrument-months where dual_momentum signals on
-# 2,500 and long_reversal on 1,700, and nearly every name those two flag is one
-# ts_momentum flags too. Ranked above them it took the name every time, so the
-# paper book ran 72% ts_momentum however good the others were.
+# RE-RANK EVERY SIX MONTHS, on data newer than this ranking, with
+#   python tools/rank_strategies.py <candidates> --source "<what the data is>"
+# The paper session notes when reports/STRATEGY-EDGES.json is older than that.
 #
-# A list like this has to put the SELECTIVE rules first and the rule that fires
-# on almost everything last, where it fills what nothing else wanted. Measured
-# on the August study's candidates, entering on the monthly rebalance as the
-# paper book does:
-#
-#                       largest strategy   CAGR    max DD   Sharpe
-#   ts_momentum second        71%          5.60%   11.5%    0.96
-#   ts_momentum last          32%          5.53%   11.9%    0.96
-#
-# The same in each half of the history. So this buys a mixed book and costs
-# nothing measurable — and, to be equally plain, it earns nothing measurable
-# either. It is a change to what the book holds, not to what it returns.
+# History: hand-ordered until August 2026; Calmar order from the August study;
+# ts_momentum moved from second to last on 2 October, which cut it from 71% of
+# the book to 32% at the same return; this ranking replaced both on 4 October.
 strategy_priority:
+  - band_reversion
+  - low_volatility
+  - halloween
   - long_reversal
   - dual_momentum
-  - low_beta
-  - turn_of_month
-  - short_reversal
-  - sector_momentum
   - high_52w
-  - low_volatility
-  - xs_momentum
-  - band_reversion
-  - halloween
   - ts_momentum
+  - low_beta
+  - short_reversal
+  - turn_of_month
+  - xs_momentum
+  - sector_momentum
+  # switched off, ranked where the same measure puts them
+  - activist_13d_tracking
+  - pead_drift
+  - qmj_factor
 
 # backtest that flatters itself is worse than none at all.
 backtest:
