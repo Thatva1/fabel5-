@@ -36,3 +36,6 @@ trade-research-assistant-v1-archive*.zip
 
 # macOS
 .DS_Store
+
+# Third-party tool (github.com/garrytan/gstack), a separate git repo — not our code
+gstack/
