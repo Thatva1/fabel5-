@@ -319,6 +319,12 @@ strategies:
 # agree about scores near zero and gets no slot — something the priority list
 # could not express at all.
 composite:
+  # 4 October 2026 — backtested against the edge-ranked list on the US
+  # universe with the SAME out-of-sample evidence (edges and correlations from
+  # the European run): worse, by about 3 points a year and 0.1 of Sharpe
+  # (reports/RANKING-COMPARISON.md). Reading its shipped files it looks better,
+  # but those were measured on the same US years it is scored on. Stays off
+  # until it can be given weights measured somewhere it is not then judged.
   enabled: false
   # Below this score an instrument is not worth a slot. 1.0 is one unopposed
   # strategy, so a floor above it demands genuine agreement and a floor below
