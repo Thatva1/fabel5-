@@ -1,0 +1,170 @@
+{
+  "whole": {
+    "cagr_pct": 15.25,
+    "max_drawdown_pct": 25.86,
+    "sharpe": 0.97,
+    "trades": 9363,
+    "mix": [
+      [
+        "ts_momentum",
+        20
+      ],
+      [
+        "high_52w",
+        18
+      ],
+      [
+        "short_reversal",
+        10
+      ],
+      [
+        "halloween",
+        10
+      ],
+      [
+        "dual_momentum",
+        10
+      ],
+      [
+        "long_reversal",
+        10
+      ],
+      [
+        "low_beta",
+        9
+      ],
+      [
+        "low_volatility",
+        8
+      ],
+      [
+        "band_reversion",
+        4
+      ],
+      [
+        "turn_of_month",
+        1
+      ],
+      [
+        "xs_momentum",
+        1
+      ],
+      [
+        "sector_momentum",
+        0
+      ]
+    ]
+  },
+  "first half": {
+    "cagr_pct": 12.09,
+    "max_drawdown_pct": 25.86,
+    "sharpe": 0.81,
+    "trades": 4744,
+    "mix": [
+      [
+        "ts_momentum",
+        21
+      ],
+      [
+        "high_52w",
+        20
+      ],
+      [
+        "halloween",
+        11
+      ],
+      [
+        "short_reversal",
+        11
+      ],
+      [
+        "dual_momentum",
+        10
+      ],
+      [
+        "low_beta",
+        9
+      ],
+      [
+        "low_volatility",
+        7
+      ],
+      [
+        "long_reversal",
+        4
+      ],
+      [
+        "band_reversion",
+        3
+      ],
+      [
+        "turn_of_month",
+        2
+      ],
+      [
+        "xs_momentum",
+        1
+      ],
+      [
+        "sector_momentum",
+        0
+      ]
+    ]
+  },
+  "second half": {
+    "cagr_pct": 16.67,
+    "max_drawdown_pct": 19.79,
+    "sharpe": 1.03,
+    "trades": 4739,
+    "mix": [
+      [
+        "ts_momentum",
+        19
+      ],
+      [
+        "high_52w",
+        17
+      ],
+      [
+        "long_reversal",
+        13
+      ],
+      [
+        "dual_momentum",
+        10
+      ],
+      [
+        "halloween",
+        9
+      ],
+      [
+        "short_reversal",
+        9
+      ],
+      [
+        "low_beta",
+        8
+      ],
+      [
+        "low_volatility",
+        8
+      ],
+      [
+        "band_reversion",
+        5
+      ],
+      [
+        "turn_of_month",
+        1
+      ],
+      [
+        "xs_momentum",
+        1
+      ],
+      [
+        "sector_momentum",
+        1
+      ]
+    ]
+  }
+}
