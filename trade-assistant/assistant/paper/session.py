@@ -20,6 +20,7 @@ What it deliberately does NOT do: place orders. There is no broker in this
 module. Fills are modelled at the next available close with slippage, which is
 optimistic against a real market open and is stated as such in the output.
 """
+import json
 import os
 import time
 from datetime import datetime, timezone
@@ -602,8 +603,40 @@ def _rank_candidates(ideas, config):
             best_per_ticker[idea.ticker] = (rank, idea)
 
     winners = [idea for _, idea in best_per_ticker.values()]
-    winners.sort(key=lambda i: -(i.reward_risk or 0))
+    if portfolio_limits.settings(config)["tie_break"] == "strength":
+        # Across instruments, by how strongly each winner's own rule rates it —
+        # the same order the backtest uses. Reward:risk is a fixed multiple per
+        # strategy and the arrival order is the liquidity screen's, so between
+        # them they handed the choice of stock to company size.
+        pct = portfolio_limits.strength_percentiles(
+            ideas, lambda i: i.strategy,
+            lambda i: (getattr(i, "meta", None) or {}).get("strength"))
+        today = datetime.now(timezone.utc).date().isoformat()
+        winners.sort(key=lambda i: (-pct[id(i)], priority.get(i.strategy, len(priority)),
+                                    portfolio_limits.neutral_order(i.ticker, today)))
+    else:
+        winners.sort(key=lambda i: -(i.reward_risk or 0))
     return _interleave_segments(winners)
+
+
+# strategy_priority is ranked from measured edges; past this age the ranking
+# is due to be redone on newer data.
+RERANK_AFTER_DAYS = 183
+STRATEGY_EDGES_PATH = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__)))), "reports", "STRATEGY-EDGES.json")
+
+
+def _strategy_ranking_age_days(path=None):
+    """Days since tools/rank_strategies.py last ranked the strategies, or None."""
+    try:
+        with open(path or STRATEGY_EDGES_PATH) as handle:
+            measured = json.load(handle)["measured_at"]
+        when = datetime.fromisoformat(measured)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - when).total_seconds() / 86400
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def _claim_order(ideas, config):
@@ -807,6 +840,11 @@ def _open_positions(book, ideas, frames, config, cfg, limits, today, out,
             f"file {age}d old); the rest fall back to fixed-risk sizing."
             + (" That edge file is over a quarter old — re-run the study before "
                "trusting it to size positions." if age and age > 90 else ""))
+    ranking_age = _strategy_ranking_age_days()
+    if ranking_age is not None and ranking_age > RERANK_AFTER_DAYS:
+        out.setdefault("notes", []).append(
+            f"strategy_priority was ranked {ranking_age:.0f} days ago. Re-rank it on "
+            "data newer than that with tools/rank_strategies.py.")
     returns = {t: df["Close"].pct_change().dropna() for t, df in frames.items()}
     for series in returns.values():
         series.index = [str(d)[:10] for d in series.index]

@@ -113,14 +113,47 @@ def test_capital_frees_up_when_a_position_closes():
 
 # --- contention ---------------------------------------------------------------
 
-def test_the_best_reward_risk_wins_a_contested_slot():
-    """Exposure is the scarce resource, so it goes to the best setup available
-    rather than whichever happened to be first in the list."""
-    poor = _candidate(ticker="POOR", reward_risk=1.1)
-    good = _candidate(ticker="GOOD", reward_risk=9.9)
-    out = portfolio.simulate([poor, good], {
+def test_the_stronger_signal_wins_a_contested_slot():
+    """Exposure is the scarce resource, so it goes to the candidate its own
+    rule rates highest — not to whichever happened to be first in the list."""
+    weak = _candidate(ticker="WEAK", strength=0.05)
+    strong = _candidate(ticker="STRONG", strength=0.60)
+    out = portfolio.simulate([weak, strong], {
         **CONFIG, "portfolio": {**CONFIG["portfolio"], "max_open_positions": 1}})
+    assert [t["ticker"] for t in out["trades"]] == ["STRONG"]
+
+
+def test_the_old_tie_break_is_still_available_for_comparison():
+    """`arrival` is the pre-October behaviour: reward:risk, then list order.
+    Kept so a result can be reproduced and the two compared."""
+    poor = _candidate(ticker="POOR", reward_risk=1.1, strength=0.9)
+    good = _candidate(ticker="GOOD", reward_risk=9.9, strength=0.1)
+    out = portfolio.simulate([poor, good], {
+        **CONFIG, "portfolio": {**CONFIG["portfolio"], "max_open_positions": 1,
+                                "tie_break": "arrival"}})
     assert [t["ticker"] for t in out["trades"]] == ["GOOD"]
+
+
+def test_ties_are_not_broken_by_the_order_of_the_list():
+    """With nothing to tell candidates apart, the choice must not depend on
+    where they sat in the universe list — that is what made the published
+    results a bet on company size. Reversing the list changes nothing."""
+    tied = [_candidate(ticker=f"T{i:02d}") for i in range(12)]
+    config = {**CONFIG, "portfolio": {**CONFIG["portfolio"], "max_open_positions": 3}}
+    forward = [t["ticker"] for t in portfolio.simulate(tied, config)["trades"]]
+    backward = [t["ticker"] for t in portfolio.simulate(tied[::-1], config)["trades"]]
+    assert sorted(forward) == sorted(backward)
+    assert forward != ["T00", "T01", "T02"] or backward != ["T11", "T10", "T09"]
+
+
+def test_strength_is_compared_within_a_strategy_not_across_them():
+    """A beta of -0.6 and a twelve-month return of 0.4 are not comparable
+    numbers. Each strategy's best candidate of the day is its best."""
+    pct = portfolio.strength_percentiles(
+        [{"s": "low_beta", "v": -0.9}, {"s": "low_beta", "v": -0.5},
+         {"s": "ts_momentum", "v": 0.1}, {"s": "ts_momentum", "v": 2.0}],
+        lambda c: c["s"], lambda c: c["v"])
+    assert sorted(pct.values()) == [0.5, 0.5, 1.0, 1.0]
 
 
 def test_daily_entry_cap_is_respected():
@@ -271,8 +304,10 @@ def test_a_full_strategy_hands_the_instrument_to_the_next_claimant():
     config = {**CONFIG, "strategy_priority": ["ts_momentum", "low_beta"],
               "portfolio": {**CONFIG["portfolio"], "one_position_per_ticker": True,
                             "max_strategy_share_pct": 50}}
-    candidates = (_same_day("ts_momentum", ["A", "B"], reward_risk=3.0)
-                  + _same_day("ts_momentum", ["Z"]) + _same_day("low_beta", ["Z"]))
+    candidates = ([_candidate(ticker=t, strategy="ts_momentum", strength=0.5)
+                   for t in ("A", "B")]
+                  + [_candidate(ticker="Z", strategy="ts_momentum", strength=0.1),
+                     _candidate(ticker="Z", strategy="low_beta")])
 
     trades = portfolio.simulate(candidates, config)["trades"]
     assert {t["ticker"]: t["strategy"] for t in trades} == {

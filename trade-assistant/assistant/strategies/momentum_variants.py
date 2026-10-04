@@ -93,6 +93,7 @@ class SectorMomentumStrategy(Strategy):
                           headline=(f"Sector rotation — {SECTOR_ETFS[ctx.ticker.upper()]} "
                                     f"is {stats['rank']} of {stats['count']}"),
                           meta={"sector": SECTOR_ETFS[ctx.ticker.upper()],
+                                "strength": float(stats["value"]),
                                 "rank": stats["rank"], "of": stats["count"],
                                 "momentum_pct": round(stats["value"] * 100, 2)})
         return [idea] if idea else []
@@ -168,6 +169,7 @@ class DualMomentumStrategy(Strategy):
                           headline=(f"Dual momentum — top {stats['percentile']:.0f}% "
                                     f"and up {factors.pct(own)} on its own"),
                           meta={"percentile": stats["percentile"],
+                                "strength": float(stats["value"]),
                                 "absolute_return_pct": round(own * 100, 2),
                                 "universe_size": stats["count"]})
         return [idea] if idea else []
@@ -234,6 +236,7 @@ class FiftyTwoWeekHighStrategy(Strategy):
                           reasons=reasons,
                           headline=f"At {nearness:.0f}% of its 52-week high",
                           meta={"nearness_pct": round(nearness, 2),
+                                "strength": float(nearness),
                                 "week_52_high": round(high, 2),
                                 "realized_vol_pct": vol})
         return [idea] if idea else []
@@ -311,7 +314,8 @@ class PEADStrategy(Strategy):
              "A price-and-volume stand-in for an earnings surprise: the cause of "
              "the jump is not known to this rule"],
             headline=f"Up {jump:.1f}% on {multiple:.1f}x volume",
-            meta={"volume_multiple": round(multiple, 2), "jump_pct": round(jump, 2)})
+            meta={"volume_multiple": round(multiple, 2), "jump_pct": round(jump, 2),
+                  "strength": float(jump)})
 
 
 class QMJStrategy(Strategy):
@@ -343,7 +347,7 @@ class QMJStrategy(Strategy):
             [f"Price is {stretch:.1f}% above its {bars}-day average",
              "A trend measure standing in for quality: no fundamentals are read"],
             headline=f"{stretch:.1f}% above its {bars}-day average",
-            meta={"stretch_pct": round(stretch, 2)})
+            meta={"stretch_pct": round(stretch, 2), "strength": float(stretch)})
 
 
 class MacroRegimeSectorRotation(Strategy):
@@ -393,4 +397,5 @@ class Activist13DTracking(Strategy):
             [f"RSI went from {before:.0f} to {now:.0f} in one session",
              "A momentum-surge stand-in for an activist stake: no filings are read"],
             headline=f"RSI surged {before:.0f} to {now:.0f}",
-            meta={"rsi_before": round(before, 1), "rsi_now": round(now, 1)})
+            meta={"rsi_before": round(before, 1), "rsi_now": round(now, 1),
+                  "strength": float(now - before)})

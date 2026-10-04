@@ -135,6 +135,8 @@ class LowBetaStrategy(Strategy):
             headline=f"Defensive tilt — beta {beta:.2f}, still in its own uptrend",
             meta={
                 "beta": beta,
+                # Lower beta is the stronger case for a low-beta rule.
+                "strength": None if beta is None else -float(beta),
                 "realized_vol_pct": vol,
                 "volatility_rank": None if rank is None else rank["rank"],
                 "volatility_percentile": None if rank is None else rank["percentile"],

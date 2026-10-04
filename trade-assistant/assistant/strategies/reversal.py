@@ -94,6 +94,7 @@ class ShortTermReversalStrategy(Strategy):
                           headline=(f"One-month loser — worst {from_bottom:.0f}% of "
                                     f"{stats['count']}, betting on the snap back"),
                           meta={"month_return_pct": round(stats["value"] * 100, 2),
+                                "strength": -float(stats["value"]),   # the deeper the fall
                                 "percentile_from_bottom": round(from_bottom, 1),
                                 "universe_size": stats["count"]})
         return [idea] if idea else []
@@ -164,6 +165,7 @@ class LongTermReversalStrategy(Strategy):
                           reasons=reasons,
                           headline=f"Multi-year laggard — worst {from_bottom:.0f}% over three years",
                           meta={"three_year_return_pct": round(stats["value"] * 100, 2),
+                                "strength": -float(stats["value"]),
                                 "percentile_from_bottom": round(from_bottom, 1)})
         return [idea] if idea else []
 
@@ -234,6 +236,7 @@ class BandReversionStrategy(Strategy):
                           reasons=reasons,
                           headline="Oversold and stalling — fade back to the 20-day average",
                           meta={"stretch_atr": round(stretch, 2),
+                                "strength": float(stretch),           # how far below the band
                                 "mean_target": round(float(mean), 2)})
         return [idea] if idea else []
 

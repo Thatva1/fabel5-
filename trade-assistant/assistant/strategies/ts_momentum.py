@@ -117,6 +117,8 @@ class TimeSeriesMomentumStrategy(Strategy):
                       f"{months:.0f}-month return is {factors.pct(trailing)}"),
             meta={
                 "trailing_return_pct": round(trailing * 100, 2),
+                # The size of the trend the rule is following, either way.
+                "strength": abs(float(trailing)),
                 "lookback_bars": int(p["lookback_bars"]),
                 "realized_vol_pct": vol,
                 "inverse_vol_weight": weight,

@@ -48,6 +48,20 @@ DEFAULTS = {
     # live book does. Off by default because the per-strategy study wants each
     # strategy measured on its own, including on instruments another holds.
     "one_position_per_ticker": False,
+    # How candidates that the rules cannot otherwise separate are ordered.
+    #   strength — by how strongly each candidate's own rule rates it (its 12-1
+    #              return, the depth of its fall, its beta), as a percentile
+    #              among that strategy's candidates the same day; then by a
+    #              fixed, size-blind hash. The rule picks the stock.
+    #   arrival  — reward:risk, then the order instruments were listed in. The
+    #              old behaviour. Reward:risk is a fixed multiple per strategy,
+    #              so in practice the list order decided, and the list is most
+    #              liquid first: the same trades scored alphabetically moved
+    #              ts_momentum from 18.5% a year to 10.2%.
+    "tie_break": "strength",
+    # list      — strategy_priority decides which strategy claims an instrument
+    # composite — strategies.composite scores the agreement between them
+    "ranking": "list",
 }
 
 
@@ -77,29 +91,114 @@ def strategy_cap(strategy, cfg, equity):
     return equity * float(cfg["max_gross_exposure_pct"]) / 100 * float(share) / 100
 
 
-def _claims(candidates, one_per_ticker, priority):
+def neutral_order(ticker, date):
+    """A fixed order that knows nothing about the instrument.
+
+    The last tie-break. Anything derived from the instrument itself — its
+    listing order, its size, its name — carries a bias into which names get
+    held; a hash of the name and the date does not, and gives the same answer
+    every time it is asked.
+    """
+    import hashlib
+    return hashlib.md5(f"{ticker}|{date}".encode()).hexdigest()
+
+
+def strength_percentiles(items, strategy_of, strength_of):
+    """{id(item): 0..1}, each item's strength within its own strategy's items.
+
+    1.0 is the strongest signal that strategy gave that day. A percentile, not
+    the raw number, because a 40% twelve-month return and a beta of 0.6 are
+    not comparable; "the best this rule saw today" is. An item without a
+    strength sits at 0.5.
+    """
+    groups = {}
+    for item in items:
+        groups.setdefault(strategy_of(item), []).append(item)
+    out = {}
+    for group in groups.values():
+        known = sorted((i for i in group if strength_of(i) is not None), key=strength_of)
+        for rank, item in enumerate(known, start=1):
+            out[id(item)] = rank / len(known)
+        for item in group:
+            out.setdefault(id(item), 0.5)
+    return out
+
+
+def _claims(candidates, one_per_ticker, priority, tie_break="arrival"):
     """The day's candidates as groups to try in order; at most one per group opens.
 
-    Without one_position_per_ticker every candidate is its own group, best
-    reward:risk first — the original behaviour. With it, a group is everything
-    that fired on one instrument, in the order strategies may claim it, so that
-    when the first strategy has no budget left the instrument passes to the
-    next one instead of being dropped.
+    Without one_position_per_ticker every candidate is its own group. With it,
+    a group is everything that fired on one instrument, in the order strategies
+    may claim it, so that when the first strategy has no budget left the
+    instrument passes to the next one instead of being dropped.
+
+    tie_break decides the order across instruments: "strength" by each
+    candidate's own rule, "arrival" by reward:risk and then list order.
     """
-    ordered = sorted(candidates, key=lambda c: -(c.get("reward_risk") or 0))
+    last = len(priority)
+    if tie_break == "strength":
+        pct = strength_percentiles(candidates, lambda c: c.get("strategy"),
+                                   lambda c: c.get("strength"))
+        def key(c):
+            return (-pct[id(c)], priority.get(c.get("strategy"), last),
+                    neutral_order(c.get("ticker"), c.get("entry_date")))
+        def claim(c):
+            return (priority.get(c.get("strategy"), last), -pct[id(c)])
+    else:
+        def key(c):
+            return -(c.get("reward_risk") or 0)
+        def claim(c):
+            return (priority.get(c.get("strategy"), last), -(c.get("reward_risk") or 0))
+
+    ordered = sorted(candidates, key=key)
     if not one_per_ticker:
         return [[c] for c in ordered]
     groups = {}
     for candidate in ordered:
         groups.setdefault(candidate["ticker"], []).append(candidate)
-    last = len(priority)
-    return [sorted(group, key=lambda c: (priority.get(c.get("strategy"), last),
-                                         -(c.get("reward_risk") or 0)))
-            for group in groups.values()]
+    claimed = [sorted(group, key=claim) for group in groups.values()]
+    if tie_break == "strength":
+        # Instruments in the order of the strategy that claims them first.
+        claimed.sort(key=lambda group: key(group[0]))
+    return claimed
+
+
+def _composite_claims(candidates, edges, matrix, default_correlation, floor):
+    """The day's candidates grouped by instrument and ordered by agreement.
+
+    strategies.composite.combine scores the votes on each instrument; the
+    groups come out best score first, each holding the trades that point the
+    agreed way, strongest measured edge first, so a full strategy still hands
+    the instrument to the next contributor. Disagreement or a score at the
+    floor drops the instrument.
+    """
+    from ..strategies import composite
+
+    pct = strength_percentiles(candidates, lambda c: c.get("strategy"),
+                               lambda c: c.get("strength"))
+    by_ticker = {}
+    for candidate in candidates:
+        by_ticker.setdefault(candidate["ticker"], []).append(candidate)
+    scored = []
+    for ticker, group in by_ticker.items():
+        votes = {c["strategy"]: (1 if c.get("direction") == "long" else -1) for c in group}
+        verdict = composite.combine(votes, edges, matrix,
+                                    default_correlation=default_correlation)
+        if not verdict["direction"] or verdict["score"] <= floor:
+            continue
+        aligned = sorted((c for c in group if c.get("direction") == verdict["direction"]),
+                         key=lambda c: -(edges.get(c["strategy"]) or 0))
+        if not aligned:
+            continue
+        best = aligned[0]
+        scored.append(((-verdict["score"], -pct[id(best)],
+                        neutral_order(ticker, best.get("entry_date"))), aligned))
+    scored.sort(key=lambda pair: pair[0])
+    return [aligned for _, aligned in scored]
 
 
 def simulate(candidates, config, market_states=None, returns_lookup=None,
-             price_lookup=None, calendar=None):
+             price_lookup=None, calendar=None, composite_inputs=None):
     """Walk the calendar, opening and closing positions under portfolio limits.
 
     candidates: per-share trade descriptions from the engine. Each needs
@@ -122,6 +221,18 @@ def simulate(candidates, config, market_states=None, returns_lookup=None,
     from . import engine          # here, not at the top: engine imports nothing of ours
     priority = {name: rank for rank, name in
                 enumerate(engine.settings(config)["strategy_priority"])}
+    tie_break = cfg["tie_break"]
+    by_composite = cfg["ranking"] == "composite"
+    if by_composite:
+        # The composite chooses one strategy per instrument by construction.
+        one_per_ticker = True
+        from ..strategies import composite
+        edges, matrix = composite_inputs or (composite.load_edges()[0],
+                                             composite.load_correlations())
+        composite_cfg = (config or {}).get("composite") or {}
+        default_corr = float(composite_cfg.get("unknown_correlation",
+                                               composite.UNKNOWN_CORRELATION))
+        floor = float(composite_cfg.get("min_score", 0.0))
 
     by_entry = {}
     for candidate in candidates:
@@ -165,7 +276,11 @@ def simulate(candidates, config, market_states=None, returns_lookup=None,
         # 2. Open new ones, best reward:risk first — the scarce resource is
         #    exposure, so it should go to the best available setup.
         entries_today = 0
-        for claims in _claims(by_entry.get(date, []), one_per_ticker, priority):
+        today = by_entry.get(date, [])
+        groups = (_composite_claims(today, edges, matrix, default_corr, floor)
+                  if by_composite else
+                  _claims(today, one_per_ticker, priority, tie_break))
+        for claims in groups:
             for candidate in claims:
                 cap = cfg["max_new_entries_per_day"]
                 if cap is not None and entries_today >= cap:

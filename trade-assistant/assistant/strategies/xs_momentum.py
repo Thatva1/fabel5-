@@ -161,6 +161,9 @@ class CrossSectionalMomentumStrategy(Strategy):
                 "slots": top_n,
                 "momentum_percentile": stats["percentile"],
                 "momentum_return_pct": round(stats["value"] * 100, 2),
+                # How strongly the rule itself rates this name: the 12-1 return
+                # it ranked on. Breaks ties between candidates in the book.
+                "strength": float(stats["value"]),
                 "realized_vol_pct": vol,
                 # Not consumed by the per-ticker sizer; the portfolio layer can.
                 "inverse_vol_weight": factors.inverse_vol_weight(vol, p["target_vol_pct"]),

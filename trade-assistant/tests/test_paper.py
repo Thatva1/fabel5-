@@ -457,7 +457,9 @@ def test_candidate_ranking_mirrors_the_backtest_in_both_stages():
     # AAA is wanted by both strategies; BBB only by the lower-priority one.
     ideas = [Idea("AAA", "ts_momentum", 3.0), Idea("AAA", "xs_momentum", 3.0),
              Idea("BBB", "ts_momentum", 3.5), Idea("CCC", "low_beta", 2.5)]
-    ranked = session._rank_candidates(ideas, {})
+    # The across-ticker order shown here is the pre-October one ("arrival");
+    # the default now orders by signal strength — see the test below.
+    ranked = session._rank_candidates(ideas, {"portfolio": {"tie_break": "arrival"}})
 
     assert len(ranked) == 3, "one candidate per instrument"
     by_ticker = {i.ticker: i.strategy for i in ranked}
@@ -776,3 +778,35 @@ def test_with_no_share_set_the_book_chooses_exactly_as_before(book_path):
 
     assert [o["strategy"] for o in out["opened"]] == ["ts_momentum"] * 3
     assert out["skipped"]["strategy_share"] == 0
+
+
+def test_the_live_book_orders_instruments_by_signal_strength(book_path):
+    """The same order the backtest uses: across instruments, the candidate its
+    own rule rates highest goes first, whatever its reward:risk."""
+    from assistant.strategies.base import StrategyIdea
+
+    def idea(ticker, strength, reward_risk):
+        return StrategyIdea(ticker=ticker, strategy="ts_momentum",
+                            strategy_label="ts", regime="TRENDING_UP",
+                            direction="long", entry=100.0, stop=95.0, target=115.0,
+                            risk_per_share=5.0, reward_risk=reward_risk,
+                            meta={"strength": strength})
+
+    ideas = [idea("BIG_RR", 0.05, 9.0), idea("STRONG", 0.80, 3.0), idea("MID", 0.30, 3.0)]
+    ranked = session._rank_candidates(ideas, {})
+    assert [i.ticker for i in ranked] == ["STRONG", "MID", "BIG_RR"]
+
+
+
+def test_the_session_says_when_the_strategy_ranking_is_due(tmp_path):
+    """strategy_priority is ranked from measured edges and goes stale. Six
+    months on, the session says so rather than trusting an old ranking."""
+    import json as _json
+
+    fresh, old = tmp_path / "fresh.json", tmp_path / "old.json"
+    fresh.write_text(_json.dumps({"measured_at": "2026-10-04T00:00:00+00:00"}))
+    old.write_text(_json.dumps({"measured_at": "2025-01-01T00:00:00+00:00"}))
+    assert session._strategy_ranking_age_days(str(old)) > session.RERANK_AFTER_DAYS
+    assert session._strategy_ranking_age_days(str(fresh)) < \
+        session._strategy_ranking_age_days(str(old))
+    assert session._strategy_ranking_age_days(str(tmp_path / "missing.json")) is None

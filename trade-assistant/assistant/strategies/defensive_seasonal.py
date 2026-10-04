@@ -84,6 +84,7 @@ class LowVolatilityStrategy(Strategy):
                           headline=(f"Calmest {stats['percentile']:.0f}% of the "
                                     f"universe at {stats['value']:.0f}% volatility"),
                           meta={"realized_vol_pct": round(stats["value"], 2),
+                                "strength": -float(stats["value"]),   # calmer is stronger
                                 "vol_percentile": stats["percentile"],
                                 "universe_size": stats["count"]})
         return [idea] if idea else []
@@ -118,6 +119,7 @@ class TurnOfMonthStrategy(Strategy):
         if not self._near_month_end(ctx.df, int(p["days_before"])):
             return []
 
+        stats = None
         universe = ctx.cross_section
         if universe is not None and len(universe) >= int(p["min_universe"]):
             stats = universe.momentum(ctx.ticker, factors.as_of_of(ctx.df),
@@ -141,7 +143,10 @@ class TurnOfMonthStrategy(Strategy):
         idea = self.build(ctx, LONG, entry=price, stop=levels[0], target=levels[1],
                           reasons=reasons,
                           headline="Turn-of-month window",
-                          meta={"hold_bars": int(p["hold_bars"])})
+                          meta={"hold_bars": int(p["hold_bars"]),
+                                # The calendar picks the day; the 12-1 return it
+                                # filtered on is the only thing that ranks names.
+                                "strength": None if stats is None else float(stats["value"])})
         return [idea] if idea else []
 
     @staticmethod
@@ -193,6 +198,7 @@ class HalloweenStrategy(Strategy):
         if not hasattr(last, "month") or last.month not in set(p["in_months"]):
             return []
 
+        stats = None
         universe = ctx.cross_section
         if universe is not None and len(universe) >= int(p["min_universe"]):
             stats = universe.momentum(ctx.ticker, last,
@@ -214,5 +220,6 @@ class HalloweenStrategy(Strategy):
             return []
         idea = self.build(ctx, LONG, entry=price, stop=levels[0], target=levels[1],
                           reasons=reasons, headline="Inside the November-April window",
-                          meta={"month": last.month})
+                          meta={"month": last.month,
+                                "strength": None if stats is None else float(stats["value"])})
         return [idea] if idea else []

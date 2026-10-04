@@ -315,6 +315,9 @@ def backtest_ticker(ticker, df, config, benchmark_closes=None, progress_cb=None,
                 "index_symbol": market_regime.index_for(ticker, config),
                 "signal_price": idea.entry,
                 "headline": idea.headline,
+                # The rule's own rating of this candidate, so the portfolio can
+                # break ties on it rather than on the order instruments arrive.
+                "strength": (idea.meta or {}).get("strength"),
             })
             result["trades"].append(trade)
             busy_until[slot] = entry_index + trade["bars_held"]
