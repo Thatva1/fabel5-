@@ -241,6 +241,11 @@ def main():
         window = df.loc[:date] if df is not None else None
         return float(window["Close"].iloc[-1]) if window is not None and len(window) else None
 
+    # The correlation cap needs returns. Without them it passes everything,
+    # silently, which is how every study before 4 October ran with the cap off
+    # while the paper book ran with it on.
+    returns_lookup = portfolio.returns_lookup_from(frames)
+
     # ONE replay. per_strategy slots so each strategy's trades are its own.
     study_cfg = {**config,
                  "backtest": {**config["backtest"], "position_slots": "per_strategy"}}
@@ -283,7 +288,8 @@ def main():
             results[label] = {"trades": 0, "note": "no candidates"}
             return
         sim = portfolio.simulate(candidates, config, calendar=calendar,
-                                 price_lookup=price_lookup)
+                                 price_lookup=price_lookup,
+                                 returns_lookup=returns_lookup)
         wins = [t for t in sim["trades"] if (t.get("pnl_base") or 0) > 0]
         results[label] = {
             **sim["metrics"],
@@ -317,7 +323,7 @@ def main():
             try:
                 split = runner.validate_out_of_sample(
                     subset, config, split_date, calendar=calendar,
-                    price_lookup=price_lookup)
+                    price_lookup=price_lookup, returns_lookup=returns_lookup)
                 # develop / validate, not in_sample / out_sample. Reading the
                 # wrong keys silently produced a table of None next to a column
                 # of confident verdicts — the analysis had run correctly and

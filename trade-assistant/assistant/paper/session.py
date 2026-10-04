@@ -690,56 +690,16 @@ def _already_exposed(book, ticker):
 
 
 def _interleave_segments(ideas):
-    """Offer the slots to each asset class in turn, best of each first.
+    """Offer the slots to each asset class, and each equity venue, in turn.
 
-    Reward:risk is 3.0, 3.0 and 2.5 by construction here — every strategy
-    targets a fixed multiple of its own stop — so sorting on it decides almost
-    nothing and the real tie-break is the order instruments arrive. That order
-    is the universe list, which puts 1,482 shares ahead of 46 macro
-    instruments, and with twelve slots the currencies and futures were never
-    reached: a session produced 1,711 candidates across every segment and
-    opened nine US equities.
-
-    Round-robin fixes the arrival bias without inventing a quality score the
-    signals cannot support. Each segment presents its best candidate, then its
-    second, and so on. A segment with nothing to offer simply drops out, so
-    this never forces a trade to fill a quota — it only stops one segment
-    taking every slot because it happened to be listed first.
+    Reward:risk is a fixed multiple per strategy, so sorting on it decided
+    nothing and the real tie-break was the order instruments arrived — 1,482
+    shares ahead of 46 macro instruments, and US names ahead of London ones. A
+    session once produced 1,711 candidates across every segment and opened nine
+    US equities. Round-robin fixes that without inventing a quality score, and
+    it lives in backtest/portfolio.py so the backtest applies the same rule.
     """
-    from ..markets import asset_class_of
-
-    def bucket_key(ticker):
-        """Asset class, and for equities the VENUE as well.
-
-        The same arrival-order bias this function was written to fix repeats one
-        level down. Every listed share — 1,000+ US names and 40 London ones —
-        landed in a single "equity" bucket, and the London names sort below the
-        US names on liquidity, so no UK line ever reached a slot: the book ran
-        45 US equities and zero UK while holding UK names in its universe the
-        whole time.
-
-        Splitting by venue applies the existing argument where it still bites.
-        It forces no trade and fills no quota — a venue with nothing to offer
-        drops out — it only stops one venue taking every slot because it
-        happened to be listed first.
-        """
-        asset_class = asset_class_of(ticker)
-        if asset_class != "equity":
-            return asset_class
-        from ..core.market_clock import venue_for
-        return f"equity:{venue_for(ticker)}"
-
-    buckets = {}
-    for idea in ideas:
-        buckets.setdefault(bucket_key(idea.ticker), []).append(idea)
-    order = sorted(buckets, key=lambda k: -(buckets[k][0].reward_risk or 0))
-
-    out = []
-    while any(buckets[k] for k in order):
-        for key in order:
-            if buckets[key]:
-                out.append(buckets[key].pop(0))
-    return out
+    return portfolio_limits.interleave_segments(ideas, lambda idea: idea.ticker)
 
 
 def _load_kelly_edges():
@@ -1063,24 +1023,12 @@ def _hand_the_calendar_to_the_session(config):
     of a new month? The session decides by looking at the book: has a month
     turned since I last ran? Left alone, the session declares a rebalance day
     and every strategy then refuses, because today is the 9th and the last bar
-    is a Friday in the middle of the month. Nothing would ever trade.
-
-    The strategy's internal calendar exists for the BACKTEST, where nothing else
-    schedules and each bar must decide for itself. In live paper trading the
-    session is the scheduler, so it takes the decision and the strategies
-    evaluate their signal as of today. The signal itself — the 12-1 rank, the
-    trailing year, the beta — is untouched; only the question "am I allowed to
-    act today" moves to the caller that actually knows.
+    is a Friday in the middle of the month. Nothing would ever trade. So the
+    session takes the decision; registry.with_calendar_opened does it, and the
+    backtest uses the same function to replay this book.
     """
     from ..strategies import registry
-
-    blocks = dict((config.get("strategies") or {}))
-    for strategy in registry.all_strategies():
-        block = dict(blocks.get(strategy.name) or {})
-        if "rebalance" in strategy.defaults:
-            block["rebalance"] = "any"
-            blocks[strategy.name] = block
-    return {**config, "strategies": blocks}
+    return registry.with_calendar_opened(config)
 
 
 REBALANCE_SCHEDULES = ("monthly", "weekly", "daily", "half_day")

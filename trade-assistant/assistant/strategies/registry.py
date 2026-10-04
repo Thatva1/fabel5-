@@ -89,6 +89,25 @@ def directions_for(strategy, config):
     return ("long", "short")
 
 
+def with_calendar_opened(config):
+    """Config with every strategy's own rebalance gate opened.
+
+    A strategy's internal calendar ("act on the first bar of a month") exists
+    for a replay in which nothing else schedules it. The live paper book is
+    scheduled by its session instead (paper.rebalance_every), and every
+    strategy evaluates its signal whenever the session runs. The backtest uses
+    this too when backtest.strategy_calendar is "session", so that it replays
+    the book the paper trader actually runs. The signal itself — the 12-1 rank,
+    the trailing year, the beta — is untouched; only "am I allowed to act
+    today" moves to the caller that knows.
+    """
+    blocks = dict(((config or {}).get("strategies") or {}))
+    for strategy in all_strategies():
+        if "rebalance" in strategy.defaults:
+            blocks[strategy.name] = {**(blocks.get(strategy.name) or {}), "rebalance": "any"}
+    return {**(config or {}), "strategies": blocks}
+
+
 def strategies_for_regime(regime, config):
     return [s for s in enabled_strategies(config) if regime in regimes_for(s, config)]
 

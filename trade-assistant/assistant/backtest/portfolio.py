@@ -62,7 +62,22 @@ DEFAULTS = {
     # list      — strategy_priority decides which strategy claims an instrument
     # composite — strategies.composite scores the agreement between them
     "ranking": "list",
+    # On which days new positions may open. "paper" reads the live book's own
+    # paper.rebalance_every, so the two cannot drift apart; monthly, weekly,
+    # daily and half_day may also be named directly.
+    "entry_schedule": "paper",
+    # Smallest position worth opening, % of equity. None = the live book's
+    # paper.min_position_pct. Below it a position cannot move the result but
+    # still pays commission and takes a slot.
+    "min_position_pct": None,
+    # Refuse an instrument whose exposure the book already holds under another
+    # name (spot sterling and the sterling future), as the live book does.
+    "duplicate_exposure": True,
 }
+
+# The live book's floor when paper.min_position_pct is not set. Must equal
+# paper/session.py DEFAULTS["min_position_pct"]; a test holds them together.
+PAPER_MIN_POSITION_PCT = 0.5
 
 
 def settings(config):
@@ -74,7 +89,133 @@ def settings(config):
         cfg["risk_per_trade_pct"] = account.get("risk_per_trade_pct", 1.0)
     if cfg["max_position_pct"] is None:
         cfg["max_position_pct"] = account.get("max_position_pct", 15.0)
+    paper = (config or {}).get("paper") or {}
+    if cfg["min_position_pct"] is None:
+        cfg["min_position_pct"] = float(paper.get("min_position_pct", PAPER_MIN_POSITION_PCT))
+    if cfg["entry_schedule"] == "paper":
+        # A config with no live book has no schedule to copy: every day.
+        cfg["entry_schedule"] = str(paper.get("rebalance_every") or "daily").lower()
     return cfg
+
+
+class ReturnsMatrix:
+    """Daily returns for a whole universe on one date grid, for the correlation cap.
+
+    The cap compares every candidate with every open position over the last
+    sixty trading days. Done pair by pair with a pandas join, a six-month
+    backtest did not finish in half an hour: tens of thousands of candidates
+    against up to 120 positions. This holds the returns as one array and
+    answers each candidate in a single vectorised pass, with the same rule —
+    the last `window` trading days up to the entry date, compared only on days
+    both traded, at least 20 of them, correlation at or above the threshold.
+
+    Callable as a returns lookup too, so anything expecting fn(ticker) -> Series
+    still works.
+    """
+
+    def __init__(self, frames):
+        import numpy as np
+        import pandas as pd
+
+        columns = {}
+        for ticker, df in (frames or {}).items():
+            series = df["Close"].pct_change().dropna()
+            series.index = [str(d)[:10] for d in series.index]
+            columns[ticker] = series[~series.index.duplicated(keep="last")]
+        table = pd.DataFrame(columns).sort_index()
+        self.dates = list(table.index)
+        self.columns = {t: j for j, t in enumerate(table.columns)}
+        self.values = table.to_numpy(dtype=float)
+        self._np = np
+
+    def __call__(self, ticker):
+        import pandas as pd
+        j = self.columns.get(ticker)
+        if j is None:
+            return None
+        return pd.Series(self.values[:, j], index=self.dates).dropna()
+
+    def too_correlated(self, ticker, date, others, threshold, window):
+        np = self._np
+        j = self.columns.get(ticker)
+        cols = [self.columns[o] for o in others if o in self.columns]
+        if j is None or not cols:
+            return False
+        import bisect
+        end = bisect.bisect_right(self.dates, str(date)[:10])
+        # The candidate's own last `window` trading days, as the live rule takes.
+        mine = self.values[:end, j]
+        rows = np.flatnonzero(~np.isnan(mine))[-int(window):]
+        if len(rows) < 20:
+            return False
+        y = mine[rows][:, None]
+        x = self.values[rows][:, cols]
+        both = ~np.isnan(x)
+        n = both.sum(axis=0)
+        ys, xs = np.where(both, y, 0.0), np.where(both, x, 0.0)
+        sy, sx = ys.sum(axis=0), xs.sum(axis=0)
+        syy, sxx, sxy = (ys * ys).sum(axis=0), (xs * xs).sum(axis=0), (xs * ys).sum(axis=0)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            corr = (n * sxy - sx * sy) / np.sqrt((n * syy - sy * sy) * (n * sxx - sx * sx))
+        corr = np.where(n >= 20, corr, np.nan)
+        return bool(np.nanmax(corr, initial=-1.0) >= threshold)
+
+
+def returns_lookup_from(frames):
+    """Returns for the correlation cap, built from the same closes the paper
+    session uses. A ReturnsMatrix, so a backtest can afford the check."""
+    return ReturnsMatrix(frames)
+
+
+def entry_days(dates, schedule):
+    """The dates on which new positions may open, or None for every day.
+
+    The live book opens positions only when a rebalance is due. Daily bars are
+    the backtest's finest unit, so `half_day` and `daily` both mean every
+    trading day; `weekly` and `monthly` mean the first trading day of each.
+    """
+    if schedule in ("daily", "half_day", "any"):
+        return None
+    seen, allowed = set(), set()
+    for date in dates:
+        if schedule == "weekly":
+            from datetime import date as _date
+            year, week, _ = _date.fromisoformat(date[:10]).isocalendar()
+            window = (year, week)
+        else:
+            window = date[:7]
+        if window not in seen:
+            seen.add(window)
+            allowed.add(date)
+    return allowed
+
+
+def interleave_segments(items, ticker_of):
+    """Offer the slots to each asset class — and each equity venue — in turn.
+
+    The live book's rule, shared so the backtest applies it too. The order
+    within a segment is kept; segments take turns in the order their best item
+    appears. A segment with nothing to offer drops out, so this never forces a
+    trade to fill a quota; it only stops one segment taking every slot because
+    it happened to be listed first.
+    """
+    from ..core.market_clock import venue_for
+    from ..markets import asset_class_of
+
+    def bucket_key(ticker):
+        asset_class = asset_class_of(ticker)
+        return asset_class if asset_class != "equity" else f"equity:{venue_for(ticker)}"
+
+    buckets = {}
+    for item in items:
+        buckets.setdefault(bucket_key(ticker_of(item)), []).append(item)
+    order = list(buckets)
+    out = []
+    while any(buckets[k] for k in order):
+        for key in order:
+            if buckets[key]:
+                out.append(buckets[key].pop(0))
+    return out
 
 
 def strategy_cap(strategy, cfg, equity):
@@ -160,7 +301,8 @@ def _claims(candidates, one_per_ticker, priority, tie_break="arrival"):
     if tie_break == "strength":
         # Instruments in the order of the strategy that claims them first.
         claimed.sort(key=lambda group: key(group[0]))
-    return claimed
+    # Then the segments take turns, as the live book's ranking does.
+    return interleave_segments(claimed, lambda group: group[0]["ticker"])
 
 
 def _composite_claims(candidates, edges, matrix, default_correlation, floor):
@@ -237,6 +379,8 @@ def simulate(candidates, config, market_states=None, returns_lookup=None,
     by_entry = {}
     for candidate in candidates:
         by_entry.setdefault(candidate["entry_date"], []).append(candidate)
+    per_market_cap = cfg["max_positions_per_market"]
+    from ..markets import exposure_group
 
     # The date axis. A full trading calendar when one is supplied, so open
     # positions can be marked to market every day; otherwise only event days,
@@ -251,13 +395,15 @@ def simulate(candidates, config, market_states=None, returns_lookup=None,
                 "metrics": metrics.summarise_curve([start_equity])}
     dates = ([d for d in calendar if event_dates[0] <= d <= event_dates[-1]]
              if calendar else event_dates)
+    allowed_entry = entry_days(dates, cfg["entry_schedule"])
 
     cash = equity
     open_positions = []
     taken, skipped = [], {"exposure": 0, "max_positions": 0, "per_market": 0,
                           "risk_off": 0, "correlation": 0, "daily_cap": 0,
                           "size_too_small": 0, "strategy_share": 0,
-                          "ticker_held": 0}
+                          "ticker_held": 0, "not_a_rebalance_day": 0,
+                          "duplicate_exposure": 0}
     curve, curve_dates = [], []
 
     for date in dates:
@@ -277,6 +423,9 @@ def simulate(candidates, config, market_states=None, returns_lookup=None,
         #    exposure, so it should go to the best available setup.
         entries_today = 0
         today = by_entry.get(date, [])
+        if allowed_entry is not None and date not in allowed_entry:
+            skipped["not_a_rebalance_day"] += len(today)
+            today = []
         groups = (_composite_claims(today, edges, matrix, default_corr, floor)
                   if by_composite else
                   _claims(today, one_per_ticker, priority, tie_break))
@@ -295,10 +444,26 @@ def simulate(candidates, config, market_states=None, returns_lookup=None,
                     continue
 
                 market = candidate.get("market")
-                if sum(1 for p in open_positions if p.get("market") == market) \
-                        >= cfg["max_positions_per_market"]:
+                if per_market_cap is not None and sum(
+                        1 for p in open_positions if p.get("market") == market) \
+                        >= per_market_cap:
                     skipped["per_market"] += 1
                     continue
+
+                # The checks below run in the live book's order: a full book
+                # first (cheap), then the same exposure under another name,
+                # then correlation (the expensive one).
+                base_equity = equity if cfg["compound"] else start_equity
+                if sum(p["value_base"] for p in open_positions) \
+                        >= base_equity * cfg["max_gross_exposure_pct"] / 100:
+                    skipped["exposure"] += 1
+                    continue
+                if cfg["duplicate_exposure"]:
+                    group = exposure_group(candidate["ticker"])
+                    if group is not None and any(
+                            exposure_group(p["ticker"]) == group for p in open_positions):
+                        skipped["duplicate_exposure"] += 1
+                        continue
 
                 multiplier = _market_multiplier(candidate, market_states, config)
                 if multiplier <= 0:
@@ -309,13 +474,15 @@ def simulate(candidates, config, market_states=None, returns_lookup=None,
                     skipped["correlation"] += 1
                     continue
 
-                base_equity = equity if cfg["compound"] else start_equity
                 shares = _size(candidate, base_equity, cfg, multiplier)
                 if shares < 1:
                     skipped["size_too_small"] += 1
                     continue
 
                 value_base = shares * candidate["entry_price"] * candidate["fx_in"]
+                if value_base < base_equity * float(cfg["min_position_pct"]) / 100:
+                    skipped["size_too_small"] += 1
+                    continue
                 current = sum(p["value_base"] for p in open_positions)
                 if current + value_base > base_equity * cfg["max_gross_exposure_pct"] / 100:
                     skipped["exposure"] += 1
@@ -475,6 +642,11 @@ def _too_correlated(candidate, open_positions, cfg, returns_lookup):
     threshold = cfg.get("correlation_threshold")
     if not threshold or not returns_lookup or not open_positions:
         return False
+    if hasattr(returns_lookup, "too_correlated"):
+        return returns_lookup.too_correlated(
+            candidate["ticker"], candidate["entry_date"],
+            [p["ticker"] for p in open_positions], threshold,
+            int(cfg["correlation_lookback"]))
     try:
         mine = returns_lookup(candidate["ticker"])
         if mine is None:

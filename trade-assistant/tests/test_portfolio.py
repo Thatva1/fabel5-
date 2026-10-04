@@ -323,3 +323,98 @@ def test_one_position_per_instrument_goes_to_the_higher_priority_strategy():
     assert [(t["ticker"], t["strategy"]) for t in trades] == [("Z", "low_beta")]
     # Without the switch both open, which is what the per-strategy study needs.
     assert len(portfolio.simulate(both, CONFIG)["trades"]) == 2
+
+
+# --- the backtest applies the paper book's rules --------------------------------
+
+def test_the_shipped_config_backtests_the_book_the_paper_trader_runs():
+    """Settings that exist twice must say the same thing twice. Each of these
+    once differed, and every backtest figure described a book that did not
+    exist: 25 positions per market against none, the correlation cap off
+    against on, each rule's own calendar against the session's."""
+    from assistant.backtest import engine
+    from assistant.core.config import load_config
+    from assistant.paper import session
+
+    config = load_config()
+    book = portfolio.settings(config)
+    replay = engine.settings(config)
+    paper = session.settings(config)
+
+    assert book["max_positions_per_market"] is None
+    assert book["one_position_per_ticker"] is True
+    assert book["entry_schedule"] == str(config["paper"]["rebalance_every"]).lower()
+    assert book["min_position_pct"] == paper["min_position_pct"]
+    assert replay["strategy_calendar"] == "session"
+    assert replay["max_holding_bars"] == paper["max_holding_bars"]
+    assert config["backtest"]["costs"]["slippage_bps"] == paper["slippage_bps"]
+    assert portfolio.PAPER_MIN_POSITION_PCT == session.DEFAULTS["min_position_pct"]
+
+
+def test_new_positions_open_only_when_the_book_would_rebalance():
+    monthly = {**CONFIG, "paper": {"rebalance_every": "monthly"}}
+    early = _candidate(ticker="A", entry="2024-01-02", exit_="2024-01-20")
+    mid = _candidate(ticker="B", entry="2024-01-15", exit_="2024-01-25")
+    out = portfolio.simulate([early, mid], monthly,
+                             calendar=["2024-01-02", "2024-01-15", "2024-01-20", "2024-01-25"])
+    assert [t["ticker"] for t in out["trades"]] == ["A"]
+    assert out["skipped"]["not_a_rebalance_day"] == 1
+
+
+def test_a_half_day_book_may_open_on_any_trading_day():
+    assert portfolio.entry_days(["2024-01-02", "2024-01-15"], "half_day") is None
+
+
+def test_the_same_exposure_is_not_held_twice_under_two_names():
+    """Spot sterling and the sterling future are one bet, and correlation does
+    not reliably say so: the two close on different boundaries."""
+    spot = _candidate(ticker="GBPUSD=X", entry="2024-01-02", exit_="2024-02-01")
+    future = _candidate(ticker="6B=F", entry="2024-01-03", exit_="2024-02-01")
+    out = portfolio.simulate([spot, future], CONFIG)
+    assert [t["ticker"] for t in out["trades"]] == ["GBPUSD=X"]
+    assert out["skipped"]["duplicate_exposure"] == 1
+
+
+def test_a_token_position_is_not_opened():
+    """The paper book refuses a position below 0.5% of equity; so does this."""
+    sliver = _candidate(ticker="A", entry_price=100.0, stop=40.0)   # risk sizes it to 16 shares
+    out = portfolio.simulate([sliver], {**CONFIG, "portfolio": {**CONFIG["portfolio"],
+                                                                "min_position_pct": 5.0}})
+    assert out["trades"] == [] and out["skipped"]["size_too_small"] == 1
+
+
+def test_no_per_market_cap_means_no_per_market_cap():
+    many = [_candidate(ticker=f"S{i}", market="US") for i in range(6)]
+    config = {**CONFIG, "portfolio": {**CONFIG["portfolio"], "max_open_positions": 20,
+                                      "max_gross_exposure_pct": 100.0,
+                                      "max_positions_per_market": None}}
+    assert len(portfolio.simulate(many, config)["trades"]) == 6
+
+
+def test_the_fast_correlation_check_agrees_with_the_paper_books():
+    """The backtest computes the cap on one array; the paper session pairs two
+    series at a time. Same rule, so the same answers."""
+    import numpy as np
+
+    rng = np.random.default_rng(4)
+    index = pd.bdate_range("2024-01-01", periods=120)
+    base = rng.normal(0, 0.01, 120)
+    frames = {}
+    for name, mix in (("A", 0.0), ("TWIN", 0.05), ("NOISE", 1.0), ("HALF", 0.6)):
+        r = (1 - mix) * base + mix * rng.normal(0, 0.01, 120)
+        frames[name] = pd.DataFrame({"Close": 100 * np.cumprod(1 + r)}, index=index)
+    frames["SHORT"] = frames["NOISE"].iloc[-15:]          # too little history to judge
+    matrix = portfolio.returns_lookup_from(frames)
+    pairwise = {t: matrix(t) for t in frames}
+
+    cfg = {"correlation_threshold": 0.8, "correlation_lookback": 60}
+    date = str(index[-1])[:10]
+    for others in (["TWIN"], ["NOISE"], ["HALF"], ["SHORT"], ["NOISE", "TWIN"]):
+        open_positions = [{"ticker": o} for o in others]
+        candidate = {"ticker": "A", "entry_date": date}
+        fast = portfolio._too_correlated(candidate, open_positions, cfg, matrix)
+        slow = portfolio._too_correlated(candidate, open_positions, cfg, pairwise.get)
+        assert fast == slow, others
+    assert portfolio._too_correlated({"ticker": "A", "entry_date": date},
+                                     [{"ticker": "TWIN"}], cfg, matrix) is True
+

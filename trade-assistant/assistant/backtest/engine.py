@@ -63,6 +63,13 @@ DEFAULTS = {
     # with a stop a few pence away — which is what manufactures phantom 30R
     # winners out of a collapsed denominator.
     "min_risk_fraction": 0.5,
+    # Whose calendar decides when a strategy may act.
+    #   session  — the live paper book's: every strategy evaluates its signal
+    #              whenever the book rebalances (paper.rebalance_every). This
+    #              replays the book the paper trader actually runs.
+    #   strategy — each strategy's own rebalance setting (monthly, weekly):
+    #              the rule as published. Use it to study a rule, not the book.
+    "strategy_calendar": "strategy",
     # Exit management. "fixed" takes the plan's target; "trailing" replaces it
     # with an ATR stop that follows price, to test whether winners are capped.
     "exit_style": "fixed",
@@ -198,6 +205,9 @@ def backtest_ticker(ticker, df, config, benchmark_closes=None, progress_cb=None,
     price slice below gives, enforced the same way.
     """
     cfg = settings(config)
+    if cfg["strategy_calendar"] == "session":
+        from ..strategies import registry
+        config = registry.with_calendar_opened(config)
     costs = simulator.cost_config_for(ticker, config)
     scan_cfg = config.get("scanner", {}) or {}
 

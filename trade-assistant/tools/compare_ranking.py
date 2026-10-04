@@ -2,9 +2,9 @@
 
     python tools/compare_ranking.py reports/FULL-STUDY-OCT04-candidates.json
 
-Four ways of turning the same candidates into one book, all under the live
-book's limits (1% positions, up to 120, 90% invested, 25% per strategy, one
-position per instrument, no per-market cap — the live session applies none):
+Four ways of turning the same candidates into one book, all under the paper
+book's own limits, read from config.yaml (which the backtest has applied the
+same way as the paper book since 4 October):
 
   before    strategy_priority as it stood on 2 October (ts_momentum last),
             ties broken by reward:risk and then list order
@@ -103,8 +103,8 @@ def main(path):
         os.path.join(ROOT, "reports", "STRATEGY-CORRELATION-EUROPE-LIBRARY.csv"))
     shipped = (composite.load_edges()[0], composite.load_correlations())
 
-    live_book = {**config["portfolio"], "one_position_per_ticker": True,
-                 "max_strategy_share_pct": 25, "max_positions_per_market": 120}
+    live_book = dict(config["portfolio"])
+    returns_lookup = portfolio.returns_lookup_from(frames)
     variants = [
         ("before (2 Oct)", {"strategy_priority": BEFORE_PRIORITY},
          {"tie_break": "arrival"}, None),
@@ -123,7 +123,8 @@ def main(path):
             for label, top, knobs, inputs in variants:
                 cfg = {**config, **top, "portfolio": {**live_book, **knobs}}
                 sim = portfolio.simulate(subset, cfg, calendar=calendar,
-                                         price_lookup=price_lookup, composite_inputs=inputs)
+                                         price_lookup=price_lookup, composite_inputs=inputs,
+                                         returns_lookup=returns_lookup)
                 m = sim["metrics"]
                 held = {}
                 for trade in sim["trades"]:

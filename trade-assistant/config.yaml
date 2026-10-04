@@ -763,6 +763,13 @@ backtest:
   # signal_close = enter at the signal bar's close (optimistic; for comparison only)
   entry_timing: next_open
   one_position_per_ticker: true
+  # session  = every strategy acts whenever the paper book rebalances, as it
+  #            does live (paper.rebalance_every; the session opens each
+  #            strategy's own calendar). A backtest then describes the book the
+  #            paper trader actually runs.
+  # strategy = each rule's own calendar (monthly, weekly), the rule as
+  #            published. Use it to study a rule, not to predict the book.
+  strategy_calendar: session
   costs:
     commission_per_trade: 6.0   # per side, your broker's flat fee
     slippage_bps: 5.0           # 0.05% against you on entry AND exit
@@ -785,7 +792,20 @@ backtest:
       '.AX':  {commission_per_trade: 6.0}    # Sydney
       '.TO':  {commission_per_trade: 1.0}    # Toronto
 
-# --- Portfolio limits (backtest) ---------------------------------------------
+# --- Portfolio limits (backtest AND the live paper book) ----------------------
+# Since 4 October 2026 the backtest applies these exactly as the paper book
+# does, in the same order: one position per instrument, the strategy share
+# cap, a full book refused before anything else is checked, the same exposure
+# under two names refused, the correlation cap, the 0.5% smallest position
+# (paper.min_position_pct), and new positions only when the book would
+# rebalance (paper.rebalance_every). The checks live in backtest/portfolio.py
+# and the paper session calls the same functions, so they cannot drift apart.
+#
+# ONE DELIBERATE DIFFERENCE. The paper book fills a new position at the close
+# of the bar its signal came from; the backtest fills at the next bar's open
+# (backtest.entry_timing). The paper fill is the optimistic one — nobody can
+# trade at a close they only learn once it has printed — so the backtest does
+# not copy it. If anything should change, it is the paper book.
 # Without these the backtest sizes every instrument against the whole book, so
 # running 90 instruments quietly holds ~14 positions at once — about 2x leverage
 # the live risk gate would refuse. Leverage should be a decision, not an accident.
@@ -856,11 +876,21 @@ portfolio:
   # that commission is ~0.007% of a position, which is why it is affordable
   # here and would not be on a small account.
   max_position_pct: 1.0
-  # 8, measured. A cap of 4 cost 0.66 points of CAGR by blocking good trades;
-  # 2 was far worse (2.87%). Above 8 adds nothing. Correlation is the better
-  # tool for this job anyway — it measures whether positions actually move
-  # together instead of guessing from the exchange they list on.
-  max_positions_per_market: 25
+  # null = no cap, which is what the paper book applies. It was 25 here, and
+  # because every US share counts as one market, the backtest could never hold
+  # more than 25 shares at 1% each — about a quarter of the book — while the
+  # paper book ran 90% invested. Every backtest figure was a mostly-cash book
+  # that does not exist. The correlation cap does this job by measurement, and
+  # the round-robin across asset classes and venues stops one market taking
+  # every slot because it is listed first.
+  #
+  # (History: 8 was measured on the 15%-position book in August — a cap of 4
+  # cost 0.66 points of CAGR. That measurement does not carry over to 1%
+  # positions, and the live book never applied it.)
+  max_positions_per_market: null
+  # One position per instrument, claimed in strategy_priority order and passed
+  # down the list when a strategy is full — the paper book's rule.
+  one_position_per_ticker: true
   # The most of the exposure budget any ONE strategy may hold, as a percentage
   # of it (25 here = 22.5% of equity at a 90% budget). When a strategy is full,
   # an instrument it would have taken passes to the next strategy in
