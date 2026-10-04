@@ -1,0 +1,94 @@
+{
+  "settings": {
+    "compound": true,
+    "max_gross_exposure_pct": 90.0,
+    "max_open_positions": 12,
+    "max_positions_per_market": 8,
+    "max_new_entries_per_day": null,
+    "correlation_threshold": 0.8,
+    "correlation_lookback": 60
+  },
+  "note": "realised-only, no FX conversion",
+  "results": {
+    "activist_13d_tracking": {
+      "cagr_pct": 1.77,
+      "realised_dd_pct": 19.97,
+      "trades": 492
+    },
+    "band_reversion": {
+      "cagr_pct": -11.44,
+      "realised_dd_pct": 73.98,
+      "trades": 1615
+    },
+    "dual_momentum": {
+      "cagr_pct": 0.41,
+      "realised_dd_pct": 41.73,
+      "trades": 559
+    },
+    "halloween": {
+      "cagr_pct": 5.1,
+      "realised_dd_pct": 16.04,
+      "trades": 277
+    },
+    "high_52w": {
+      "cagr_pct": 1.94,
+      "realised_dd_pct": 19.86,
+      "trades": 456
+    },
+    "long_reversal": {
+      "cagr_pct": 6.23,
+      "realised_dd_pct": 20.93,
+      "trades": 352
+    },
+    "low_beta": {
+      "cagr_pct": 0.27,
+      "realised_dd_pct": 25.54,
+      "trades": 573
+    },
+    "low_volatility": {
+      "cagr_pct": -1.33,
+      "realised_dd_pct": 18.12,
+      "trades": 418
+    },
+    "macro_sector_rotation": {
+      "cagr_pct": -4.15,
+      "realised_dd_pct": 37.29,
+      "trades": 619
+    },
+    "pead_drift": {
+      "cagr_pct": 7.76,
+      "realised_dd_pct": 30.06,
+      "trades": 792
+    },
+    "qmj_factor": {
+      "cagr_pct": 2.43,
+      "realised_dd_pct": 34.72,
+      "trades": 860
+    },
+    "short_reversal": {
+      "cagr_pct": -2.44,
+      "realised_dd_pct": 33.06,
+      "trades": 568
+    },
+    "ts_momentum": {
+      "cagr_pct": 5.28,
+      "realised_dd_pct": 35.53,
+      "trades": 612
+    },
+    "turn_of_month": {
+      "cagr_pct": 0.2,
+      "realised_dd_pct": 28.43,
+      "trades": 672
+    },
+    "xs_momentum": {
+      "cagr_pct": 5.33,
+      "realised_dd_pct": 19.59,
+      "trades": 515
+    }
+  },
+  "buy_and_hold": {
+    "cagr_pct": 15.07,
+    "max_drawdown_pct": 36.94,
+    "sharpe": 0.97
+  }
+}
