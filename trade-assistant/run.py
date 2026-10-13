@@ -264,6 +264,20 @@ def _paper_reset(argv):
     os.remove(BOOK_PATH)
     print(f"Archived to {os.path.basename(archive)}")
 
+    # --void "reason": the archive is kept, but its closing equity is never
+    # carried into the next book. For a book whose figures a bug produced —
+    # carrying them forward would launder the bug into a clean track record.
+    if "--void" in argv:
+        import json
+        index = argv.index("--void")
+        reason = argv[index + 1] if index + 1 < len(argv) else "void"
+        with open(archive) as handle:
+            state = json.load(handle)
+        state["void"] = reason
+        with open(archive, "w") as handle:
+            json.dump(state, handle, indent=1)
+        print(f"Marked void: {reason}")
+
     # The closed-trade ledger belongs to the book it was written by. Left in
     # place, the new book's journal and every performance figure would open
     # with the old book's trades already in them — which defeats the reset, and

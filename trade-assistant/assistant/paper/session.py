@@ -117,7 +117,9 @@ def _load_history_cache(symbols, period, max_age_hours):
 #
 #   1 — IB volume left in ROUND LOTS and LSE prices left in pence.
 #   2 — both corrected at the provider by `normalise_bars`.
-HISTORY_CACHE_UNITS = 2
+#   3 — yfinance batch frames for LSE lines corrected from pence to pounds in
+#       `bulk` (before this a yfinance cache held London in pence).
+HISTORY_CACHE_UNITS = 3
 
 
 def _in_current_units(payload):
@@ -131,11 +133,17 @@ def _in_current_units(payload):
     different sign.
     """
     frames = payload.get("frames") or {}
-    if int(payload.get("units") or 1) >= HISTORY_CACHE_UNITS:
+    units = int(payload.get("units") or 1)
+    if units >= HISTORY_CACHE_UNITS:
         return frames
+    from ..providers import bulk
     from ..providers.ibkr_provider import IBKRDataProvider
     if (payload.get("price_source") or "").lower() != "ibkr":
-        return frames        # yfinance already delivers shares and pounds
+        # yfinance volume was always shares; only London prices were in pence.
+        return {ticker: bulk._in_major_units(ticker, frame)
+                for ticker, frame in frames.items()}
+    if units >= 2:
+        return frames        # IB frames were already corrected at version 2
     return {ticker: IBKRDataProvider.normalise_bars(ticker, frame)
             for ticker, frame in frames.items()}
 
@@ -225,6 +233,8 @@ def _carried_equity(config, book_path=None):
         try:
             with open(path) as handle:
                 state = jsonlib.load(handle)
+            if state.get("void"):
+                continue    # its closing figure was produced by a known bug
             previous = Book(state)
             equity = previous.equity()
             if equity and equity > 0:
@@ -383,6 +393,16 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
     report_stage("screening the universe")
     universe, screen_report, cached = screen.tradable_universe(
         config, router, force_refresh=force_refresh)
+
+    # One cash balance, one currency. A share listed in another currency would
+    # have its price subtracted from this balance as though it were this one:
+    # London lines in the USD book were committing pounds as dollars.
+    universe, foreign = split_by_currency(universe, trading_currency(config))
+    if foreign:
+        out["notes"].append(
+            f"{len(foreign)} instruments left out because they are not priced in "
+            f"{trading_currency(config)} (e.g. {', '.join(sorted(foreign)[:5])}). "
+            "This book holds one currency; they need a book of their own.")
 
     # Drop what the LICENSED feed cannot price, before anything is ranked.
     # Filtering here rather than at fetch time is the whole point: an
@@ -1152,6 +1172,33 @@ def trading_currency(config):
                 "restrict the universe to one market — a single balance cannot "
                 "hold two currencies without silently adding them together.")
     return "USD"
+
+
+def listing_currency(symbol):
+    """The currency a share's suffix implies, or None when the suffix says nothing.
+
+    Unsuffixed symbols are US listings. FX pairs and futures carry no listing
+    suffix and are left to the caller (None), as are suffixes this project does
+    not map to an exchange.
+    """
+    from ..providers.ibkr_provider import IBKRDataProvider
+
+    text = str(symbol or "").upper()
+    if text.endswith("=X") or text.endswith("=F") or text.startswith("^"):
+        return None
+    for suffix, (_exchange, currency) in IBKRDataProvider.EXCHANGE_SUFFIX.items():
+        if text.endswith(suffix):
+            return currency
+    return "USD" if "." not in text else None
+
+
+def split_by_currency(symbols, currency):
+    """(kept, foreign): shares listed in another currency are moved out."""
+    kept, foreign = [], []
+    for symbol in symbols:
+        listed = listing_currency(symbol)
+        (foreign if listed and listed != currency else kept).append(symbol)
+    return kept, foreign
 
 
 def _rates_both_ways(router, account_ccy, currency):

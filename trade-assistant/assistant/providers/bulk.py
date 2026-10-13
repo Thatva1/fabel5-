@@ -57,6 +57,34 @@ class ThrottleSuspected(Exception):
     """
 
 
+def _minor_unit_divisor(symbol):
+    """100 for a London line, else 1 — the same venue rule the IB provider uses.
+
+    Yahoo's batch endpoint quotes LSE shares in PENCE and, unlike the
+    single-ticker provider, gives no per-symbol currency to key on. Left in
+    pence, a London position opened from a pounds price (IB, or the single-ticker
+    provider) and marked from this module jumps a hundredfold overnight: on
+    2026-10-13 that closed 14 London longs "at target" in one session, about
+    $31,000 of profit that never happened.
+    """
+    from .ibkr_provider import IBKRDataProvider
+    return IBKRDataProvider.minor_unit_divisor(symbol)
+
+
+def _in_major_units(symbol, frame):
+    """An OHLC frame or close Series divided down to whole currency units."""
+    divisor = _minor_unit_divisor(symbol)
+    if divisor == 1.0:
+        return frame
+    if isinstance(frame, pd.Series):
+        return frame / divisor
+    frame = frame.copy()
+    for column in ("Open", "High", "Low", "Close", "Adj Close"):
+        if column in frame.columns:
+            frame[column] = frame[column] / divisor
+    return frame
+
+
 def _download(symbols, period, threads=True):
     import yfinance as yf
     return yf.download(list(symbols), period=period, auto_adjust=True,
@@ -96,7 +124,7 @@ def _closes_from(frame, symbols):
         if "Close" in getattr(frame, "columns", []):
             series = frame["Close"].dropna()
             if not series.empty:
-                out[only] = series
+                out[only] = _in_major_units(only, series)
         return out
 
     available = set(getattr(frame.columns, "levels", [[]])[0])
@@ -108,7 +136,7 @@ def _closes_from(frame, symbols):
         except (KeyError, IndexError):
             continue
         if not series.empty:
-            out[symbol] = series
+            out[symbol] = _in_major_units(symbol, series)
     return out
 
 
@@ -188,6 +216,7 @@ def _liquidity_from(frame, symbols):
             continue
         if close.empty or volume.empty:
             continue
+        close = _in_major_units(symbol, close)
         paired = close.to_frame("c").join(volume.to_frame("v"), how="inner").dropna()
         if paired.empty:
             continue
@@ -229,7 +258,7 @@ def ohlcv_history(symbols, period="2y", chunk=CHUNK, progress_cb=None):
                 except (KeyError, IndexError):
                     continue
                 if len(part) and {"Open", "High", "Low", "Close", "Volume"} <= set(part.columns):
-                    out[symbol] = part
+                    out[symbol] = _in_major_units(symbol, part)
         if progress_cb:
             progress_cb(min((index + 1) * chunk, len(symbols)), len(symbols), len(out))
     return out
