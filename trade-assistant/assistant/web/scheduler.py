@@ -40,6 +40,8 @@ DEFAULT_JOBS = [
      "why": "choose today's intraday working set, before the US open"},
     {"at": "13:30", "mode": "both", "why": "1h before the US open"},
     {"at": "21:10", "mode": "session", "why": "after the US close"},
+    {"at": "22:15", "mode": "learn",
+     "why": "each country's learning agent reviews the day and tests changes"},
 ]
 
 _state = {
@@ -123,30 +125,38 @@ def run_job(mode):
         # mark the book from the unlicensed fallback, which is the exact
         # failure this project spent days removing.
         from ..providers.ibkr_provider import IBKRDataProvider
-        if not IBKRDataProvider(config).is_available():
+        # Learning replays history from Yahoo and needs no broker connection.
+        if mode != "learn" and not IBKRDataProvider(config).is_available():
             return False, "IB Gateway is not reachable — nothing was run"
 
         if mode in ("session", "both"):
-            out = paper_session.run(config=config)
-            notes.append(f"session: {len(out.get('opened') or [])} opened, "
-                         f"{len(out.get('closed') or [])} closed, "
-                         f"equity {out.get('equity')}")
-            # The country books ride on the same clock, after the main book,
-            # so the main book's run is never delayed by theirs.
-            from ..paper import country_books
-            for name, report in country_books.run_all(config).items():
+            # Every version of the agent: the US first (the original book), then
+            # each country, each with its own market facts and tuning.
+            from ..agents import versions
+            for name, report in versions.run_all(config).items():
                 if report.get("error"):
-                    notes.append(f"{name} book: {report['error']}")
+                    notes.append(f"{name}: {report['error']}")
                 else:
-                    notes.append(f"{name} book: {len(report.get('opened') or [])} opened, "
+                    notes.append(f"{name}: {len(report.get('opened') or [])} opened, "
                                  f"{len(report.get('closed') or [])} closed")
+        if mode == "learn":
+            from ..agents import learner
+            for name, row in learner.learn_all(config).items():
+                if row.get("error"):
+                    notes.append(f"{name} learning: {row['error']}")
+                else:
+                    done = [p for p in row.get("proposals") or [] if p.get("result") == "applied"]
+                    notes.append(f"{name} learning: {len(row.get('proposals') or [])} proposed, "
+                                 f"{len(done)} applied")
         if mode in ("scan", "both"):
             result = pipeline.run_scan(config=config)
             notes.append(f"scan: {result.get('scanned')} instruments, "
                          f"{len(result.get('ideas') or [])} ideas")
         if mode == "intraday-prepare":
             from ..paper import intraday_runner
-            out = intraday_runner.prepare(config)
+            from ..agents import versions
+            out = intraday_runner.prepare(versions.intraday_config(
+                config, pipeline.get_router(config)))
             if out.get("error"):
                 ok = False
                 notes.append(f"intraday prepare: {out['error']}")
@@ -213,7 +223,12 @@ def run_intraday_tick(force=False):
     started = datetime.now(timezone.utc)
     ok, detail = True, ""
     try:
-        out = intraday_runner.tick(load_config(), force=force)
+        from .. import pipeline
+        from ..agents import versions
+        config = load_config()
+        # The US version's intraday share of the firm, in the engine's currency.
+        out = intraday_runner.tick(versions.intraday_config(
+            config, pipeline.get_router(config)), force=force)
         if out.get("skipped"):
             detail = "no market open"
         elif out.get("error"):

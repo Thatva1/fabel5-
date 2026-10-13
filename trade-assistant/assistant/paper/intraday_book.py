@@ -174,8 +174,11 @@ def run(config, frames, *, prev_closes=None, now=None, book_path=None,
            "notes": [], "phase": {}, "realised": 0.0, "costs": 0.0}
 
     if not book.started:
-        equity = starting_equity or (config.get("account") or {}).get(
-            "portfolio_value", 100_000)
+        # The US version's intraday share, already converted into the trading
+        # currency (agents.versions.intraday_config). The account value is the
+        # old fallback, and it is in the ACCOUNT's currency, not this book's.
+        equity = starting_equity or cfg.get("starting_equity") or (
+            config.get("account") or {}).get("portfolio_value", 100_000)
         book.start(float(equity), cfg.get("trading_currency", "USD"),
                    moment.strftime("%Y-%m-%d"))
         out["notes"].append(f"Opened an intraday book at {equity:,.0f}.")

@@ -26,8 +26,9 @@ let view = (() => {
     const saved = localStorage.getItem("ta-view");
     // "detail" is never restored: it needs an openIdeaId, which is not
     // persisted, so restoring it would land the reader on "Idea not found".
-    return (saved && saved !== "detail") ? saved : "today";
-  } catch (_) { return "today"; }
+    // "countries" was the old per-country tab; the Firm view replaced it.
+    return (saved && saved !== "detail" && saved !== "countries") ? saved : "firm";
+  } catch (_) { return "firm"; }
 })();
 
 /* A thrown error used to kill every button on the page with no visible sign —
@@ -1146,7 +1147,7 @@ function legalDialog() {
 }
 
 /* ---------- render + events ---------- */
-const TITLES = { today: "Today", watchlist: "Watchlist", ideas: "Ideas", journal: "Journal", detail: "Idea" , paper: "Book", intraday: "Intraday", options: "Options", countries: "Country books" };
+const TITLES = { today: "Today", watchlist: "Watchlist", ideas: "Ideas", journal: "Journal", detail: "Idea" , paper: "Book", intraday: "Intraday", options: "Options", firm: "Firm" };
 
 function go(v) {
   view = v;
@@ -1192,10 +1193,10 @@ function render() {
     renderOptions();
     return;
   }
-  if (view === "countries") {
-    // One book per country, each in its own currency. Shown side by side but
-    // never added together: a pound and a krona are not the same unit.
-    loadCountries();
+  if (view === "firm") {
+    // The whole firm: every version of the agent, converted to the account's
+    // currency, so one page answers "where is all the money".
+    loadFirm();
     return;
   }
   if (view === "intraday") {
@@ -2790,45 +2791,115 @@ async function showNews(ticker) {
 }
 
 
-/* ---------- country books ---------- */
+/* ---------- the firm: main agent and its country versions ---------- */
 
-async function loadCountries() {
+let firmOpen = "";   // which version's detail is expanded, kept across refreshes
+
+async function loadFirm() {
   const root = $("#viewRoot");
-  root.innerHTML = '<div class="card"><div class="label">Loading the country books…</div></div>';
+  if (!root.dataset.firm) root.innerHTML = '<div class="card"><div class="label">Loading the firm…</div></div>';
   let d;
   try {
-    d = await (await fetch("/api/books")).json();
+    d = await (await fetch("/api/firm")).json();
   } catch (e) {
-    root.innerHTML = '<div class="card"><b class="bad">Could not load the country books.</b></div>';
+    root.innerHTML = '<div class="card"><b class="bad">Could not load the firm view.</b></div>';
     return;
   }
-  const rows = d.books || [];
-  const money = (v, ccy) => v == null ? "—"
-    : `${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })} ${esc(ccy)}`;
+  if (view !== "firm") return;
+  const ccy = d.base_currency || "";
+  const money = v => v == null ? "—" : `${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
   const pct = v => v == null ? "—"
-    : `<span class="${v > 0 ? "up" : v < 0 ? "down" : ""}">${v > 0 ? "+" : ""}${v.toFixed(2)}%</span>`;
-  root.innerHTML = `<div class="card">
-      <p class="meta">A separate paper book for each country, each in its own currency
-        and running only the strategies that passed in that country's test. They are
-        never added together and never touch the main Book. Nothing here is traded.</p>
+    : `<span class="${v > 0 ? "up" : v < 0 ? "down" : ""}">${v > 0 ? "+" : ""}${Number(v).toFixed(2)}%</span>`;
+  const bars = rows => rows.length ? rows.map(r => `
+      <div style="display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr) 110px;gap:10px;align-items:center;margin:6px 0">
+        <span>${esc(r.name)}</span>
+        <span style="display:block;background:var(--line, #3334);border-radius:4px;height:10px;overflow:hidden">
+          <span style="display:block;height:100%;width:${Math.max(1, Math.round(r.share * 100))}%;background:var(--accent, #c8772b)"></span></span>
+        <span class="n">${money(r.value)} · ${(r.share * 100).toFixed(1)}%</span>
+      </div>`).join("") : '<p class="prov">Nothing invested yet.</p>';
+  const t = d.total || {};
+  const versions = d.versions || [];
+
+  const detail = r => {
+    if (r.engine !== "daily") return "";
+    const tuned = (r.tuned || []).length
+      ? `<table class="wide"><thead><tr><th>Strategy</th><th>Setting</th><th class="n">Main version</th><th class="n">This country</th></tr></thead><tbody>
+          ${r.tuned.map(x => `<tr><td>${esc(x.strategy)}</td><td>${esc(x.param)}</td><td class="n">${esc(String(x.main))}</td><td class="n"><b>${esc(String(x.value))}</b></td></tr>`).join("")}
+        </tbody></table>`
+      : '<p class="prov">No differences: this country trades exactly the main version.</p>';
+    const undone = new Set((r.changes || []).filter(c => c.undoes).map(c => c.undoes));
+    const changes = (r.changes || []).length
+      ? (r.changes || []).map(c => `<div style="border-top:1px solid var(--line, #3334);padding:8px 0">
+          <b>${esc(c.action)}</b> · ${esc(c.strategy || "")}.${esc(c.param || "")}
+          ${c.old !== undefined ? `${esc(String(c.old))} → ` : ""}${esc(String(c.new ?? ""))}
+          <span class="prov"> · ${esc(c.by || "")} · ${esc((c.at || "").slice(0, 16).replace("T", " "))}</span>
+          ${c.reason ? `<div class="prov">Why: ${esc(c.reason)}</div>` : ""}
+          ${c.evidence && c.evidence.why ? `<div class="prov">Test: ${esc(c.evidence.why)}</div>` : ""}
+          ${c.action === "applied" && !undone.has(c.id)
+            ? `<button class="btn btn-sm" data-undo="${esc(r.version)}|${esc(c.id)}">Undo this change</button>` : ""}
+        </div>`).join("")
+      : '<p class="prov">No changes proposed yet.</p>';
+    const journal = (r.journal || []).length
+      ? r.journal.map(j => `<div style="border-top:1px solid var(--line, #3334);padding:8px 0">
+          <span class="prov">${esc(j.date || "")}</span><div>${esc(j.note || "")}</div>
+          ${(j.proposals || []).map(p => `<div class="prov">Proposed ${esc(p.strategy)}.${esc(p.param)} → ${esc(String(p.value))}: <b>${esc(p.result || "")}</b>${p.why ? ` (${esc(p.why)})` : ""}</div>`).join("")}
+        </div>`).join("")
+      : '<p class="prov">The learning agent has not written anything yet. It runs after the US close on weekdays.</p>';
+    return `<tr data-detail="${esc(r.version)}" ${firmOpen === r.version ? "" : "hidden"}><td colspan="9" style="white-space:normal">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;padding:8px 0">
+          <div><div class="label">Differences from the main version</div>${tuned}</div>
+          <div><div class="label">Changes</div>${changes}</div>
+          <div><div class="label">Learning journal</div>${journal}</div>
+        </div></td></tr>`;
+  };
+
+  root.dataset.firm = "1";
+  root.innerHTML = `
+    <div class="card">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px">
+        <div><div class="label">Firm value</div><div style="font-size:26px">${money(t.equity)} ${esc(ccy)}</div></div>
+        <div><div class="label">Return on capital</div><div style="font-size:26px">${pct(d.return_pct)}</div></div>
+        <div><div class="label">Invested</div><div style="font-size:26px">${money(t.invested)}</div></div>
+        <div><div class="label">Cash</div><div style="font-size:26px">${money(t.cash)}</div></div>
+        <div><div class="label">Capital allocated</div><div style="font-size:26px">${money(t.allocated)}</div></div>
+      </div>
+      <p class="prov" style="margin-top:10px">Paper money. One main agent; each country runs a version of it, split by market size and converted to ${esc(ccy)} here.
+      ${(d.missing_fx || []).length ? ` No exchange rate today for ${esc(d.missing_fx.join(", "))}, so those versions are left out of the totals.` : ""}</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">
+      <div class="card"><div class="label">By country</div>${bars(d.by_country || [])}</div>
+      <div class="card"><div class="label">By strategy (invested)</div>${bars(d.by_strategy || [])}</div>
     </div>
     <div class="card" style="padding:0"><table class="wide"><thead><tr>
-      <th>Book</th><th>Currency</th><th class="n">Equity</th><th class="n">Return</th>
-      <th class="n">Open</th><th class="n">Waiting</th><th class="n">Closed</th>
-      <th>Strategies</th><th>Last run</th></tr></thead><tbody>
-      ${rows.map(r => `<tr>
-        <td><b>${esc(r.label)}</b>${r.enabled ? "" : ' <span class="pill">off</span>'}</td>
+      <th>Version</th><th>Currency</th><th class="n">Allocated (${esc(ccy)})</th><th class="n">Value (${esc(ccy)})</th>
+      <th class="n">Return</th><th class="n">Open</th><th class="n">Waiting</th><th class="n">Closed</th><th>Tuned</th></tr></thead><tbody>
+      ${versions.map(r => `<tr>
+        <td>${r.engine === "daily" ? `<button class="btn btn-sm" data-open="${esc(r.version)}" aria-expanded="${firmOpen === r.version}">${firmOpen === r.version ? "▾" : "▸"}</button> ` : ""}<b>${esc(r.label)}</b></td>
         <td>${esc(r.currency)}</td>
-        <td class="n">${r.started ? money(r.equity, r.currency) : '<span class="prov">not started</span>'}</td>
+        <td class="n">${money(r.allocated_base)}</td>
+        <td class="n">${r.started ? money(r.equity_base) : '<span class="prov">not started</span>'}</td>
         <td class="n">${r.started ? pct(r.return_pct) : ""}</td>
-        <td class="n">${r.started ? r.open_positions : ""}</td>
-        <td class="n">${r.started ? r.pending : ""}</td>
-        <td class="n">${r.started ? r.closed_trades : ""}</td>
-        <td>${esc((r.strategies || []).join(", "))}</td>
-        <td class="prov">${esc((r.as_of || "").slice(0, 16).replace("T", " "))}</td>
-      </tr>`).join("")}
-    </tbody></table></div>
-    <div class="card"><p class="prov">Strategy choices come from the country test
-      (reports/COUNTRY-TEST.md). Kelly sizing is off in these books until each
-      country has its own out-of-sample record.</p></div>`;
+        <td class="n">${r.started ? (r.open_positions ?? 0) : ""}</td>
+        <td class="n">${r.started ? (r.pending ?? 0) : ""}</td>
+        <td class="n">${r.started ? (r.closed_trades ?? 0) : ""}</td>
+        <td>${r.engine === "daily" ? ((r.tuned || []).length ? `${r.tuned.length} setting${r.tuned.length > 1 ? "s" : ""}` : '<span class="prov">same as main</span>') : ""}</td>
+      </tr>${detail(r)}`).join("")}
+    </tbody></table></div>`;
+
+  root.querySelectorAll("[data-open]").forEach(b => b.addEventListener("click", () => {
+    firmOpen = firmOpen === b.dataset.open ? "" : b.dataset.open;
+    loadFirm();
+  }));
+  root.querySelectorAll("[data-undo]").forEach(b => b.addEventListener("click", async () => {
+    const [name, id] = b.dataset.undo.split("|");
+    if (b.dataset.confirm !== "1") {
+      b.dataset.confirm = "1";
+      b.textContent = "Click again to undo";
+      return;
+    }
+    b.disabled = true;
+    const res = await post(`/api/agents/${encodeURIComponent(name)}/undo/${encodeURIComponent(id)}`);
+    b.textContent = res.ok ? "Undone" : (res.data.error || "Could not undo");
+    loadFirm();
+  }));
 }

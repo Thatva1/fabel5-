@@ -1079,28 +1079,57 @@ def _options(argv):
     print(f"\n{DISCLAIMER}")
 
 
-def _books(argv):
-    """The country books: run them, or show where they stand. Places nothing."""
-    from assistant.paper import country_books
+def _agents(argv):
+    """The main agent's country versions: run them, learn, undo, or show the
+    firm. Places no orders."""
+    from assistant.agents import learner, tuning, versions
+    from assistant.core.config import load_config
 
-    if "--status" in argv:
-        for row in country_books.status():
-            head = f"  {row['label']:22s} {row['currency']:4s}"
-            if not row["started"]:
-                print(f"{head} not started yet   strategies: {', '.join(row['strategies'])}")
-                continue
-            print(f"{head} {row['equity']:>14,.2f}  ({row['return_pct']:+.2f}%)  "
-                  f"{row['open_positions']} open, {row['pending']} waiting, "
-                  f"{row['closed_trades']} closed   strategies: {', '.join(row['strategies'])}")
-        return
-
+    config = load_config()
     only = None
     if "--only" in argv:
         index = argv.index("--only")
         only = set(argv[index + 1].split(",")) if index + 1 < len(argv) else None
-    print("Running the country books. Nothing is traded; no broker is involved.\n")
-    results = country_books.run_all(only=only,
-                                    progress_cb=lambda stage: print(f"  … {stage}", flush=True))
+
+    if "--status" in argv:
+        firm = versions.firm(config)
+        ccy = firm["base_currency"]
+        total = firm["total"]
+        print(f"The firm: {total['equity']:,.0f} {ccy} "
+              f"(allocated {total['allocated']:,.0f}, invested {total['invested']:,.0f}, "
+              f"cash {total['cash']:,.0f})\n")
+        for row in firm["versions"]:
+            head = f"  {row['label']:30s} {row['currency']:4s}"
+            if not row["started"]:
+                print(f"{head} not started · allocated {row['allocated_base']:,.0f} {ccy}")
+                continue
+            tuned = f" · {len(row['tuned'])} tuned" if row["tuned"] else ""
+            print(f"{head} {row.get('equity_base') or 0:>12,.0f} {ccy}  "
+                  f"({row['return_pct'] or 0:+.2f}%)  {row['open_positions']} open, "
+                  f"{row['pending']} waiting, {row['closed_trades']} closed{tuned}")
+        if firm["missing_fx"]:
+            print(f"\n  no exchange rate today for: {', '.join(firm['missing_fx'])}")
+        return
+
+    if argv and argv[0] == "learn":
+        for name, row in learner.learn_all(config, only=only).items():
+            print(f"\n{name}: {row.get('error') or row.get('note')}")
+            for proposal in row.get("proposals") or []:
+                print(f"  {proposal.get('strategy')}.{proposal.get('param')} -> "
+                      f"{proposal.get('value')}: {proposal.get('result')} ({proposal.get('why')})")
+        return
+
+    if argv and argv[0] == "undo":
+        if len(argv) < 3:
+            print("usage: python run.py agents undo <version> <change id>")
+            return
+        row = tuning.undo(argv[1], config, argv[2], by="you")
+        print(f"Undone: {row['strategy']}.{row['param']} back to {row['new']}")
+        return
+
+    print("Running every version of the agent. Nothing is traded; no broker is involved.\n")
+    results = versions.run_all(config, only=only,
+                               progress_cb=lambda stage: print(f"  … {stage}", flush=True))
     for name, report in results.items():
         if report.get("error"):
             print(f"\n{name}: FAILED — {report['error']}")
@@ -1420,8 +1449,8 @@ def main():
     elif cmd == "paper":
         _paper(args[1:])
 
-    elif cmd == "books":
-        _books(args[1:])
+    elif cmd == "agents":
+        _agents(args[1:])
 
     elif cmd == "options":
         _options(args[1:])

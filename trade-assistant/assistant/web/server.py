@@ -257,11 +257,28 @@ def _reporting_currency(book, summary, config):
     }
 
 
-@app.get("/api/books")
-def api_books():
-    """The country books, one row each. Never summed: each is its own currency."""
-    from ..paper import country_books
-    return jsonify({"books": country_books.status()})
+@app.get("/api/firm")
+def api_firm():
+    """Where all the money is: every version of the agent, in the account's
+    currency, with what each one holds, how it has been tuned and what its
+    learning agent wrote."""
+    from ..agents import versions
+    return jsonify(versions.firm())
+
+
+@app.post("/api/agents/<name>/undo/<change_id>")
+def api_agent_undo(name, change_id):
+    """Put one tuned change in one country's version back. Places no orders."""
+    from ..agents import tuning, versions
+    from ..core.config import load_config
+    config = load_config()
+    if name not in versions.specs(config):
+        return jsonify({"error": f"no version called {name}"}), 404
+    try:
+        row = tuning.undo(name, config, change_id, by="you")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"status": "undone", "change": row})
 
 
 @app.get("/api/paper")
@@ -1287,8 +1304,8 @@ def api_schedule_run():
     from . import scheduler
 
     mode = (request.get_json(silent=True) or {}).get("mode", "both")
-    if mode not in ("session", "scan", "both"):
-        return jsonify({"error": "mode must be session, scan, or both"}), 400
+    if mode not in ("session", "scan", "both", "learn"):
+        return jsonify({"error": "mode must be session, scan, both, or learn"}), 400
 
     # Started on a thread so the request returns immediately: a full session
     # can take half an hour, which no browser will wait for.
