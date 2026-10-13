@@ -68,19 +68,52 @@ def apply_slippage(price, direction, side, slippage_bps):
     return round(price * factor, 4)
 
 
+def purchase_tax_pct(ticker, costs):
+    """Percent charged on a PURCHASE of this share: UK stamp duty, and the French
+    and Italian transaction taxes (`purchase_taxes`, keyed by suffix).
+
+    The French and Italian taxes follow the company, not the exchange, so a rule
+    may name `domiciles`. A company registered elsewhere pays nothing; one the
+    universe file does not know is charged, because an unknown cost is safer
+    overstated than forgotten.
+    """
+    name = str(ticker or "").upper()
+    pct = 0.0
+    suffixes = tuple(s.upper() for s in (costs.get("stamp_duty_suffixes") or ()))
+    if suffixes and name.endswith(suffixes):
+        pct += float(costs.get("stamp_duty_pct") or 0.0)
+    for suffix, rule in (costs.get("purchase_taxes") or {}).items():
+        if not name.endswith(str(suffix).upper()):
+            continue
+        domiciles = rule.get("domiciles")
+        if domiciles:
+            from .. import markets
+            home = markets.domicile(name)
+            if home is not None and home not in domiciles:
+                continue
+        pct += float(rule.get("pct") or 0.0)
+    return pct
+
+
+def purchase_tax(ticker, direction, side, price, shares, costs):
+    """The tax on one leg: charged only on the leg that BUYS — a long's entry,
+    a short's buy-back."""
+    buying = (direction == "long" and side == "entry") or \
+             (direction == "short" and side == "exit")
+    if not buying:
+        return 0.0
+    return abs(shares) * float(price) * purchase_tax_pct(ticker, costs) / 100
+
+
 def trade_costs(ticker, direction, entry_price, exit_price, shares, costs):
     """Total round-trip cost in the instrument's currency.
 
-    Stamp duty is a UK tax on share PURCHASES. A long pays it on the way in; a
-    short pays it on the buy-back that closes the position. Either way it is
-    charged once, on the purchase leg.
+    Purchase taxes (UK stamp duty, French and Italian FTT) are charged once, on
+    the purchase leg: a long pays on the way in, a short on the buy-back.
     """
     commission = costs["commission_per_trade"] * 2      # in and out
-    duty = 0.0
-    suffixes = tuple(costs.get("stamp_duty_suffixes") or ())
-    if suffixes and str(ticker).upper().endswith(tuple(s.upper() for s in suffixes)):
-        purchase_price = entry_price if direction == "long" else exit_price
-        duty = abs(shares) * purchase_price * costs["stamp_duty_pct"] / 100
+    duty = (purchase_tax(ticker, direction, "entry", entry_price, shares, costs)
+            + purchase_tax(ticker, direction, "exit", exit_price, shares, costs))
     return round(commission + duty, 2)
 
 

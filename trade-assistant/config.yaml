@@ -793,9 +793,9 @@ strategy_priority:
 #     returned nothing for Paris, Xetra, Milan, Madrid, Amsterdam, Brussels,
 #     SIX or Stockholm. Each run's report names its feed. Buying those IBKR
 #     market-data subscriptions and setting `prices: ibkr` moves a book over.
-#   * Costs: UK stamp duty is modelled. The French (0.3%) and Italian (0.1%)
-#     transaction taxes on large companies are NOT yet, so those two books will
-#     read slightly better than they should.
+#   * Costs: UK stamp duty (0.5%) and the French (0.4%) and Italian (0.1%)
+#     transaction taxes are charged on every purchase (backtest.costs). Spain's
+#     0.2% and Belgium's stock-exchange tax are not yet.
 country_books:
   enabled: true
   universe_file: reports/universe-europe.csv
@@ -868,6 +868,18 @@ backtest:
     slippage_bps: 5.0           # 0.05% against you on entry AND exit
     stamp_duty_pct: 0.5         # UK stamp duty, charged on purchases only
     stamp_duty_suffixes: ['.L']  # exchanges where that duty applies
+    # Other taxes on share PURCHASES, charged on the buying leg like stamp duty,
+    # in the backtest and the paper books alike. They follow the company, not
+    # the exchange: a Dutch company listed in Paris (Airbus) pays nothing.
+    #   France: taxe sur les transactions financieres, 0.4% since 1 April 2025
+    #     (was 0.3%; Loi de finances 2025, art. 98), on French companies worth
+    #     over EUR 1bn. Every French name in the universe is above that.
+    #   Italy: 0.1% on-exchange, on Italian companies worth over EUR 500m;
+    #     every Italian name in the universe is above that.
+    # Not yet modelled: Spain's 0.2% and Belgium's stock-exchange tax.
+    purchase_taxes:
+      '.PA': {pct: 0.4, domiciles: [France]}
+      '.MI': {pct: 0.1, domiciles: [Italy]}
     # Costs are NOT the same everywhere. UK shares carry 0.5% stamp duty and a
     # higher flat fee; US shares carry neither. Applying one market's structure
     # globally is how a UK tax gets mistaken for a flaw in a strategy.

@@ -322,3 +322,27 @@ def leverage_warning(tickers):
             "multiplier. Returns and risk are both understated against a real "
             "futures account; treat these as price-series research, not as a "
             "futures book.")
+
+
+# Where a company is registered, for the taxes that follow the company rather
+# than the exchange: France and Italy tax purchases of FRENCH and ITALIAN
+# companies, so Airbus in Paris and Stellantis in Milan (both Dutch) pay
+# nothing. Read from the European universe file; None when the symbol is not
+# in it, and the caller decides what an unknown means.
+_DOMICILES = None
+
+
+def domicile(ticker):
+    global _DOMICILES
+    if _DOMICILES is None:
+        import csv
+        import os
+        from .core.config import PROJECT_ROOT
+        path = os.path.join(PROJECT_ROOT, "reports", "universe-europe.csv")
+        try:
+            with open(path) as handle:
+                _DOMICILES = {row["symbol"].upper(): row.get("country")
+                              for row in csv.DictReader(handle)}
+        except OSError:
+            _DOMICILES = {}
+    return _DOMICILES.get(str(ticker or "").upper())

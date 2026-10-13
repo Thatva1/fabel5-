@@ -484,7 +484,9 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
         fill = _slipped(level, position["direction"], cfg["slippage_bps"], opening=False)
         book.close_position(position, fill, today, reason)
         cost = simulator.cost_config_for(position["ticker"], config)
-        commission = cost.get("commission_per_trade", 0.0)
+        commission = cost.get("commission_per_trade", 0.0) + simulator.purchase_tax(
+            position["ticker"], position["direction"], "exit", fill,
+            position["shares"], cost)
         book.cash -= commission
         # Tracked so the day's record can separate money banked by closing
         # trades from the drift on positions still open. An equity level cannot
@@ -916,8 +918,12 @@ def _fill_pending(book, frames, config, cfg, limits, today, out):
                        - book.gross_exposure())
             shares = sizing.position_size_by_value(
                 order["risk_budget"], actual * multiplier, room, fill * multiplier)
-            commission = simulator.cost_config_for(ticker, config).get(
-                "commission_per_trade", 0.0)
+            entry_costs = simulator.cost_config_for(ticker, config)
+            # Commission plus any purchase tax on this leg (UK stamp duty,
+            # French and Italian FTT); paid from cash, like the broker would.
+            commission = entry_costs.get("commission_per_trade", 0.0)
+            commission += simulator.purchase_tax(ticker, direction, "entry", fill,
+                                                 shares, entry_costs)
             if shares < 1 or shares * fill * multiplier < \
                     equity * float(cfg["min_position_pct"]) / 100:
                 reason = "too small at the opening price"
@@ -957,9 +963,13 @@ def _fill_pending(book, frames, config, cfg, limits, today, out):
                 book.close_position(position, _slipped(level, direction, cfg["slippage_bps"],
                                                        opening=False),
                                     dates[later_index], hit)
-                book.cash -= commission
+                exit_cost = (entry_costs.get("commission_per_trade", 0.0)
+                             + simulator.purchase_tax(ticker, direction, "exit",
+                                                      position["exit_price"], shares,
+                                                      entry_costs))
+                book.cash -= exit_cost
                 out["realised_today"] += position["pnl"] or 0.0
-                out["costs_today"] += commission
+                out["costs_today"] += exit_cost
                 out["closed"].append({"ticker": ticker, "reason": hit,
                                       "pnl": position["pnl"], "r": position["r_multiple"]})
                 break
