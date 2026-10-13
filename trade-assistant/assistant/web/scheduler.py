@@ -131,6 +131,15 @@ def run_job(mode):
             notes.append(f"session: {len(out.get('opened') or [])} opened, "
                          f"{len(out.get('closed') or [])} closed, "
                          f"equity {out.get('equity')}")
+            # The country books ride on the same clock, after the main book,
+            # so the main book's run is never delayed by theirs.
+            from ..paper import country_books
+            for name, report in country_books.run_all(config).items():
+                if report.get("error"):
+                    notes.append(f"{name} book: {report['error']}")
+                else:
+                    notes.append(f"{name} book: {len(report.get('opened') or [])} opened, "
+                                 f"{len(report.get('closed') or [])} closed")
         if mode in ("scan", "both"):
             result = pipeline.run_scan(config=config)
             notes.append(f"scan: {result.get('scanned')} instruments, "

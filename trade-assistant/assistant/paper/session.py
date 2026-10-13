@@ -344,8 +344,12 @@ def _exit_reason(position, bar):
 
 
 def run(config=None, router=None, force_refresh=False, rebalance_override=None,
-        progress_cb=None, book_path=None):
-    """Run one session. Returns a report dict; the book is persisted."""
+        progress_cb=None, book_path=None, ledger_path=None):
+    """Run one session. Returns a report dict; the book is persisted.
+
+    `ledger_path` attaches the book to its own closed-trade ledger. A second
+    book left on the default ledger files its trades under the main book.
+    """
     from .. import pipeline
 
     config = config or load_config()
@@ -359,6 +363,8 @@ def run(config=None, router=None, force_refresh=False, rebalance_override=None,
             progress_cb(stage)
 
     book = Book.load(book_path) if book_path else Book.load()
+    if ledger_path:
+        book.ledger_path = ledger_path
     if not book.started:
         equity, currency, note = _opening_balance(config, router, cfg)
         # Carry the last book's closing equity into the new one, so a reset

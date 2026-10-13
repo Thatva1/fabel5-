@@ -257,6 +257,13 @@ def _reporting_currency(book, summary, config):
     }
 
 
+@app.get("/api/books")
+def api_books():
+    """The country books, one row each. Never summed: each is its own currency."""
+    from ..paper import country_books
+    return jsonify({"books": country_books.status()})
+
+
 @app.get("/api/paper")
 def api_paper():
     """The paper book: cash, open positions, and the session log.

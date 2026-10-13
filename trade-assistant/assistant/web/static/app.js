@@ -1146,7 +1146,7 @@ function legalDialog() {
 }
 
 /* ---------- render + events ---------- */
-const TITLES = { today: "Today", watchlist: "Watchlist", ideas: "Ideas", journal: "Journal", detail: "Idea" , paper: "Book", intraday: "Intraday", options: "Options" };
+const TITLES = { today: "Today", watchlist: "Watchlist", ideas: "Ideas", journal: "Journal", detail: "Idea" , paper: "Book", intraday: "Intraday", options: "Options", countries: "Country books" };
 
 function go(v) {
   view = v;
@@ -1190,6 +1190,12 @@ function render() {
     // pulled one every fifteen seconds would spend an account's whole quote
     // budget on a tab nobody was looking at.
     renderOptions();
+    return;
+  }
+  if (view === "countries") {
+    // One book per country, each in its own currency. Shown side by side but
+    // never added together: a pound and a krona are not the same unit.
+    loadCountries();
     return;
   }
   if (view === "intraday") {
@@ -2781,4 +2787,48 @@ async function showNews(ticker) {
         Context only. Nothing here feeds a signal or sizes a position.
       </div>
     </div>`;
+}
+
+
+/* ---------- country books ---------- */
+
+async function loadCountries() {
+  const root = $("#viewRoot");
+  root.innerHTML = '<div class="card"><div class="label">Loading the country books…</div></div>';
+  let d;
+  try {
+    d = await (await fetch("/api/books")).json();
+  } catch (e) {
+    root.innerHTML = '<div class="card"><b class="bad">Could not load the country books.</b></div>';
+    return;
+  }
+  const rows = d.books || [];
+  const money = (v, ccy) => v == null ? "—"
+    : `${Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })} ${esc(ccy)}`;
+  const pct = v => v == null ? "—"
+    : `<span class="${v > 0 ? "up" : v < 0 ? "down" : ""}">${v > 0 ? "+" : ""}${v.toFixed(2)}%</span>`;
+  root.innerHTML = `<div class="card">
+      <p class="meta">A separate paper book for each country, each in its own currency
+        and running only the strategies that passed in that country's test. They are
+        never added together and never touch the main Book. Nothing here is traded.</p>
+    </div>
+    <div class="card" style="padding:0"><table class="wide"><thead><tr>
+      <th>Book</th><th>Currency</th><th class="n">Equity</th><th class="n">Return</th>
+      <th class="n">Open</th><th class="n">Waiting</th><th class="n">Closed</th>
+      <th>Strategies</th><th>Last run</th></tr></thead><tbody>
+      ${rows.map(r => `<tr>
+        <td><b>${esc(r.label)}</b>${r.enabled ? "" : ' <span class="pill">off</span>'}</td>
+        <td>${esc(r.currency)}</td>
+        <td class="n">${r.started ? money(r.equity, r.currency) : '<span class="prov">not started</span>'}</td>
+        <td class="n">${r.started ? pct(r.return_pct) : ""}</td>
+        <td class="n">${r.started ? r.open_positions : ""}</td>
+        <td class="n">${r.started ? r.pending : ""}</td>
+        <td class="n">${r.started ? r.closed_trades : ""}</td>
+        <td>${esc((r.strategies || []).join(", "))}</td>
+        <td class="prov">${esc((r.as_of || "").slice(0, 16).replace("T", " "))}</td>
+      </tr>`).join("")}
+    </tbody></table></div>
+    <div class="card"><p class="prov">Strategy choices come from the country test
+      (reports/COUNTRY-TEST.md). Kelly sizing is off in these books until each
+      country has its own out-of-sample record.</p></div>`;
 }

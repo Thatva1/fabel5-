@@ -1079,6 +1079,42 @@ def _options(argv):
     print(f"\n{DISCLAIMER}")
 
 
+def _books(argv):
+    """The country books: run them, or show where they stand. Places nothing."""
+    from assistant.paper import country_books
+
+    if "--status" in argv:
+        for row in country_books.status():
+            head = f"  {row['label']:22s} {row['currency']:4s}"
+            if not row["started"]:
+                print(f"{head} not started yet   strategies: {', '.join(row['strategies'])}")
+                continue
+            print(f"{head} {row['equity']:>14,.2f}  ({row['return_pct']:+.2f}%)  "
+                  f"{row['open_positions']} open, {row['pending']} waiting, "
+                  f"{row['closed_trades']} closed   strategies: {', '.join(row['strategies'])}")
+        return
+
+    only = None
+    if "--only" in argv:
+        index = argv.index("--only")
+        only = set(argv[index + 1].split(",")) if index + 1 < len(argv) else None
+    print("Running the country books. Nothing is traded; no broker is involved.\n")
+    results = country_books.run_all(only=only,
+                                    progress_cb=lambda stage: print(f"  … {stage}", flush=True))
+    for name, report in results.items():
+        if report.get("error"):
+            print(f"\n{name}: FAILED — {report['error']}")
+            continue
+        print(f"\n{name}: universe {report.get('universe')} · "
+              f"{len(report.get('opened') or [])} opened · "
+              f"{len(report.get('closed') or [])} closed · "
+              f"{len(report.get('queued') or [])} queued for the next open")
+        for note in report.get("notes") or []:
+            print(f"  note: {note}")
+    print("\nResearch / decision-support tool only. Nothing here is executed "
+          "automatically and nothing here is financial advice.")
+
+
 def _paper(argv):
     """One paper-trading session. Places nothing — there is no broker in it."""
     from assistant.paper import screen, session
@@ -1383,6 +1419,9 @@ def main():
 
     elif cmd == "paper":
         _paper(args[1:])
+
+    elif cmd == "books":
+        _books(args[1:])
 
     elif cmd == "options":
         _options(args[1:])

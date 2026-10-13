@@ -763,6 +763,85 @@ strategy_priority:
   - pead_drift
   - qmj_factor
 
+# --- Country books -----------------------------------------------------------
+# One paper book per country, each in its own currency, with its own share list
+# and only the strategies that passed THERE (reports/COUNTRY-TEST.md, rules fixed
+# before the run). They run beside the main US book and never touch it: own
+# files under data/books/, own closed-trade ledger, own opening balance.
+#
+#   python run.py books              run every enabled country book once
+#   python run.py books --only uk    one book
+#   python run.py books --status     where each book stands
+#
+# Choices made when this was built (13 October 2026), so they are not
+# relitigated by accident:
+#   * Shares come from reports/universe-europe.csv (the 811 companies the
+#     European study used), filtered to the book's countries AND currency.
+#   * Strategies switched off by decision stay off here too, even where a
+#     country passed them: pead_drift passed in the UK, but it is a price proxy
+#     and off by Thatva's decision, so the UK book runs halloween alone.
+#   * Benchmark is the STOXX Europe 600, as in the study the verdicts came from.
+#   * Kelly sizing is off: the edge file holds US out-of-sample returns, and
+#     sizing a French book from them would be sizing on someone else's evidence.
+#     Fixed-risk sizing until a country has its own out-of-sample record.
+#   * Strategies that rank shares rank them WITHIN the book's country. The
+#     study ranked them Europe-wide, so this is the first test of that choice.
+#   * Not built: Finland (EUR, but its group passed as the Nordics), Denmark
+#     (DKK) and Norway (NOK) — 24 and 23 companies, each its own currency.
+#   * Prices: London from Interactive Brokers (the account holds LSE data).
+#     Every other exchange from Yahoo, because on 13 October 2026 the account
+#     returned nothing for Paris, Xetra, Milan, Madrid, Amsterdam, Brussels,
+#     SIX or Stockholm. Each run's report names its feed. Buying those IBKR
+#     market-data subscriptions and setting `prices: ibkr` moves a book over.
+#   * Costs: UK stamp duty is modelled. The French (0.3%) and Italian (0.1%)
+#     transaction taxes on large companies are NOT yet, so those two books will
+#     read slightly better than they should.
+country_books:
+  enabled: true
+  universe_file: reports/universe-europe.csv
+  benchmark: ^STOXX
+  # In the account's currency (base_currency), converted once when a book
+  # starts. Each book is a separate experiment, not a slice of the main book.
+  starting_equity: 100000
+  books:
+    uk:
+      label: United Kingdom
+      currency: GBP
+      countries: [United Kingdom]
+      strategies: [halloween]
+      prices: ibkr
+    france:
+      label: France
+      currency: EUR
+      countries: [France]
+      strategies: [ts_momentum, band_reversion]
+    germany:
+      label: Germany
+      currency: EUR
+      countries: [Germany]
+      strategies: [ts_momentum, turn_of_month, halloween]
+    switzerland:
+      label: Switzerland
+      currency: CHF
+      countries: [Switzerland]
+      strategies: [low_volatility, band_reversion]
+    sweden:
+      label: Sweden
+      currency: SEK
+      countries: [Sweden]
+      # The Nordics group's passes; Sweden is the only Nordic market in SEK.
+      strategies: [ts_momentum, high_52w, short_reversal, band_reversion]
+    southern_europe:
+      label: Southern Europe
+      currency: EUR
+      countries: [Italy, Spain, Portugal]
+      strategies: [ts_momentum, low_volatility, high_52w]
+    benelux:
+      label: Benelux and Austria
+      currency: EUR
+      countries: [Netherlands, Belgium, Luxembourg, Austria, Ireland]
+      strategies: [ts_momentum, long_reversal]
+
 # backtest that flatters itself is worse than none at all.
 backtest:
   warmup_bars: 260            # no signals until the 200-day average is real

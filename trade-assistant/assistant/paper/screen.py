@@ -201,7 +201,11 @@ def apply(symbols, config, progress_cb=None):
     # Resume: anything measured recently is not measured again. A run that dies
     # to the rate limiter three quarters of the way through leaves those three
     # quarters behind for the next one.
-    measured = load_partial()
+    # The resume file belongs to the ONE wide screen. An explicit list (a
+    # country book) neither reads nor writes it: reading it handed a 244-name
+    # UK book every US share measured that week.
+    explicit = isinstance(cfg["universe"], (list, tuple))
+    measured = {} if explicit else load_partial()
     outstanding = [s for s in symbols if s not in measured]
     report["resumed_from"] = len(measured)
     report["measured_now"] = len(outstanding)
@@ -216,7 +220,8 @@ def apply(symbols, config, progress_cb=None):
         # the partial results on the way out, destroying exactly what it existed
         # to preserve.
         table.update(rows)
-        save_partial(table)
+        if not explicit:
+            save_partial(table)
 
     throttled = None
     if outstanding:
@@ -226,16 +231,22 @@ def apply(symbols, config, progress_cb=None):
                 progress_cb=progress_cb, on_batch=remember))
         except bulk.ThrottleSuspected as exc:
             throttled = exc
-    save_partial(table)
+    if not explicit:
+        save_partial(table)
     if throttled is not None:
         # Re-raised only after the partial work is safely on disk.
         raise throttled
 
-    report["priced"] = len(table)
-    report["no_data"] = len(symbols) - len(table)
+    report["priced"] = len([s for s in symbols if s in table])
+    report["no_data"] = len(symbols) - report["priced"]
 
+    # Only the symbols asked about. The table can hold rows measured for other
+    # runs, and none of them belongs in this universe.
     survivors = []
+    wanted = set(symbols)
     for symbol, row in table.items():
+        if symbol not in wanted:
+            continue
         if row["bars"] < int(cfg["min_history_bars"]):
             report["rejected_history"] += 1
             continue
@@ -360,7 +371,11 @@ def tradable_universe(config, router, force_refresh=False, progress_cb=None):
     point: a caller handed a silently truncated universe will build a book on an
     arbitrary slice of the market and have no way to know.
     """
-    if not force_refresh:
+    # An explicit symbol list is its own universe. The cache holds the ONE wide
+    # screen the main book trades; reading it here would hand a country book the
+    # US market, and writing to it would hand the US book a country.
+    explicit = isinstance(settings(config)["universe"], (list, tuple))
+    if not force_refresh and not explicit:
         cached = load_cached()
         if cached:
             # Macro instruments are cheap to re-derive and must survive a cache
@@ -384,7 +399,8 @@ def tradable_universe(config, router, force_refresh=False, progress_cb=None):
     if macro:
         symbols = list(symbols) + macro
         report["macro_added"] = len(macro)
-    save_cached(symbols, report)
+    if not explicit:
+        save_cached(symbols, report)
     return symbols, report, False
 
 

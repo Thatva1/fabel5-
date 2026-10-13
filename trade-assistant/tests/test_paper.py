@@ -176,8 +176,10 @@ def test_a_healthy_wide_screen_is_accepted(monkeypatch, tmp_path):
     table.update({f"OK{i}": {"price": 50.0, "dollar_volume": 20e6, "bars": 60}
                   for i in range(900)})
     monkeypatch.setattr(screen.bulk, "liquidity_table", lambda s, **kw: table)
+    # The screen keeps only what it asked about, so the request names every row
+    # the fake download returns, plus names that come back with no data.
     monkeypatch.setattr(screen, "candidate_symbols",
-                        lambda config, router: [f"S{i}" for i in range(2_000)])
+                        lambda config, router: list(table) + [f"S{i}" for i in range(1_100)])
 
     symbols, report, cached = screen.tradable_universe({}, None, force_refresh=True)
     assert cached is False
