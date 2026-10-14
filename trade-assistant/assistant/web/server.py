@@ -1304,7 +1304,7 @@ def api_schedule_run():
     from . import scheduler
 
     mode = (request.get_json(silent=True) or {}).get("mode", "both")
-    if mode not in ("session", "scan", "both", "learn"):
+    if mode not in ("session", "scan", "both", "learn") and not mode.startswith("intraday-prepare"):
         return jsonify({"error": "mode must be session, scan, both, or learn"}), 400
 
     # Started on a thread so the request returns immediately: a full session

@@ -96,7 +96,26 @@ def settings(config):
     block = ((config or {}).get("intraday") or {})
     merged = {**DEFAULTS, **block}
     merged["costs"] = {**DEFAULTS["costs"], **(block.get("costs") or {})}
+    # Purchase taxes (UK stamp duty, French and Italian FTT) come from the same
+    # place the daily books and the backtest read them.
+    from ..backtest import simulator
+    merged["purchase_costs"] = simulator.cost_config(config)
     return merged
+
+
+def _purchase_tax(ticker, direction, side, price, shares, cfg):
+    """The tax on this leg, or 0 when the engine trades CFDs.
+
+    A contract for difference on a share carries no stamp duty, which is how
+    UK day traders avoid 0.5% on every purchase: an intraday edge is measured
+    in basis points and 50 of them on each buy would swamp it. Set with
+    `intraday.instrument: cfd` (per version); the default, shares, pays it.
+    """
+    if str(cfg.get("instrument") or "shares").lower() == "cfd":
+        return 0.0
+    from ..backtest import simulator
+    return simulator.purchase_tax(ticker, direction, side, price, shares,
+                                  cfg.get("purchase_costs") or {})
 
 
 def _now():
@@ -210,7 +229,9 @@ def run(config, frames, *, prev_closes=None, now=None, book_path=None,
         costs = _costs_for(position["ticker"], cfg, spreads)
         fill = _fill(float(level), position["direction"], "exit", costs)
         book.close_position(position, fill, moment.strftime("%Y-%m-%d"), reason)
-        commission = float(costs.get("commission_per_trade", 0.0))
+        commission = float(costs.get("commission_per_trade", 0.0)) + _purchase_tax(
+            position["ticker"], position["direction"], "exit", fill,
+            position["shares"], cfg)
         book.cash -= commission
         position["held_minutes"] = round(_held_minutes(position, moment), 1)
         out["realised"] += position.get("pnl") or 0.0
@@ -365,7 +386,8 @@ def _open_positions(book, frames, prev_closes, cfg, spreads, moment, out):
         if shares < 1:
             continue
 
-        commission = float(costs.get("commission_per_trade", 0.0))
+        commission = float(costs.get("commission_per_trade", 0.0)) + _purchase_tax(
+            idea.ticker, idea.direction, "entry", entry, shares, cfg)
         meta = {**(idea.meta or {}), "opened_at": moment.isoformat(timespec="seconds"),
                 "spread_bps": costs["spread_bps"], "reasons": idea.reasons}
         book.open_position(

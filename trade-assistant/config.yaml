@@ -830,6 +830,7 @@ agents:
       # daily one, and splits its money between them.
       intraday: true
       intraday_share: 0.5
+      intraday_venue: US
     uk:
       label: United Kingdom
       currency: GBP
@@ -837,8 +838,23 @@ agents:
       weight: 3.11
       prices: ibkr
       benchmark: ^FTSE
+      # Intraday on London, from 14 October 2026. Its share list is chosen at
+      # 07:30 from the UK companies, priced from IB 5-minute bars.
+      intraday: true
+      intraday_share: 0.5
+      intraday_venue: LSE
+      # CFDs, not shares: a CFD carries no 0.5% stamp duty, which on every
+      # purchase would swamp an edge measured in basis points. Set to `shares`
+      # to see the same rules paying stamp duty.
+      intraday_instrument: cfd
+      intraday_costs:
+        commission_per_trade: 3.0    # GBP; IB charges about 0.05% on UK CFDs
+      intraday_watchlist:
+        min_price: 1.0               # pounds: most large UK companies trade at £1-20
+        min_dollar_volume: 10000000  # £10m a day, in the version's own currency
     france:
       label: France
+      enabled: false             # US and UK first (14 Oct 2026); switch on when ready
       currency: EUR
       countries: [France]
       weight: 2.04
@@ -846,6 +862,7 @@ agents:
       benchmark: ^FCHI
     germany:
       label: Germany
+      enabled: false             # US and UK first (14 Oct 2026); switch on when ready
       currency: EUR
       countries: [Germany]
       weight: 1.88
@@ -853,6 +870,7 @@ agents:
       benchmark: ^GDAXI
     switzerland:
       label: Switzerland
+      enabled: false             # US and UK first (14 Oct 2026); switch on when ready
       currency: CHF
       countries: [Switzerland]
       weight: 1.95
@@ -860,6 +878,7 @@ agents:
       benchmark: ^SSMI
     sweden:
       label: Sweden
+      enabled: false             # US and UK first (14 Oct 2026); switch on when ready
       currency: SEK
       countries: [Sweden]
       weight: 0.83
@@ -867,6 +886,7 @@ agents:
       benchmark: ^OMX
     southern_europe:
       label: Southern Europe
+      enabled: false             # US and UK first (14 Oct 2026); switch on when ready
       currency: EUR
       countries: [Italy, Spain, Portugal]
       weight: 1.48
@@ -874,6 +894,7 @@ agents:
       benchmark: ^STOXX
     benelux:
       label: Benelux and Austria
+      enabled: false             # US and UK first (14 Oct 2026); switch on when ready
       currency: EUR
       countries: [Netherlands, Belgium, Luxembourg, Austria, Ireland]
       weight: 1.66

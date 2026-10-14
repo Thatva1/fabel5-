@@ -180,23 +180,119 @@ def config_for(name, config, rows=None, agents_dir=None):
     return tuning.overlay(name, out, agents_dir)
 
 
+def intraday_versions(config):
+    return [n for n in enabled_versions(config) if specs(config)[n].get("intraday")]
+
+
+def intraday_venue(name, config):
+    return specs(config)[name].get("intraday_venue") or "US"
+
+
+def intraday_book_path(name, config, agents_dir=None):
+    """None for the US version (the original intraday book), else its own file."""
+    if specs(config)[name].get("book") == MAIN_BOOK:
+        return None
+    return os.path.join(tuning.version_dir(name, agents_dir), "intraday_book.json")
+
+
+def watchlist_path(name, config, agents_dir=None):
+    if specs(config)[name].get("book") == MAIN_BOOK:
+        return None
+    return os.path.join(tuning.version_dir(name, agents_dir), "intraday_watchlist.json")
+
+
+def load_intraday_book(name, config, agents_dir=None):
+    from ..paper import intraday_book
+    return intraday_book.load_book(intraday_book_path(name, config, agents_dir)
+                                   or intraday_book.BOOK_PATH)
+
+
+def intraday_config_for(name, config, router=None, agents_dir=None):
+    """This version's configuration for the intraday engine: its currency, its
+    instrument (shares or CFDs), its share-list gates, and its money converted
+    once into its own currency."""
+    spec = specs(config)[name]
+    out = config_for(name, config, agents_dir=agents_dir)
+    block = dict(out.get("intraday") or {})
+    ccy = str(spec["currency"]).upper()
+    block["trading_currency"] = ccy
+    if spec.get("intraday_instrument"):
+        block["instrument"] = spec["intraday_instrument"]
+    if spec.get("intraday_costs"):
+        block["costs"] = {**(block.get("costs") or {}), **spec["intraday_costs"]}
+    if spec.get("intraday_watchlist"):
+        block["watchlist"] = {**(block.get("watchlist") or {}), **spec["intraday_watchlist"]}
+    amount = block.get("starting_equity_base")
+    if amount and router is not None:
+        rate = fx_rate(router, config.get("base_currency", "USD"), ccy)
+        if rate:
+            block["starting_equity"] = round(amount * rate, 2)
+    out["intraday"] = block
+    return out
+
+
 def intraday_config(config, router=None):
-    """The US version's configuration for the intraday engine, with its money
-    converted once into the engine's trading currency."""
-    for name in enabled_versions(config):
-        if specs(config)[name].get("intraday"):
-            out = config_for(name, config)
-            block = dict(out.get("intraday") or {})
-            base = config.get("base_currency", "USD")
-            ccy = block.get("trading_currency", "USD")
-            amount = block.get("starting_equity_base")
-            if amount and router is not None:
-                rate = fx_rate(router, base, ccy)
-                if rate:
-                    block["starting_equity"] = round(amount * rate, 2)
-            out["intraday"] = block
-            return out
-    return config
+    """The first intraday version's configuration (the US one)."""
+    names = intraday_versions(config)
+    return intraday_config_for(names[0], config, router) if names else config
+
+
+def daily_frames_for(name, config, agents_dir=None, max_age_hours=20):
+    """Six months of daily bars for a country version's shares, cached for the
+    day: what its intraday share list is chosen from each morning. None for the
+    US version, which reads the daily rebalance's own cache."""
+    import pickle
+
+    spec = specs(config)[name]
+    if not spec.get("countries"):
+        return None
+    path = os.path.join(tuning.version_dir(name, agents_dir), "daily_history.pkl")
+    try:
+        if time.time() - os.path.getmtime(path) < max_age_hours * 3600:
+            with open(path, "rb") as handle:
+                return pickle.load(handle)
+    except (OSError, ValueError, EOFError, pickle.UnpicklingError):
+        pass
+    from ..providers import bulk
+    frames = bulk.ohlcv_history(symbols_for(spec, universe_rows(config)), period="6mo")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as handle:
+        pickle.dump(frames, handle)
+    return frames
+
+
+def prepare_intraday(name, config=None, router=None, agents_dir=None, progress_cb=None):
+    """Choose this version's intraday share list for the day. Before its open."""
+    from ..paper import intraday_runner
+    config = config or load_config()
+    if router is None:
+        from .. import pipeline
+        router = pipeline.get_router(config)
+    out = intraday_runner.prepare(
+        intraday_config_for(name, config, router, agents_dir),
+        daily_frames=daily_frames_for(name, config, agents_dir),
+        watchlist_path=watchlist_path(name, config, agents_dir),
+        progress_cb=progress_cb)
+    out["version"] = name
+    return out
+
+
+def tick_intraday(name, config=None, router=None, agents_dir=None, force=False, now=None):
+    """One intraday pass for this version, only while its own market is open."""
+    from ..core import market_clock
+    from ..paper import intraday_runner
+    config = config or load_config()
+    if not force and not market_clock.is_open(intraday_venue(name, config), now):
+        return {"version": name, "skipped": True}
+    if router is None:
+        from .. import pipeline
+        router = pipeline.get_router(config)
+    out = intraday_runner.tick(
+        intraday_config_for(name, config, router, agents_dir), now=now, force=force,
+        book_path=intraday_book_path(name, config, agents_dir),
+        watchlist_path=watchlist_path(name, config, agents_dir))
+    out["version"] = name
+    return out
 
 
 # --- running --------------------------------------------------------------------
@@ -319,10 +415,9 @@ def firm(config=None, router=None, agents_dir=None):
         rows.append(row)
 
         if spec.get("intraday"):
-            from ..paper import intraday_book
-            ibook = intraday_book.load_book()
-            iccy = (config.get("intraday") or {}).get("trading_currency", "USD")
-            irate = fx_rate(router, iccy, base)
+            ibook = load_intraday_book(name, config, agents_dir)
+            iccy = ccy
+            irate = rate
             isum = ibook.summary() if ibook.started else {}
             irow = {"version": name, "label": f"{spec.get('label', name)} · intraday",
                     "currency": iccy, "engine": "intraday",

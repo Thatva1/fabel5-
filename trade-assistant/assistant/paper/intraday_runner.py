@@ -81,7 +81,8 @@ def _measurement_duration(config):
     return {"1 min": "5 D", "5 mins": "5 D"}.get(bar, "1 M")
 
 
-def prepare(config, *, progress_cb=None, now=None):
+def prepare(config, *, progress_cb=None, now=None, daily_frames=None,
+            watchlist_path=None):
     """Choose today's working set. Run once, before the open.
 
     Stage one is free — it reads the daily universe history already cached for
@@ -91,7 +92,9 @@ def prepare(config, *, progress_cb=None, now=None):
     moment = now or _now()
     out = {"at": moment.isoformat(timespec="seconds"), "notes": []}
 
-    frames = _cached_daily_history()
+    # A country version hands in its own market's daily history; the US
+    # version reads the cache the daily rebalance already built.
+    frames = daily_frames if daily_frames is not None else _cached_daily_history()
     if not frames:
         out["error"] = ("No daily universe history on disk, so there is nothing "
                         "to select from. Run `python run.py paper` once to build "
@@ -115,7 +118,7 @@ def prepare(config, *, progress_cb=None, now=None):
     out["pacing"] = pacing
 
     working = intraday_watchlist.refine(pool, bars, config)
-    intraday_watchlist.save(working)
+    intraday_watchlist.save(working, watchlist_path)
     out["working_set"] = working
     out["summary"] = intraday_watchlist.describe(working)
 
@@ -149,7 +152,8 @@ def _cached_daily_history():
     return daily_session._in_current_units(payload)
 
 
-def tick(config, *, now=None, book_path=None, book=None, force=False):
+def tick(config, *, now=None, book_path=None, book=None, force=False,
+         watchlist_path=None):
     """One pass of the live loop: fetch, then mark, exit and open.
 
     Refuses to fetch anything when no market is open. An intraday book with
@@ -178,7 +182,7 @@ def tick(config, *, now=None, book_path=None, book=None, force=False):
         out["skipped"] = True
         return out
 
-    working = intraday_watchlist.load()
+    working = intraday_watchlist.load(watchlist_path)
     if working is None:
         out["error"] = ("No working set for today. Run `prepare` before the "
                         "open — the loop will not choose instruments from a "
@@ -293,15 +297,17 @@ def _bar_minutes(config):
 def _staleness(frames, moment):
     """How old the newest bar is, in minutes. The number nobody was counting."""
     newest = None
-    for frame in frames.values():
+    for ticker, frame in frames.items():
         if frame is None or not len(frame):
             continue
         stamp = frame.index[-1].to_pydatetime()
         if stamp.tzinfo is None:
-            # IB hands back exchange-local time; the US venue is the right
-            # default here because the working set is overwhelmingly US.
+            # IB hands back exchange-local time, so the instrument's own venue
+            # says which clock it is: London bars read as New York time would
+            # look five hours stale.
             from zoneinfo import ZoneInfo
-            stamp = stamp.replace(tzinfo=ZoneInfo(market_clock.VENUES["US"]["tz"]))
+            venue = market_clock.venue_for(ticker)
+            stamp = stamp.replace(tzinfo=ZoneInfo(market_clock.VENUES[venue]["tz"]))
         stamp = stamp.astimezone(timezone.utc)
         newest = stamp if newest is None else max(newest, stamp)
     if newest is None:

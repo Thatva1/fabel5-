@@ -2823,14 +2823,14 @@ async function loadFirm() {
   const detail = r => {
     if (r.engine !== "daily") return "";
     const tuned = (r.tuned || []).length
-      ? `<table class="wide"><thead><tr><th>Strategy</th><th>Setting</th><th class="n">Main version</th><th class="n">This country</th></tr></thead><tbody>
-          ${r.tuned.map(x => `<tr><td>${esc(x.strategy)}</td><td>${esc(x.param)}</td><td class="n">${esc(String(x.main))}</td><td class="n"><b>${esc(String(x.value))}</b></td></tr>`).join("")}
+      ? `<table class="wide"><thead><tr><th>Engine</th><th>Strategy</th><th>Setting</th><th class="n">Main version</th><th class="n">This country</th></tr></thead><tbody>
+          ${r.tuned.map(x => `<tr><td>${esc(x.engine || "daily")}</td><td>${esc(x.strategy)}</td><td>${esc(x.param)}</td><td class="n">${esc(String(x.main))}</td><td class="n"><b>${esc(String(x.value))}</b></td></tr>`).join("")}
         </tbody></table>`
       : '<p class="prov">No differences: this country trades exactly the main version.</p>';
     const undone = new Set((r.changes || []).filter(c => c.undoes).map(c => c.undoes));
     const changes = (r.changes || []).length
       ? (r.changes || []).map(c => `<div style="border-top:1px solid var(--line, #3334);padding:8px 0">
-          <b>${esc(c.action)}</b> · ${esc(c.strategy || "")}.${esc(c.param || "")}
+          <b>${esc(c.action)}</b> · ${esc(c.engine || "daily")} · ${esc(c.strategy || "")}.${esc(c.param || "")}
           ${c.old !== undefined ? `${esc(String(c.old))} → ` : ""}${esc(String(c.new ?? ""))}
           <span class="prov"> · ${esc(c.by || "")} · ${esc((c.at || "").slice(0, 16).replace("T", " "))}</span>
           ${c.reason ? `<div class="prov">Why: ${esc(c.reason)}</div>` : ""}
@@ -2842,7 +2842,9 @@ async function loadFirm() {
     const journal = (r.journal || []).length
       ? r.journal.map(j => `<div style="border-top:1px solid var(--line, #3334);padding:8px 0">
           <span class="prov">${esc(j.date || "")}</span><div>${esc(j.note || "")}</div>
-          ${(j.proposals || []).map(p => `<div class="prov">Proposed ${esc(p.strategy)}.${esc(p.param)} → ${esc(String(p.value))}: <b>${esc(p.result || "")}</b>${p.why ? ` (${esc(p.why)})` : ""}</div>`).join("")}
+          ${(j.self_checks || []).map(c => `<div class="prov">Self-check ${esc(c.setting || "")}: <b>${esc(c.result || "")}</b>${c.why ? ` (${esc(c.why)})` : ""}</div>`).join("")}
+          ${(j.watching || []).length ? `<div class="prov">Watching: ${j.watching.map(w => esc(w)).join(" · ")}</div>` : ""}
+          ${(j.proposals || []).map(p => `<div class="prov">Proposed ${esc(p.engine || "daily")} ${esc(p.strategy)}.${esc(p.param)} → ${esc(String(p.value))}: <b>${esc(p.result || "")}</b>${p.why ? ` (${esc(p.why)})` : ""}</div>`).join("")}
         </div>`).join("")
       : '<p class="prov">The learning agent has not written anything yet. It runs after the US close on weekdays.</p>';
     return `<tr data-detail="${esc(r.version)}" ${firmOpen === r.version ? "" : "hidden"}><td colspan="9" style="white-space:normal">

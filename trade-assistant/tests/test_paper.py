@@ -742,8 +742,11 @@ def _share_setup(book_path, share):
 
     config = {"account": {"portfolio_value": 100_000, "risk_per_trade_pct": 1.0,
                           "max_position_pct": 15.0},
+              # Arrival order, so the tie-break between equal ideas is fixed. The
+              # default hashes the ticker with TODAY's date, which made this test
+              # pass or fail depending on the day it ran.
               "portfolio": {"max_gross_exposure_pct": 60.0, "max_open_positions": 8,
-                            "max_strategy_share_pct": share},
+                            "max_strategy_share_pct": share, "tie_break": "arrival"},
               "strategy_priority": ["ts_momentum", "low_beta"], "paper": {}}
     index = pd.bdate_range("2026-01-01", periods=30)
     frames = {t: pd.DataFrame({"Close": [100.0 + i * 0.1 for i in range(30)]}, index=index)

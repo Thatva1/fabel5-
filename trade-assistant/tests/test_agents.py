@@ -111,7 +111,8 @@ def test_tuning_one_country_leaves_the_others_on_the_main_version(tmp_path):
     assert uk["strategies"]["ts_momentum"]["stop_atr"] == 4.0
     assert swiss["strategies"]["ts_momentum"]["stop_atr"] == 3.0
     assert tuning.differences("uk", CONFIG, d) == [
-        {"strategy": "ts_momentum", "param": "stop_atr", "main": 3.0, "value": 4.0}]
+        {"engine": "daily", "strategy": "ts_momentum", "param": "stop_atr", "main": 3.0,
+         "value": 4.0}]
 
 
 def test_tuned_values_stay_within_half_and_double_the_main_value():
@@ -154,28 +155,28 @@ class _NoNetwork:
 NONET = _NoNetwork()
 
 def _score(holdout_mean, holdout_n=40, early_mean=0.1, early_n=80):
-    return {"holdout": {"trades": holdout_n, "mean_r": holdout_mean,
-                        "total_r": round(holdout_mean * holdout_n, 2)},
-            "earlier": {"trades": early_n, "mean_r": early_mean,
-                        "total_r": round(early_mean * early_n, 2)}}
+    return {"holdout": {"trades": holdout_n, "mean": holdout_mean,
+                        "total": round(holdout_mean * holdout_n, 2)},
+            "earlier": {"trades": early_n, "mean": early_mean,
+                        "total": round(early_mean * early_n, 2)}}
 
 
 def test_a_change_must_improve_recent_results_without_hurting_earlier_ones():
     proposal = {"strategy": "ts_momentum", "param": "stop_atr", "value": 4.0}
-    assert learner.verdict(proposal, 3.0, _score(0.05), _score(0.15))[0] is True
-    assert learner.verdict(proposal, 3.0, _score(0.05), _score(0.06))[0] is False   # too small
-    assert learner.verdict(proposal, 3.0, _score(0.05), _score(0.15, early_mean=0.0))[0] is False
-    assert learner.verdict(proposal, 3.0, _score(0.05), _score(0.5, holdout_n=10))[0] is False
+    assert learner.verdict(proposal, _score(0.05), _score(0.15))[0] is True
+    assert learner.verdict(proposal, _score(0.05), _score(0.06))[0] is False   # too small
+    assert learner.verdict(proposal, _score(0.05), _score(0.15, early_mean=0.0))[0] is False
+    assert learner.verdict(proposal, _score(0.05), _score(0.5, holdout_n=10))[0] is False
 
 
 def test_switching_a_strategy_off_needs_it_to_lose_money_here():
     off = {"strategy": "ts_momentum", "param": "enabled", "value": False}
-    assert learner.verdict(off, True, _score(-0.05, early_mean=0.0))[0] is True
-    assert learner.verdict(off, True, _score(0.02))[0] is False
-    assert learner.verdict(off, True, _score(-0.05, holdout_n=5))[0] is False
+    assert learner.verdict(off, _score(-0.05, early_mean=0.0))[0] is True
+    assert learner.verdict(off, _score(0.02))[0] is False
+    assert learner.verdict(off, _score(-0.05, holdout_n=5))[0] is False
 
 
-def _fake_book(monkeypatch, closed):
+def _fake_book(monkeypatch, closed, intraday_closed=None):
     class Book:
         started = True
         positions, pending, sessions, closed_list = [], [], [], closed
@@ -185,7 +186,9 @@ def _fake_book(monkeypatch, closed):
         def summary(self):
             return {"closed_trades": len(closed)}
     monkeypatch.setattr(versions, "load_book", lambda *a, **k: Book())
-    monkeypatch.setattr(learner, "_closed_trades", lambda book: closed)
+    monkeypatch.setattr(versions, "load_intraday_book", lambda *a, **k: Book())
+    monkeypatch.setattr(learner, "engine_trades", lambda *a, **k: {
+        "daily": closed, "intraday": intraday_closed or []})
 
 
 def test_no_change_is_tested_for_a_strategy_without_enough_trades(monkeypatch, tmp_path):
@@ -265,3 +268,141 @@ def test_unstarted_engines_count_as_cash_not_as_a_loss(monkeypatch, tmp_path):
     assert firm["return_pct"] == pytest.approx(0.0)
     names = {row["name"] for row in firm["by_country"]}
     assert names == {"United States", "United Kingdom", "Switzerland"}   # intraday folds into US
+
+
+# --- the learning agent's improvements ----------------------------------------------
+
+def test_intraday_settings_are_tuned_in_their_own_section(tmp_path):
+    d = str(tmp_path)
+    main = tuning.main_value(CONFIG, "opening_range_break", "reward_multiple", "intraday")
+    tuning.apply("uk", CONFIG, "opening_range_break", "reward_multiple", main * 1.5,
+                 by="test", reason="r", agents_dir=d, engine="intraday")
+    out = versions.config_for("uk", CONFIG, rows=ROWS, agents_dir=d)
+    assert out["intraday"]["strategies"]["opening_range_break"]["reward_multiple"] == main * 1.5
+    assert "opening_range_break" not in out["strategies"]              # daily untouched
+    swiss = versions.config_for("switzerland", CONFIG, rows=ROWS, agents_dir=d)
+    assert "opening_range_break" not in (swiss.get("intraday") or {}).get("strategies", {})
+    assert tuning.differences("uk", CONFIG, d)[0]["engine"] == "intraday"
+
+
+def test_an_intraday_proposal_needs_enough_intraday_trades(monkeypatch, tmp_path):
+    _fake_book(monkeypatch, [], intraday_closed=[{"strategy": "vwap_reversion", "net_pct": 0.1}] * 10)
+    row = learner.learn(
+        "us", CONFIG, router=NONET, agents_dir=str(tmp_path),
+        model_fn=lambda bundle, config: {"journal": "n", "watching": [], "proposals": [
+            {"engine": "intraday", "strategy": "vwap_reversion", "param": "enabled",
+             "value": False, "reason": "r"}]},
+        test_fn=lambda *a: {"passed": True, "why": "x"})
+    assert row["proposals"][0]["result"] == "not tested"
+    assert "30 closed intraday trades" in row["proposals"][0]["why"]
+
+
+def test_it_remembers_its_notes_and_watch_list(monkeypatch, tmp_path):
+    _fake_book(monkeypatch, [])
+    seen = []
+
+    def model(bundle, config):
+        seen.append(bundle)
+        return {"journal": f"note {len(seen)}", "watching": ["UK spreads at the open"],
+                "proposals": []}
+    learner.learn("uk", CONFIG, router=NONET, agents_dir=str(tmp_path), model_fn=model)
+    learner.learn("uk", CONFIG, router=NONET, agents_dir=str(tmp_path), model_fn=model)
+    assert seen[1]["my_watch_list"] == ["UK spreads at the open"]
+    assert seen[1]["my_recent_notes"][0]["note"] == "note 1"
+
+
+def test_a_failed_model_call_keeps_the_watch_list(monkeypatch, tmp_path):
+    _fake_book(monkeypatch, [])
+    learner.learn("uk", CONFIG, router=NONET, agents_dir=str(tmp_path),
+                  model_fn=lambda b, c: {"journal": "n", "watching": ["keep me"], "proposals": []})
+
+    def broken(bundle, config):
+        raise RuntimeError("down")
+    row = learner.learn("uk", CONFIG, router=NONET, agents_dir=str(tmp_path), model_fn=broken)
+    assert row["watching"] == ["keep me"]
+
+
+def test_each_market_sees_the_others_findings_but_nothing_is_copied(monkeypatch, tmp_path):
+    d = str(tmp_path)
+    _fake_book(monkeypatch, [])
+    learner.learn("uk", CONFIG, router=NONET, agents_dir=d,
+                  model_fn=lambda b, c: {"journal": "UK stops look tight", "watching": [],
+                                         "proposals": []})
+    tuning.apply("uk", CONFIG, "ts_momentum", "stop_atr", 4.0, by="test", reason="wider stops",
+                 agents_dir=d)
+    seen = []
+    learner.learn("us", CONFIG, router=NONET, agents_dir=d,
+                  model_fn=lambda b, c: seen.append(b) or {"journal": "n", "watching": [],
+                                                           "proposals": []})
+    other = seen[0]["other_markets"]["uk"]
+    assert other["recent_notes"][0]["note"] == "UK stops look tight"
+    assert other["changes_in_force"][0]["new"] == 4.0
+    assert tuning.differences("us", CONFIG, d) == []
+
+
+def _trades(strategy, before_value, after_value, change_day):
+    old = [{"strategy": strategy, "r_multiple": before_value, "pnl": before_value,
+            "exit_date": "2026-01-10"}] * 20
+    new = [{"strategy": strategy, "r_multiple": after_value, "pnl": after_value,
+            "exit_date": change_day}] * 20
+    return old + new
+
+
+def test_it_undoes_its_own_change_when_results_get_worse_and_the_test_agrees(monkeypatch, tmp_path):
+    d = str(tmp_path)
+    row = tuning.apply("uk", CONFIG, "ts_momentum", "stop_atr", 4.0, by="learning agent",
+                       reason="r", agents_dir=d)
+    day = row["at"][:10]
+    _fake_book(monkeypatch, _trades("ts_momentum", 0.3, -0.4, day))
+    tested = []
+    out = learner.self_check("uk", CONFIG, NONET, d,
+                             test_fn=lambda n, c, p, r, a: tested.append(p) or
+                             {"passed": True, "why": "reverting held up"})
+    assert tested[0]["value"] == 3.0                     # it tested going back
+    assert out[0]["result"] == "undone"
+    assert tuning.current("uk", CONFIG, "ts_momentum", "stop_atr", d) == 3.0
+
+
+def test_it_keeps_a_change_when_the_test_does_not_support_reverting(monkeypatch, tmp_path):
+    d = str(tmp_path)
+    row = tuning.apply("uk", CONFIG, "ts_momentum", "stop_atr", 4.0, by="learning agent",
+                       reason="r", agents_dir=d)
+    _fake_book(monkeypatch, _trades("ts_momentum", 0.3, -0.4, row["at"][:10]))
+    out = learner.self_check("uk", CONFIG, NONET, d,
+                             test_fn=lambda *a: {"passed": False, "why": "no"})
+    assert out[0]["result"] == "kept"
+    assert tuning.current("uk", CONFIG, "ts_momentum", "stop_atr", d) == 4.0
+
+
+def test_it_leaves_a_change_alone_until_there_are_enough_trades(monkeypatch, tmp_path):
+    d = str(tmp_path)
+    row = tuning.apply("uk", CONFIG, "ts_momentum", "stop_atr", 4.0, by="learning agent",
+                       reason="r", agents_dir=d)
+    _fake_book(monkeypatch, _trades("ts_momentum", 0.3, -0.4, row["at"][:10])[:25])
+    assert learner.self_check("uk", CONFIG, NONET, d, test_fn=lambda *a: 1 / 0) == []
+
+
+# --- UK intraday ----------------------------------------------------------------------
+
+def test_the_uk_intraday_engine_trades_cfds_in_pounds(tmp_path):
+    config = copy.deepcopy(CONFIG)
+    config["agents"]["versions"]["uk"].update({
+        "intraday": True, "intraday_share": 0.5, "intraday_venue": "LSE",
+        "intraday_instrument": "cfd", "intraday_watchlist": {"min_price": 1.0}})
+    out = versions.intraday_config_for("uk", config, agents_dir=str(tmp_path))
+    assert out["intraday"]["trading_currency"] == "GBP"
+    assert out["intraday"]["instrument"] == "cfd"
+    assert out["intraday"]["watchlist"]["min_price"] == 1.0
+    assert out["intraday"]["starting_equity_base"] == pytest.approx(150_000)
+    assert versions.intraday_book_path("uk", config, str(tmp_path)).endswith("uk/intraday_book.json")
+    assert versions.intraday_book_path("us", config) is None
+
+
+def test_stamp_duty_on_intraday_shares_but_not_on_cfds():
+    from assistant.paper import intraday_book
+    costs = {"stamp_duty_pct": 0.5, "stamp_duty_suffixes": [".L"]}
+    shares = {"purchase_costs": costs}
+    cfd = {"purchase_costs": costs, "instrument": "cfd"}
+    assert intraday_book._purchase_tax("BP.L", "long", "entry", 5.0, 1000, shares) == 25.0
+    assert intraday_book._purchase_tax("BP.L", "long", "entry", 5.0, 1000, cfd) == 0.0
+    assert intraday_book._purchase_tax("BP.L", "long", "exit", 5.0, 1000, shares) == 0.0

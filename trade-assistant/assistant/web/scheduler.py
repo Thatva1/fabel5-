@@ -36,8 +36,10 @@ from datetime import datetime, timedelta, timezone
 DEFAULT_JOBS = [
     {"at": "07:00", "mode": "both", "why": "1h before the London open"},
     {"at": "08:05", "mode": "session", "why": "just after the London open"},
-    {"at": "13:00", "mode": "intraday-prepare",
-     "why": "choose today's intraday working set, before the US open"},
+    {"at": "07:30", "mode": "intraday-prepare:uk",
+     "why": "choose the UK version's intraday shares, before the London open"},
+    {"at": "13:00", "mode": "intraday-prepare:us",
+     "why": "choose the US version's intraday shares, before the US open"},
     {"at": "13:30", "mode": "both", "why": "1h before the US open"},
     {"at": "21:10", "mode": "session", "why": "after the US close"},
     {"at": "22:15", "mode": "learn",
@@ -152,17 +154,21 @@ def run_job(mode):
             result = pipeline.run_scan(config=config)
             notes.append(f"scan: {result.get('scanned')} instruments, "
                          f"{len(result.get('ideas') or [])} ideas")
-        if mode == "intraday-prepare":
-            from ..paper import intraday_runner
+        if mode.startswith("intraday-prepare"):
+            # "intraday-prepare:uk" prepares one version; the bare mode, all.
             from ..agents import versions
-            out = intraday_runner.prepare(versions.intraday_config(
-                config, pipeline.get_router(config)))
-            if out.get("error"):
-                ok = False
-                notes.append(f"intraday prepare: {out['error']}")
-            else:
-                notes.append(f"intraday prepare: {out.get('summary') or 'done'} "
-                             f"({out.get('fetch_seconds')}s)")
+            wanted = mode.split(":", 1)[1:] or versions.intraday_versions(config)
+            for name in wanted:
+                if name not in versions.intraday_versions(config):
+                    notes.append(f"{name}: no intraday engine in this version")
+                    continue
+                out = versions.prepare_intraday(name, config, pipeline.get_router(config))
+                if out.get("error"):
+                    ok = False
+                    notes.append(f"{name} intraday prepare: {out['error']}")
+                else:
+                    notes.append(f"{name} intraday prepare: {out.get('summary') or 'done'} "
+                                 f"({out.get('fetch_seconds')}s)")
 
         # Rebuild the public site from whatever the run just produced. Doing it
         # here rather than on a separate timer means the published page cannot
@@ -226,21 +232,26 @@ def run_intraday_tick(force=False):
         from .. import pipeline
         from ..agents import versions
         config = load_config()
-        # The US version's intraday share of the firm, in the engine's currency.
-        out = intraday_runner.tick(versions.intraday_config(
-            config, pipeline.get_router(config)), force=force)
-        if out.get("skipped"):
-            detail = "no market open"
-        elif out.get("error"):
-            ok, detail = False, out["error"]
-        else:
-            detail = (f"{len(out.get('opened') or [])} opened, "
-                      f"{len(out.get('closed') or [])} closed, "
-                      f"equity {out.get('equity')}, "
-                      f"bars {out.get('staleness_minutes')}m old")
+        router = pipeline.get_router(config)
+        # Each version's intraday engine, only while its own market is open.
+        parts = []
+        for name in versions.intraday_versions(config):
+            out = versions.tick_intraday(name, config, router, force=force)
+            if out.get("skipped"):
+                continue
+            if out.get("error"):
+                ok = False
+                parts.append(f"{name}: {out['error']}")
+                continue
+            part = (f"{name}: {len(out.get('opened') or [])} opened, "
+                    f"{len(out.get('closed') or [])} closed, "
+                    f"equity {out.get('equity')}, "
+                    f"bars {out.get('staleness_minutes')}m old")
             for note in (out.get("notes") or []):
                 if note.startswith(("HELD BUT UNPRICED", "OVERNIGHT RISK")):
-                    detail += f" | {note}"
+                    part += f" | {note}"
+            parts.append(part)
+        detail = "; ".join(parts) or "no market open"
     except Exception as exc:
         ok, detail = False, f"{type(exc).__name__}: {exc}"
     finally:
