@@ -185,7 +185,7 @@ def run_job(mode):
                 out_dir = publish_cfg.get("out_dir") or os.path.join(PROJECT_ROOT, "public")
                 export.write(out_dir, config,
                              include_positions=bool(publish_cfg.get("include_positions")),
-                             title=publish_cfg.get("title") or "Trade Assistant")
+                             title=publish_cfg.get("title") or "Level 24")
                 notes.append(f"published to {out_dir}")
             except Exception as exc:
                 notes.append(f"publish failed: {type(exc).__name__}: {exc}")

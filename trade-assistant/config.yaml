@@ -815,6 +815,11 @@ strategy_priority:
 #   country factsheets before relying on the small ones.
 # Normalised, that is about 83% US. Small versions are genuinely small: the
 # Swedish one starts near £11k, so its commissions weigh more than the US's.
+#
+# 14 October 2026: with only the US and UK switched on, Thatva set the split to
+# 65% US / 35% UK instead of market size (which gave ~95/5), so the UK version
+# trades enough to learn from. The US and UK weights below are that choice; the
+# others keep their MSCI weights for when they are switched on.
 agents:
   enabled: true
   total_capital: 1000000        # the firm's paper capital, in base_currency (GBP)
@@ -824,7 +829,7 @@ agents:
       label: United States
       currency: USD
       book: main                # the original paper book and its Book/Journal tabs
-      weight: 63.59
+      weight: 65                 # Thatva, 14 Oct 2026 (MSCI ACWI share is 63.59)
       prices: ibkr
       # Intraday first: the US version runs the intraday engine as well as the
       # daily one, and splits its money between them.
@@ -835,7 +840,7 @@ agents:
       label: United Kingdom
       currency: GBP
       countries: [United Kingdom]
-      weight: 3.11
+      weight: 35                 # Thatva, 14 Oct 2026 (MSCI ACWI share is 3.11)
       prices: ibkr
       benchmark: ^FTSE
       # Intraday on London, from 14 October 2026. Its share list is chosen at
@@ -1174,7 +1179,7 @@ providers:
 publish:
   enabled: true
   out_dir: null                 # null = <project>/public
-  title: Trade Assistant
+  title: Level 24
   # Publishing live holdings tells the world what you are in before you are out
   # of it. Off by default; the closed-trade record is published either way.
   include_positions: false

@@ -72,7 +72,7 @@ def _rows(items, columns):
     return "\n".join(body)
 
 
-def render_html(data, title="Trade Assistant"):
+def render_html(data, title="Level 24"):
     """A single self-contained page. No scripts, no external requests.
 
     Deliberately inert: a static page cannot be made to place an order, leak a
@@ -225,7 +225,7 @@ touched. Nothing is narrated after the fact.</p>
 </div></body></html>"""
 
 
-def write(out_dir, config, include_positions=False, title="Trade Assistant"):
+def write(out_dir, config, include_positions=False, title="Level 24"):
     """Write index.html and data.json into `out_dir`. Returns the paths."""
     data = snapshot(config, include_positions=include_positions)
     os.makedirs(out_dir, exist_ok=True)
